@@ -23,6 +23,10 @@ See also for COG and MOTS
 ## Contribute
 This repository is still in early developement. Usage is not yet possible other than for decompilation purposes.
 
+**New contributor? Start with the [Reverse Engineer Handbook](./docs/handbook/README.md)** —
+it covers the per-function workflow, environment setup, and how to use Claude / AI
+tooling to speed the whole loop up.
+
 If you want to contribute, you'll need python, a windows C compiler and Ghidra.
 Symbols can be imported using scripts in the `scripts/Ghidra` directory. You should "Parse C source" on the `src/types.h` file
 before using the scripts to import functions prototypes via headers. Global variables can be imported from the
