@@ -29,8 +29,6 @@
 
 #define swrSprite_FreeSpritesMaterials_ADDR (0x00417090)
 
-#define swrSprite_FreeSprites_ADDR (0x00417090)
-
 #define swrSprite_GetBBoxFromId_ADDR (0x00417150)
 
 #define swrSprite_IsInsideBBox_ADDR (0x004172c0)
@@ -112,6 +110,8 @@ void swrSprite_GetTextureDimFromId(swrSprite_NAME spriteId, int* out_width, int*
 
 void swrSprite_FreeSpritesMaterials(void);
 
+// Same function as swrSprite_FreeSpritesMaterials (0x00417090); kept only because the
+// generated hook table references this symbol. No _ADDR to avoid a duplicate-address entry.
 void swrSprite_FreeSprites(void);
 
 void swrSprite_GetBBoxFromId(swrSprite_NAME spriteId, swrSprite_BBox* box);
