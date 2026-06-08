@@ -91,6 +91,9 @@ void read_settings_ini() {
     // The window starts as a maximized windowed window, so only apply non-windowed modes here.
     if (g_window_mode != WINDOW_MODE_WINDOWED)
         set_window_mode(g_window_mode);
+
+    imgui_state.widescreen_ui =
+        GetPrivateProfileIntW(L"settings", L"widescreen_ui", 1, ini_path.c_str());
 }
 
 void save_settings_ini() {
@@ -102,6 +105,8 @@ void save_settings_ini() {
                                ini_path.c_str());
     WritePrivateProfileStringW(L"settings", L"window_mode",
                                std::to_wstring(g_window_mode).c_str(), ini_path.c_str());
+    WritePrivateProfileStringW(L"settings", L"widescreen_ui",
+                               imgui_state.widescreen_ui ? L"1" : L"0", ini_path.c_str());
 }
 
 // Called from the (C) window key callbacks so Alt+Enter persists the chosen mode too.
@@ -356,6 +361,10 @@ void opengl_render_imgui() {
         if (ImGui::Combo("Window mode", &window_mode, window_mode_items,
                          IM_ARRAYSIZE(window_mode_items))) {
             set_window_mode(window_mode);
+            save_settings_ini();
+        }
+        if (ImGui::Checkbox("Widescreen UI fix (un-stretch 2D)",
+                            &imgui_state.widescreen_ui)) {
             save_settings_ini();
         }
         ImGui::TreePop();
