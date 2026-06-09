@@ -20,6 +20,7 @@ extern "C" {
 #include "./game_deltas/stdDisplay_delta.h"
 #include "./game_deltas/swrDisplay_delta.h"
 #include "./game_deltas/swrSprite_delta.h"
+#include "./game_deltas/swrWidescreen_delta.h"
 #include "./game_deltas/Window_delta.h"
 // CUSTOM TRACKS
 #include "./game_deltas/tracks_delta.h"
@@ -1063,6 +1064,17 @@ extern "C" void init_renderer_hooks() {
     // swrSprite: widescreen UI fix (phase 1) -- uniform scale removes the 4:3 stretch
     hook_function("swrSprite_GetUIScale", (uint32_t) swrSprite_GetUIScale_ADDR,
                   (uint8_t *) swrSprite_GetUIScale_delta);
+
+    // widescreen UI phase 2 (SCAFFOLD, NOT yet game-verified): center the un-stretched
+    // 4:3 UI and align the cursor hit-test. Gated by imgui_state.widescreen_ui.
+    hook_function("rdProcEntry_Add2DQuad2 (widescreen center)", (uint32_t) rdProcEntry_Add2DQuad2_ADDR,
+                  (uint8_t *) rdProcEntry_Add2DQuad2_delta);
+    hook_function("rdProcEntry_Add2DQuad3 (widescreen center)", (uint32_t) rdProcEntry_Add2DQuad3_ADDR,
+                  (uint8_t *) rdProcEntry_Add2DQuad3_delta);
+    hook_function("rdProcEntry_Add2DQuad (widescreen center)", (uint32_t) rdProcEntry_Add2DQuad_ADDR,
+                  (uint8_t *) rdProcEntry_Add2DQuad_delta);
+    hook_function("swrUI_UpdateMouseState (widescreen hit-test)", (uint32_t) swrUI_UpdateMouseState_ADDR,
+                  (uint8_t *) swrUI_UpdateMouseState_delta);
 
     // DirectDraw
     hook_function("DirectDraw_InitProgressBar", (uint32_t) 0x00408510,
