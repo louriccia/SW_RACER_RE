@@ -20,28 +20,27 @@
 #define swrConfig_WriteForceFeedbackConfig_ADDR (0x0040ab80)
 #define swrConfig_ReadForceFeedbackConfig_ADDR (0x0040ae40)
 
+// Settings-menu UI: Build* constructs the page widgets (called from swrUI_BuildMenuPages),
+// Refresh* syncs those widgets from the current config globals.
+// Input-mapping screens (joystick/mouse/keyboard rebinding); RefreshMappingMenu populates the
+// binding rows for device 0=joystick/1=mouse/2=keyboard via swrConfig_SetMappingRowText.
+#define swrConfig_RefreshMappingMenu_ADDR (0x0040b740)
+#define swrConfig_RefreshVideoMenu_ADDR (0x0040bbf0)
+#define swrConfig_RefreshAudioMenu_ADDR (0x0040bc80)
+#define swrConfig_RefreshForceFeedbackMenu_ADDR (0x0040c100)
+#define swrConfig_SetMappingRowText_ADDR (0x0040c670)
+#define swrConfig_BuildJoystickMenu_ADDR (0x0040c7a0)
+#define swrConfig_BuildMouseMenu_ADDR (0x0040d2c0)
+#define swrConfig_BuildKeyboardMenu_ADDR (0x0040dd10)
+#define swrConfig_BuildVideoMenu_ADDR (0x0040e6a0)
+#define swrConfig_BuildAudioMenu_ADDR (0x0040ea70)
+#define swrConfig_BuildForceFeedbackMenu_ADDR (0x0040ef40)
+
 #define swrConfig_WriteAudioConfig_ADDR (0x00422140)
 #define swrConfig_ReadAudioConfig_ADDR (0x00422440)
 
 #define swrConfig_Puts_ADDR (0x004879a0)
 #define swrConfig_Printf_ADDR (0x004879f0)
-
-// Settings-menu UI: Build* constructs the page widgets (called from swrUI_BuildMenuPages),
-// Refresh* syncs those widgets from the current config globals.
-#define swrConfig_BuildVideoMenu_ADDR (0x0040e6a0)
-#define swrConfig_RefreshVideoMenu_ADDR (0x0040bbf0)
-#define swrConfig_BuildAudioMenu_ADDR (0x0040ea70)
-#define swrConfig_RefreshAudioMenu_ADDR (0x0040bc80)
-#define swrConfig_BuildForceFeedbackMenu_ADDR (0x0040ef40)
-#define swrConfig_RefreshForceFeedbackMenu_ADDR (0x0040c100)
-
-// Input-mapping screens (joystick/mouse/keyboard rebinding); RefreshMappingMenu populates the
-// binding rows for device 0=joystick/1=mouse/2=keyboard via swrConfig_SetMappingRowText.
-#define swrConfig_BuildJoystickMenu_ADDR (0x0040c7a0)
-#define swrConfig_BuildMouseMenu_ADDR (0x0040d2c0)
-#define swrConfig_BuildKeyboardMenu_ADDR (0x0040dd10)
-#define swrConfig_RefreshMappingMenu_ADDR (0x0040b740)
-#define swrConfig_SetMappingRowText_ADDR (0x0040c670)
 
 int swrConfig_WriteMappings(char* dirname);
 
