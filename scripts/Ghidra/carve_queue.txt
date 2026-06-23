@@ -1,0 +1,31 @@
+# Addresses that auto-analysis missed (entry points only reached via data pointers).
+# Run CarveQueue.py in Ghidra to create functions here, then name them via GhidraMCP.
+# (With the create_function MCP patch installed, carve directly via POST :8080/create_function.)
+# One "0xADDR" per line; "#" starts a comment. Delete a line once it is carved + named.
+
+# --- queue empty: the 15 swrUI F2 page-procs were carved + named (PR #83) 2026-06-13 ---
+
+# === AT-MACHINE BLOCKER (2026-06-16): RESTART GHIDRA to load /read_memory ===
+# The GhidraMCP patch now exposes /read_memory?address=0x..&length=N (built + installed;
+# old jar backed up to GhidraMCP.jar.pre-readmem-bak), but the RUNNING server 404s on it
+# until Ghidra is restarted. After restart, verify:
+#   curl "http://127.0.0.1:8080/read_memory?address=0x00427278&length=160"
+# Then task #1 below can be done REMOTELY (read the encrypted-.text handler bytes via
+# /read_memory + hand-disassemble) instead of in the GUI.
+#
+# === Manual Ghidra-GUI / Cheat-Engine tasks (NOT CarveQueue carves) 2026-06-16 ===
+# These unblock the A3D-sound + DirectInput-force-feedback chains (gating swrRace_Repair,
+# swrRace_ApplyEngineDamage, swrRace_Explode, and the death/explosion SFX). See memory note
+# flightmodel_stat_consumer_deps for the full dependency maps.
+#
+# 1. swrSound_ResolveSfxId @0x00427110 - two INLINE jump tables Ghidra cannot auto-recover
+#    ("Could not recover jumptable"; get_xrefs_from finds no targets; .text is encrypted on
+#    disk so file reads return garbage). In the GUI: define the resolver pointer table at
+#    0x00427344 (+ category switch @0x00427324, per-category index byte array @0x00427350),
+#    then disassemble the resolver blocks at 0x00427278-0x00427318. Paste those blocks back
+#    so the sound chain (PlaySfxThrottled -> PlayRandomSfx) can be reimplemented.
+#
+# 2. cifr_* DirectInput force-feedback library - unreimplemented IDirectInputEffect COM layer
+#    (cifr_IsPlaying / StopEffect / SetMagnitude / SetDirection / SetDuration / StartEffect /
+#    CreateEffect) under swrControl_PlayForceEffect/StopForceEffect. Reimpl or runtime-verify
+#    via CE; blocks Repair's rumble + ApplyEngineDamage's force effect.
