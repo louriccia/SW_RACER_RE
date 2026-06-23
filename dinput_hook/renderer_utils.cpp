@@ -20,6 +20,7 @@
 #include "gltf_utils.h"
 #include "renderer_hook.h"
 #include "shaders_utils.h"
+#include "profiling.h"
 #include "game_deltas/window_mode.h"
 
 extern "C" {
@@ -264,6 +265,9 @@ extern "C" void renderer_drawRenderList(int verticesCount, LPD3DTLVERTEX aVertic
     if (!imgui_state.draw_renderList || imgui_state.draw_test_scene)
         return;
 
+    ZoneScopedN("drawRenderList");
+    ensureTracyGpuContext();
+    TracyGpuZone("gpu_drawRenderList");
     PushDebugGroup("drawRenderList");
 
     const renderListShader shader = get_or_compile_renderListShader();
@@ -814,6 +818,7 @@ static float getAnimationProgress(const fastgltf::Asset &asset, const fastgltf::
 }
 
 static void computeAnimatedTRS(std::map<int, TRS> &out_animatedTRS, const gltfModel &model) {
+    ZoneScopedN("computeAnimatedTRS");
     for (size_t animIndex = 0; animIndex < model.gltf.animations.size(); animIndex++) {
         const fastgltf::Animation &anim = model.gltf.animations[animIndex];
 
@@ -1022,6 +1027,9 @@ static void updateSkin(size_t rootNode, gltfModel &model, std::vector<rdMatrix44
 void renderer_drawGLTF(const rdMatrix44 &proj_matrix, const rdMatrix44 &view_matrix,
                        const rdMatrix44 &parent_model_matrix, gltfModel &model, const EnvInfos &env,
                        bool mirrored, uint8_t type, bool isTrackModel) {
+    ZoneScopedN("drawGLTF");
+    ensureTracyGpuContext();
+    TracyGpuZone("gpu_drawGLTF");
     if (!model.setuped) {
         setupModel(model);
     }
@@ -1089,6 +1097,9 @@ void renderer_drawGLTFPod(const rdMatrix44 &proj_matrix, const rdMatrix44 &view_
                           const rdMatrix44 &engineL_model_matrix,
                           const rdMatrix44 &cockpit_model_matrix, gltfModel &model,
                           const EnvInfos &env, bool mirrored, uint8_t type) {
+    ZoneScopedN("drawGLTFPod");
+    ensureTracyGpuContext();
+    TracyGpuZone("gpu_drawGLTFPod");
     if (!model.setuped) {
         setupModel(model);
     }

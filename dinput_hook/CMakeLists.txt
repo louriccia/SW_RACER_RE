@@ -33,6 +33,15 @@ target_include_directories(glad PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/glad/include)
 
 add_subdirectory(fastgltf-0.8.0)
 
+# Tracy frame profiler (https://github.com/wolfpld/tracy), vendored in tree under
+# tracy-0.13.1/public. The headers compile to no-ops unless TRACY_ENABLE is defined, so the
+# include path is added unconditionally and the instrumentation macros can stay in the source.
+# Turning the option on compiles the client TU, defines TRACY_ENABLE and links the Windows deps.
+# Connect the matching Tracy v0.13.1 profiler GUI to localhost to capture (TRACY_ON_DEMAND: data
+# is only collected while the GUI is connected, so an instrumented build is free when not profiling).
+option(ENABLE_TRACY "Build dinput_hook with Tracy profiler instrumentation" OFF)
+set(TRACY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tracy-0.13.1/public)
+
 set(CMAKE_CXX_FLAGS_DEBUG_INIT "-DDEBUG")
 set(CMAKE_CXX_FLAGS_RELEASE_INIT "-DNDEBUG")
 
@@ -65,6 +74,21 @@ if (NOT USE_RELEASE_HOOK)
     target_compile_definitions(dinput_hook PRIVATE ENABLE_GAMEPAD_NAV=1)
     target_link_libraries(dinput_hook PRIVATE swe1r_functions swe1r_globals imgui kernel32  Dwmapi dxguid detours ddraw opengl32 glad glfw fastgltf)
     target_link_options(dinput_hook PRIVATE "-Wl,--kill-at")
+
+    # Tracy: headers are always findable (no-op without TRACY_ENABLE); the client + defines + the
+    # Windows socket/symbol deps only come in when -DENABLE_TRACY=ON.
+    target_include_directories(dinput_hook PRIVATE ${TRACY_DIR})
+    if (ENABLE_TRACY)
+        target_sources(dinput_hook PRIVATE ${TRACY_DIR}/TracyClient.cpp)
+        target_compile_definitions(dinput_hook PRIVATE TRACY_ENABLE TRACY_ON_DEMAND)
+        # Tracy's socket/ETW code uses Vista+ APIs (WSAPoll, inet_pton, TraceSetInformation, ...).
+        # MinGW defaults _WIN32_WINNT too low; raise it for the client TU only (the instrumented
+        # game TUs only pull in the no-op-capable Tracy headers, not the socket code).
+        set_source_files_properties(${TRACY_DIR}/TracyClient.cpp PROPERTIES
+                COMPILE_DEFINITIONS "_WIN32_WINNT=0x0601")
+        target_link_libraries(dinput_hook PRIVATE ws2_32 dbghelp advapi32)
+        message(STATUS "dinput_hook: Tracy profiler instrumentation ENABLED")
+    endif()
 
     if (GAME_DIR)
         set_target_properties(dinput_hook PROPERTIES

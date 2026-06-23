@@ -39,6 +39,7 @@ extern "C" {
 #include <GLFW/glfw3.h>
 
 #include "n64_shader.h"
+#include "profiling.h"
 #include "types.h"
 #include <chrono>
 #include <cmath>
@@ -242,6 +243,7 @@ static void generate_cable_tube(const rdMatrix44 &model_matrix, std::vector<Vert
 
 void parse_display_list_commands(const rdMatrix44 &model_matrix, const swrModel_Mesh *mesh,
                                  std::vector<Vertex> &triangles) {
+    ZoneScopedN("parse_display_list");
     triangles.clear();
 
     cached_model_matrix[mesh] = model_matrix;
@@ -361,6 +363,8 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
 
     if (!mesh->vertices)
         return;
+
+    ZoneScopedN("render_mesh");
 
 #ifndef NDEBUG
     for (MaterialMember &member: node_material_members) {
@@ -571,6 +575,10 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
     // Geometry cache. Cable meshes are excluded: they regenerate their tube every frame from
     // g_active_cable_amplitude (which animates even when the node matrix is static), so caching
     // would freeze the sway.
+    // Tracy: "mesh_upload" covers the glBufferData re-stream (fires only on cache rebuild or the
+    // uncached path), "mesh_draw" the submission; parse_display_list is the CPU vertex transform,
+    // and render_mesh's remaining self-time is the GL state setup (shader lookup + glUseProgram +
+    // the ~17 uniform uploads + texture binds) -- the four together partition the per-draw cost.
     const bool cacheable = imgui_state.cache_meshes && g_active_cable_amplitude < 0.0f;
     if (cacheable) {
         CachedMeshGeometry &cached = g_mesh_geometry_cache[mesh];
@@ -578,6 +586,7 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
             cached.vao == 0 || memcmp(&cached.model_matrix, &model_matrix, sizeof(rdMatrix44)) != 0;
         if (needs_rebuild) {
             parse_display_list_commands(model_matrix, mesh, triangles);
+            ZoneScopedN("mesh_upload");
             if (cached.vao == 0) {
                 glGenVertexArrays(1, &cached.vao);
                 glGenBuffers(1, &cached.vbo);
@@ -611,13 +620,17 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
         mesh_vertex_count = cached.vertex_count;
     } else {
         parse_display_list_commands(model_matrix, mesh, triangles);
+        ZoneScopedN("mesh_upload");
         glBindVertexArray(spec.vao);
         glBindBuffer(GL_ARRAY_BUFFER, spec.buffer);
         glBufferData(GL_ARRAY_BUFFER, triangles.size() * sizeof(Vertex), triangles.data(),
                      GL_DYNAMIC_DRAW);
         mesh_vertex_count = (int) triangles.size();
     }
-    glDrawArrays(GL_TRIANGLES, 0, mesh_vertex_count);
+    {
+        ZoneScopedN("mesh_draw");
+        glDrawArrays(GL_TRIANGLES, 0, mesh_vertex_count);
+    }
 
     if (imgui_state.HD_replacement && !environment_models_drawn) {
         GLint old_viewport[4];
@@ -957,6 +970,8 @@ int current_fb_width = 0;
 int current_fb_height = 0;
 
 void swrViewport_Render_Hook(int x) {
+    ZoneScopedN("swrViewport_Render");
+    ensureTracyGpuContext();
     begin_texture_replacement();
 
     GLint viewport[4];
@@ -1142,8 +1157,12 @@ void swrViewport_Render_Hook(int x) {
     else
         pod_node_owners.clear();
 
-    debug_render_node(vp, root_node, default_light_index, default_num_enabled_lights, mirrored,
-                      proj_mat, view_mat_corrected, model_mat);
+    {
+        ZoneScopedN("scene_traversal");
+        TracyGpuZone("gpu_scene");
+        debug_render_node(vp, root_node, default_light_index, default_num_enabled_lights, mirrored,
+                          proj_mat, view_mat_corrected, model_mat);
+    }
     PopDebugGroup();
 
     debugEnvInfos(envInfos, proj_mat, view_mat);
@@ -1158,6 +1177,7 @@ void swrViewport_Render_Hook(int x) {
     std3D_SetRenderState_delta(Std3DRenderState(temp_renderState));
 
     if (default_framebuffer != 0) {
+        TracyGpuZone("gpu_msaa_resolve_blit");
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, default_framebuffer);
         glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
@@ -1326,9 +1346,23 @@ extern "C" int stdDisplay_Update_Hook() {
         return 0;
     }
 
-    begin_texture_replacement();
-    imgui_Update();// Added
-    end_texture_replacement();
+    ZoneScopedN("present");
+    ensureTracyGpuContext();// must precede TracyGpuCollect below (boot presents before any 3D frame)
+
+    // Runtime vsync toggle (default on, matching the glfwSwapInterval(1) set at GL open). Applied
+    // here so it can be flipped from the imgui graphics settings while profiling.
+    static bool applied_vsync = true;
+    if (imgui_state.vsync != applied_vsync) {
+        glfwSwapInterval(imgui_state.vsync ? 1 : 0);
+        applied_vsync = imgui_state.vsync;
+    }
+
+    {
+        ZoneScopedN("imgui_Update");
+        begin_texture_replacement();
+        imgui_Update();// Added
+        end_texture_replacement();
+    }
 
 #if ENABLE_GAMEPAD_NAV
     // Latch the controller's D-pad / START / BACK state for the gamepad-nav hooks.
@@ -1340,7 +1374,10 @@ extern "C" int stdDisplay_Update_Hook() {
         value = 0;
     }
     glFinish();
+
+    TracyGpuCollect;
     glfwSwapBuffers(glfwGetCurrentContext());
+    FrameMark;
 
     limit_framerate(imgui_state.target_fps);
 

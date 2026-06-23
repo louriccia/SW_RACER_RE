@@ -231,6 +231,8 @@ void read_settings_ini() {
         enable_texture_replacement = false;// assets/replacement_textures missing -> nothing to load
     }
 
+    imgui_state.vsync = GetPrivateProfileIntW(L"settings", L"vsync", 1, ini_path.c_str());
+
     imgui_state.ai_full_lod =
         GetPrivateProfileIntW(L"settings", L"ai_full_lod", 1, ini_path.c_str());
     set_ai_full_lod(imgui_state.ai_full_lod);
@@ -334,6 +336,9 @@ void save_settings_ini() {
                                ini_path.c_str());
 
     WritePrivateProfileStringW(L"settings", L"hd_font", imgui_state.hd_font ? L"1" : L"0",
+                               ini_path.c_str());
+
+    WritePrivateProfileStringW(L"settings", L"vsync", imgui_state.vsync ? L"1" : L"0",
                                ini_path.c_str());
 
     WritePrivateProfileStringW(L"settings", L"ai_full_lod", imgui_state.ai_full_lod ? L"1" : L"0",
@@ -1064,6 +1069,14 @@ static void panel_graphics_settings() {
     if (ImGui::Checkbox("Enable fog", &imgui_state.enable_fog)) {
         save_settings_ini();
     }
+
+    // Applied in stdDisplay_Update_Hook when changed. Turn off to tell vsync judder apart from
+    // real render-time variance: under vsync a missed vblank halves the framerate (60<->30
+    // wobble); with vsync off the FPS readout shows the renderer's true uncapped throughput.
+    if (ImGui::Checkbox("VSync", &imgui_state.vsync)) {
+        save_settings_ini();
+    }
+
     if (ImGui::Checkbox("Gamepad navigation (D-pad menus, START pause/skip, "
                         "BACK cycle HUD)",
                         &imgui_state.enable_gamepad_nav)) {
