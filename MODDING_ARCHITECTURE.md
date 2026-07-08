@@ -335,6 +335,12 @@ Upload/publish is a web flow with server-side format validation (reuse
 bytes are fixed up and rendered, so malformed content can crash — validation and hash
 pinning are not optional for an online catalog.
 
+The in-game browser client is fleshed out in **`ONLINE_API_ROADMAP.md` §8** (feasibility:
+yes — on-demand disk-backed loaders + pre-inflated table headroom + the existing reload
+boundary mean "download -> play" needs no new hot-reload engine, only append-within-headroom
++ apply-on-reload). It rides the shared online transport/backend alongside leaderboards,
+tournaments, and challenges.
+
 ---
 
 ## 11. Tooling

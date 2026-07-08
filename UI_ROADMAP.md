@@ -120,17 +120,103 @@ work moves into the builders** (SS6), which now compute physical positions from 
 
 ---
 
-## 3. Screen-space effects -- explicitly OUT of scope
+## 3. The coordinate-space map (AUTHORITATIVE -- verified in Ghidra 2026-06-24)
 
-Weather (`swrWeather_RenderParticles` 0x42cca0) positions particles from
-`swrViewport_ProjectToScreen` clipped against `screen_width/height`. Lens flare and world HUD text
-work the same way. They already fill the real screen and must NOT receive any widget transform.
-The 3D viewport (`swrViewport_ComputeScreenRect` 0x4830e0) likewise keeps real width.
+> **DOMAIN CORRECTION (2026-06-25, from live playtest of the GetUIScale+cursor wiring).** `GetUIScale`
+> is NOT the universal 2D-UI scale -- it is the **`swrSprite_array` scale only**. Its sole caller
+> `swrSprite_DrawSprites` is reached only from `swrPlayerHUD_RenderAllViewports`, which `swrMain_RunFrame`
+> calls EVERY frame (front-end + race). So `GetUIScale` governs: the in-race HUD, the cursor sprite,
+> weather, lens flare, and front-end **array** sprites (e.g. the menu background). It does NOT govern
+> the **menu widgets**: those live in the `swrUI` element tree (`swrUI_unk.ui_elements[]`, populated by
+> `swrUI_AddSprite` from the element Procs / `swrUI_BuildPanelFrame`) and are drawn by a SEPARATE swrUI
+> render (scale source still to be located), with their TEXT going through the text recip
+> (`swrUI_DrawText` -> `swrText_CreateTextEntry1` -> `Add2DQuad2`). So there are THREE 2D draw domains:
+> (1) `swrSprite_array` via `GetUIScale`; (2) the `swrUI` element tree; (3) text. **Menus = (2)+(3).**
+> Consequence: pairing `GetUIScale` (domain 1) with the cursor was wrong for menus -- it un-stretched
+> the background (domain 1) and the cursor, but left the widgets (domain 2) + text (domain 3) stretched,
+> so widget clicks desync from their visuals. The menu's coupled set is **{element-tree render scale +
+> text recip + cursor}**, NOT GetUIScale. NEXT: locate the swrUI element-tree sprite render and its
+> scale (the menu's true "GetUIScale"). The table/seams below remain valid for the in-race/projected
+> (domain 1) layer.
+>
+> **RESOLVED (2026-06-25, located the render):** `swrUI_RenderTree` (0x415020) ->
+> `swrUI_RenderElementSprites` (0x4151f0), run every frame, COPIES each element's `ui_elements[]`
+> sprites into the global `swrSprite_array` (`swrSprite_NewSprite`/`SetPos`/`SetDim` at DESIGN coords),
+> which are then drawn by `swrSprite_DrawSprites` -> `GetUIScale`. So menu FRAMES/BUTTONS DO ride
+> `GetUIScale` after all (the "separate domain" claim above was wrong: there are really TWO domains for
+> menus -- sprites via `GetUIScale`, and TEXT via the text recip). Consequence for the playtest bug:
+> the `23ce185` pair (GetUIScale + cursor) actually made frame + hit-rect + cursor mutually consistent;
+> the "clickable but wrong spot" was the TEXT staying on the stretched recip, so labels drew offset
+> from their own (now-uniform) frames. The menu's coupled TRIPLE is **{GetUIScale (frames) + text recip
+> (labels) + cursor (hit)}** -- GetUIScale IS in it. `GetUIScale` is still ALSO the in-race HUD scale,
+> so making it uniform additionally affects the HUD + the projected seams (deferred, gated).
 
-Caveat to verify: Phase 1's uniform `GetUIScale` change shrank ALL sprite widths ~25% at 1080p
-(it is a global scale). For round-ish weather/flare particles this is cosmetically negligible, but
-under the target identity-scale model the effect sprites must keep sizing correctly -- confirm
-when scale goes to identity.
+This SUPERSEDES the earlier "screen-space effects are out of scope" framing, which was WRONG. Every
+2D system was traced first-hand; the model below is ground truth. The headline correction: the
+3D-projected systems (weather, lens flare, opponent markers, world HUD text) are NOT an independent
+"already-correct" screen space you can ignore -- they enter the SAME 640x480 design space through
+conversion SEAMS, and are coupled to the draw scale. Only the pure-3D viewport
+(`swrViewport_ComputeScreenRect` 0x4830e0) is genuinely separate and keeps real width.
+
+There is ONE storage space (640x480 design) and effectively TWO scales (sprite + text) mapping it to
+the framebuffer. The Phase-1 revert happened because the draw scale was changed without mirroring
+the spaces coupled to it.
+
+### Flow
+```
+World 3D --ProjectToScreen(0x42b710)--> real px --SetPosF/CreateTextEntry2 (/scale, SEAM)--+
+                                                                                           v
+OS cursor --GetCursorPos_delta (window px -> design)-------> [cursor in design] ...        |
+                                                                                           v
+                          +============== DESIGN SPACE  640x480 ==============+ <-----------+
+                          |   sprite positions  /  widget hit-rects  /  text  |
+                          +==================================================+
+                              |                    |                   |
+            Draw2 x GetUIScale|     Add2DQuad2      |    HitTest (rect vs cursor,
+            (0x44f640)        |     x textScale     |    NO scale -- passive)
+                  v           v                     v
+            +-------------------- FRAMEBUFFER (real px) --------------------+
+   (glyph UV is a fixed 64x128 page space, resolution-independent: SDF + HD fonts live there)
+```
+
+### The spaces (stored unit -> transform -> owner)
+| Space | Stored as | Transform to framebuffer | Owner fn | Notes |
+|-------|-----------|--------------------------|----------|-------|
+| Sprite | design-px short (x/y); width/height = float SCALE | x GetUIScale (W/640 x H/480, stretched) | swrSprite_Draw2 0x428030 via swrSprite_DrawSprites 0x4283b0 (SOLE GetUIScale caller) | position AND footprint scaled |
+| Text glyph-quad | design units | x textScale, **separate globals** swrText_designWidthRecip/HeightRecip 0x4ac628/0x4ac630, **clamped >= 1.0** | rdProcEntry_Add2DQuad2 0x42d990 | NOT the GetUIScale globals; cannot be identity (sets glyph size) |
+| Text glyph-UV | fixed 64x128 page (1/64 @0x4ac644, 1/128 @0x4ac648) | none -- res-independent | Add2DQuad2 | SDF / HD-font lever; decoupled from layout |
+| Text clip-rect | screen px (DAT_00e99750..5c) | follows layout | swrText_SetEntryClipRect 0x450310 | must track the layout |
+| Cursor | OS raw px (512-wide -> x1.25) | window px -> design (stretched) | stdConsole_GetCursorPos 0x4082e0 + _delta | vanilla = raw px; mod delta remaps |
+| Hitbox | design-px rect (raw) | NONE -- compared directly to cursor | swrUI_HitTest 0x4150e0 / swrUI_OnSetElementPos 0x416f50 | PASSIVE; correct only if cursor space == draw scale |
+
+### The seams (real px -> design); each reads screen_width
+- `swrSprite_SetPosF` (0x42bb00) -- weather, lens flare, light streaks. (Menus use the integer
+  `swrSprite_SetPos` 0x428660, which stores raw design coords, no conversion.)
+- `swrText_CreateTextEntry2` (0x42c7a0) -- opponent distance markers, world labels.
+
+WHY projected elements look correct today while menus stretch: projected = real px -> /scale (seam)
+-> x scale (draw) = CANCELS. Menus = authored design -> x scale only = STRETCHED. So flipping the
+draw scale alone (Phase 1) un-stretches menus but DESYNCS the seams (their /scale no longer matches
+the draw's x scale) -- weather/flares/markers shift by the same ~25% the cursor did. The cursor was
+just the first symptom of ONE root cause: the draw scale changed without its coupled spaces.
+
+### Consistency contract (the guardrail vs repeating Phase 1)
+These all express the same design<->framebuffer relationship through DIFFERENT code and DIFFERENT
+globals (one with a >=1 clamp), and MUST move as one atomic unit -- ideally routed through ONE shared
+transform definition so half of it can never ship alone:
+1. `swrSprite_GetUIScale` (sprite draw)            4. `swrSprite_SetPosF` (projected-sprite seam)
+2. `Add2DQuad2` text recips (text draw)            5. `swrText_CreateTextEntry2` (projected-text seam)
+3. `stdConsole_GetCursorPos` remap (cursor)        6. clip rect + `swrUI_BuildPanelFrame` !=640 + `swrUI_DrawCaret` 512
+Hitbox is passive (no transform of its own) -- it self-corrects once cursor space == draw scale.
+
+### Target (collapse everything onto the framebuffer)
+Make design == framebuffer px (identity). Then sprite scale, cursor remap, and BOTH seams flip to
+identity together (projection already emits framebuffer px, so the round-trip vanishes and the
+projected systems become correct by construction). The ONLY space that stays scaled is text (it sets
+glyph size), so the single surviving conversion is "text origin = framebuffer px / textScale" at
+exactly two call sites (`CreateTextEntry2` for projected labels; the builder for menu labels). Glyph
+UV stays fixed/independent. The first implementation artifact should be that shared transform module
+-- before any builder touches a coordinate. See SS6 (consumer audit) and SS11 (text).
 
 ---
 
@@ -247,28 +333,70 @@ Swap physical sprite textures for denser ones while keeping logical header/page 
   with the Phase B background anchors.
 - Fonts: separate glyph-atlas path; may already be HD per [[asset_replacement_architecture]].
 
+### Phase C+ -- Vector/scalable source art (SVG sprites + TTF fonts), rasterized at target res. Effort: M (rides Phase C)
+Make the texel-density axis truly resolution-independent by sourcing HD art from VECTOR formats and
+rasterizing to the existing GL textures at the live resolution -- **NOT** by rendering vectors at
+runtime. This is a source-format upgrade to Phase C, not a new render path; it keeps the "swap the
+physical pixels, keep the logical dims" contract intact.
+- **SVG sprites (NanoSVG).** At `swrSprite_LoadFromId` (the Phase C interception point), if a loose
+  `.svg` exists for the name-keyed sprite, rasterize it (`nanosvg.h` + `nanosvgrast.h` -- single-
+  header, zero-dep, vendored like stb / nv_dds / fastgltf) to RGBA at the target footprint density,
+  build the RdMaterial from those pixels, and keep the original logical `header`/`page` dims.
+  Re-rasterize on resolution change (a rare event) or bake at a fixed 2x-4x density and cache.
+  Result: crisp at any resolution/aspect with no per-resolution DDS export. NanoSVG is a SIMPLE
+  rasterizer (paths, gradients, AA -- no filters / embedded text), so keep authored SVGs to flat
+  shapes / paths / gradients. Bonus: a whole panel (border + fill + seams) can bake into ONE vector
+  -> ONE texture, directly serving the "composite, do not scatter" rule (SS5).
+- **TTF/OTF fonts (stb_truetype / FreeType), not SVG** -- see SS11d. The scalable-font answer is
+  glyph rasterization into the atlas, not SVG; stb_truetype is ALREADY in-tree (ImGui 1.91 bundles
+  it).
+- **Scope boundary (important):** this solves ONLY texel density (sharpness). It does NOT solve
+  layout / anchoring -- footprint + position stay the Phase A/B builder work. An SVG/TTF asset is one
+  element's pixels; it carries no inter-widget layout. Do NOT render whole menus as one SVG document
+  -- that discards the native widget / hit-test / input system (the "full switch" trap).
+- **Orthogonal to ImGui:** even ImGui rasterizes (stb_truetype atlas + quad drawlists; no runtime
+  vectors). So this sharpness win lives entirely in the NATIVE pipeline and is not a reason to switch
+  toolkits.
+- **Pitfalls:** rasterize at load or on-resize and CACHE -- never per frame; match the RGBA /
+  premultiplied format `std3D_AllocSystemTexture` expects; rasterizing many sprites at 4x costs VRAM
+  (fine at UI scale); vet any SVG using features NanoSVG cannot render.
+
 ### Cross-cutting -- Consumer audit. Effort: DONE (2026-06-17), see inventory doc SS7
 Result: the 640/480 dependency is **highly localized**. The design reciprocals (1/640, 1/480) have
 a SINGLE consumer (`swrSprite_GetUIScale`). 2D-UI consumers needing rework are a short named list:
 GetUIScale + text recip (-> identity, Phase A), `swrUI_BuildPanelFrame` (drop its
 `screen_width != 0x280` frame fudge), `swrUI_DrawCaret` (drop its 512 special-case),
-`swrText_SetEntryClipRect` (follow the layout), `swrSprite_InitDrawing` (keep, verify). Everything
-else reading screen dims is screen-space/3D (weather, lens flare, HUD, viewport) and correctly
-stays. `swrSprite_AddDirtyRect` is likely dead under GL. Full classification:
-`ghidra_analysis/ui_menu_layout_inventory.md` SS7. No sprawling hidden web -> model is viable.
+`swrText_SetEntryClipRect` (follow the layout), `swrSprite_InitDrawing` (keep, verify). The
+projected systems reading screen dims are NOT all "out of scope" (corrected in SS3): the pure-3D
+viewport (`swrViewport_ComputeScreenRect`) stays, but the projected-element SEAMS
+(`swrSprite_SetPosF` 0x42bb00, `swrText_CreateTextEntry2` 0x42c7a0) read screen_width to convert
+real-px->design and MUST flip to identity in lockstep with the draw scale (see SS3 consistency
+contract) or weather/flares/markers desync. `swrSprite_AddDirtyRect` is likely dead under GL. Full
+classification: `ghidra_analysis/ui_menu_layout_inventory.md` SS7. No sprawling hidden web -> model
+is viable, but the seam set is wider than the original audit implied.
 
 ---
 
 ## 7. Status
 
-- **DONE / shipped:** Phase 1 stretch fix (`swrSprite_GetUIScale_delta`, commit 6615223, hooked at
-  `renderer_hook.cpp:1076`, toggle `widescreen_ui`). Makes X scale uniform, kills the stretch,
-  left-anchored. Text X reciprocal patched at 0x004ac628. This is superseded by the target model
-  (scale -> identity) but stays as the A/B toggle until Phase A lands.
-- **EXISTS:** cursor remap delta (stretched; see SS4). HD model/material texture loose-file system
-  (3D path; does not cover 2D UI sprites).
+- **REVERTED (not in tree):** Phase 1 stretch fix (`swrSprite_GetUIScale_delta`, was commit 6615223,
+  PR #40). Merged at `84b0ccb`, then tim reverted the functional part on 2026-06-19 (`da33cd8`,
+  "swrSprite_Delta changes only") -- removed `swrSprite_delta.cpp/.h`, the `widescreen_ui` toggle in
+  `imgui_utils.cpp/.h`, and the `renderer_hook.cpp` hook. Reason: the delta made the DRAW uniform but
+  left the cursor mapping stretched (see SS4), so clicks desynced from visuals -- exactly the
+  half-measure failure this roadmap predicted. Only documentation survives: `swrSprite_GetUIScale`
+  name/address in `swrSprite.h` + `data_symbols.syms`. **The 2D UI is back to vanilla 4:3-stretched.**
+  This is empirical proof for the full resolution-independent reimpl over another draw-only patch.
+- **EXISTS (survived the revert):** cursor remap delta (`stdConsole_GetCursorPos_delta`, maps window
+  px -> stretched 640x480). With Phase 1 gone, draw (stretched) and cursor (stretched) AGREE again, so
+  the current baseline is consistent-but-stretched, not broken. HD model/material texture loose-file
+  system (3D path; does not cover 2D UI sprites).
 - **ABANDONED:** centering/pillarbox (SS9 / SS0).
-- **NEXT:** Phase A.
+- **NEXT:** Phase A. Note A1 (cheap cursor-fix win) is now moot as a standalone -- with the sprite
+  delta reverted there is no draw/cursor desync to fix; A1 only made sense layered on Phase 1. Phase A
+  now starts from vanilla-stretched: re-introduce the uniform draw AND the matching uniform cursor
+  together (don't ship one without the other -- that is what got reverted), or jump to the anchored
+  builders (A2/B).
 
 ---
 
@@ -361,6 +489,14 @@ untouched. Exactly the footprint-vs-texel decoupling from SS1d/Phase C. NOTE: a 
 swrSprite/swrModel deltas) -- VERIFY whether fonts already have an HD/loose path or load via the
 sprite-texture system (`swrText_InitFonts` 0x42d720).
 
+**Scalable source (parallel to Phase C+):** the denser font-page atlas can be GENERATED by
+rasterizing a TTF/OTF at the target glyph size (stb_truetype -- already in-tree via ImGui 1.91; or
+FreeType) instead of shipping a pre-baked denser bitmap -> truly resolution-independent text. Two
+paths: (a) LOW-RISK -- keep the original glyph metrics (advances/widths in design units, which feed
+layout per SS11c) and only re-raster the atlas denser; (b) full dynamic-TTF with NEW metrics, which
+perturbs the measurement->layout coupling. Start with (a). SVG is the WRONG tool for fonts here --
+the vector-font answer is glyph rasterization, not SVG-in-OpenType.
+
 ### 11e. Text clip rects follow the UI space
 `swrText_SetEntryClipRect` (0x450310) and the clip clamp inside Add2DQuad2 (bounds DAT_00e99750-5c)
 must track the layout, not raw 640/480. Already listed in the consumer audit (SS6 / inventory SS7).
@@ -371,6 +507,110 @@ uniformScale. It (a) reinforces the uniform-logical staging (text is free there)
 deliberate logical-space element even in the physical endgame (which is fine), and (c) gets HD via
 a font-page texture swap. Functions: DrawString 0x42e150, GetStringWidth 0x42de30 / Height 0x42df70,
 Add2DQuad2 0x42d990, BindFontPage 0x42ddf0, InitFonts 0x42d720; recips 0x4ac628/0x4ac630.
+
+## 12. Forward-looking features the foundation must not preclude (2026-06-24)
+
+Three features are planned on top of resolution-independence. They were pressure-tested against the
+model so the shared transform (SS13) is built to make them ADDITIVE, not rewrites.
+
+1. **Global UI scale slider** -- a user `userUIScale` multiplier on UI size. Must scale each element
+   about ITS OWN anchor (grow in place, stay pinned to its edge), so the scale lives in the LAYOUT
+   stage, not as a global draw multiplier (a global draw scale slides things toward the origin
+   instead of growing in place). Just another input to the layout function:
+   `screenPos = anchorPoint(screenDims) + designOffset * baseScale * userUIScale`.
+2. **Repositionable UI elements** -- per-element position overrides, persisted to the profile.
+   Needs (a) layout-as-DATA keyed by STABLE element IDs (so an override can replace a default;
+   not possible if the builder hardcodes literals), and (b) an INVERTIBLE transform (drag yields a
+   framebuffer position that must convert back to anchor+offset to store).
+3. **In-race HUD wobble (POSITION ONLY, no rotation)** -- a per-frame TRANSLATION of the in-race HUD
+   as a GROUP, driven by pod dynamics (bank / lateral g / impact shake from the swrRace entity).
+   Because it is translation-only, no rotation is needed in the emit -- so it works for sprites AND
+   text in both the vanilla and SDF text paths (rotation would have constrained text to the SDF path
+   only; that constraint is now MOOT).
+
+### Foundation requirements these impose (bake in now -- cheap now, expensive to retrofit)
+| Property | Res-indep. needs it? | Unlocks |
+|----------|----------------------|---------|
+| Transform = composable **scale + translation + pivot** (similarity, NO rotation) | no (uniform scale suffices) | scale slider, reposition, wobble compose by one rule |
+| **Invertible** (framebuffer <-> design) | yes (cursor) | drag-to-reposition |
+| Layout = **re-runnable pure fn** of (table, screenDims, userScale) | yes (window resize) | scale slider, reposition |
+| Layout-as-**data keyed by stable element IDs** | partly | reposition, persistence, modding |
+| **Group/layer transform** (esp. for the imperative in-race HUD) | no | HUD wobble, per-HUD scale |
+| Transform applied to **draw AND hit-test together** | yes (the Phase-1 fix) | interactive transformed elements |
+
+Only TWO are "extra" vs a minimal res-indep MVP: choosing the composable scale+translation
+representation, and the group/layer concept. Both are cheap up front and brutal to retrofit. The
+other three are needed for resize / cursor / staging anyway.
+
+### Caveats carried forward
+- The in-race HUD is drawn IMPERATIVELY (swrPlayerHUD_* / direct swrSprite+swrText), NOT as a swrUI
+  widget tree -- so wobble + reposition for HUD elements need the group transform + override table to
+  reach the imperative draw path, separate from the menu builder rework.
+- A scale slider BELOW 1.0 hits the text path's `>= 1.0` clamp (SS11b) -- shrinking text needs the
+  reimplemented SDF text path (no clamp). Another reason that path matters for the full feature set.
+- Scale slider + reposition are PERSISTENT -> they ride the save/profile subsystem (the override /
+  config table). Rotation is explicitly OUT of scope (wobble is position-only); leaving a rotation
+  field in the transform struct is an optional near-zero-cost hedge, not a requirement.
+
+## 13. Shared transform module spec (the first implementation artifact)
+
+Build this BEFORE any builder touches a coordinate. It is the single definition of
+design<->framebuffer that all six coupled consumers (SS3 contract) route through, so the relationship
+can never be half-changed again. Lives in the dinput_hook delta layer.
+
+### Core type + authoring refs
+```
+#define UI_DESIGN_W 640.0f   /* authoring reference ONLY, defined in one place */
+#define UI_DESIGN_H 480.0f
+
+typedef struct { float scale; float tx, ty; } UiXform;   /* uniform scale + framebuffer translation */
+typedef enum { UI_H_LEFT, UI_H_CENTER, UI_H_RIGHT, UI_H_STRETCH } UiAnchorH;
+typedef enum { UI_V_TOP,  UI_V_MIDDLE, UI_V_BOTTOM, UI_V_STRETCH } UiAnchorV;
+```
+`UiXform` composes (`out.scale = a.scale*b.scale; out.t = a.t + a.scale*b.t`) and inverts
+(`inv.scale = 1/scale; inv.t = -t/scale`). No rotation term (wobble is position-only).
+
+### Core API
+```
+float  ui_layout_scale(void);                 /* = (screenH/UI_DESIGN_H) * userUIScale; uniform, square */
+vec2   ui_anchor_point(UiAnchorH, UiAnchorV); /* the screen-pinned origin for an anchor, vs live dims */
+vec2   ui_design_to_screen(anchor, vec2 designOffset);  /* anchor_point + scale*offset  */
+vec2   ui_screen_to_design(anchor, vec2 screenPos);     /* INVERSE: (screenPos - anchor_point)/scale */
+void   ui_layer_push(UiXform);  void ui_layer_pop(void);  UiXform ui_layer_current(void);
+```
+`userUIScale` defaults 1.0 (scale slider). The layer stack carries per-group transforms; the in-race
+HUD pushes a translation layer each frame for wobble. The emit applies `ui_layer_current()` to final
+positions, so menus (no layer pushed) are unaffected.
+
+### The six call-site conversions (the SS3 contract, all through this module)
+| Consumer | Delta routes to |
+|----------|-----------------|
+| `swrSprite_GetUIScale` | returns `ui_layout_scale()` on both axes (uniform; identity in the px endgame) |
+| `rdProcEntry_Add2DQuad2` (text) | same `ui_layout_scale()` (keeps the `>=1` clamp; text never identity) |
+| `stdConsole_GetCursorPos` (cursor) | `ui_screen_to_design(LEFT/TOP, rawPx)` -- uniform inverse, kills the stretch desync |
+| `swrSprite_SetPosF` (projected-sprite seam) | `ui_screen_to_design(LEFT/TOP, realPx)` -- divide so the draw's multiply cancels |
+| `swrText_CreateTextEntry2` (projected-text seam) | same inverse on the text origin |
+| `BuildPanelFrame` / `DrawCaret` / clip rect | drop hardcoded `!=640`/`512`; size from `ui_layout_scale()` + texture dims |
+
+### Layout function (Phase B builders call this; re-runnable)
+```
+screenPos(elem) = ui_design_to_screen(elem.anchor,
+                      override(elem.id) ? override(elem.id).offset : elem.designOffset)
+```
+`elem` comes from a DATA table keyed by stable ID (enables reposition + modding). Re-run on resize /
+scale-slider / override change -- not a one-shot startup bake.
+
+### Staging knob (SS6) -- the module hides it from call sites
+`ui_layout_scale()` returns `screenH/480 * userUIScale` during uniform-logical staging, or `1.0`
+(identity) in the physical-px endgame; whether stored positions are design-units or framebuffer-px is
+an internal convention. Either way the six call sites and the layout fn are unchanged -- the module is
+the ONE place the staging decision lives.
+
+### Extension points it must leave open (SS12)
+- scale slider = the `userUIScale` factor already in `ui_layout_scale()` (done by construction).
+- reposition = the `override(id)` hook in the layout fn + persistence; `ui_screen_to_design` gives the
+  drag inverse.
+- HUD wobble = a translation `UiXform` pushed via `ui_layer_push` around the in-race HUD draw block.
 
 ## Cross-references
 - `ghidra_analysis/ui_system_notes.md` -- the raw trace this roadmap supersedes (page registry,

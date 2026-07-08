@@ -1,9 +1,9 @@
 # SW_RACER_RE -- HD Pod Replacement / Player-Pod Association Roadmap
 
-**Status:** Phases 0-2 PLAYTESTED GOOD + cleaned up (2026-06-20) -- pile fixed; temp diagnostics
-removed; `try_replace_pod` reduced to hangar-only (dead in-race branch + `currentPlayer_Test` +
-`0x00E28980` removed); builds clean; not committed. Remaining before PR: finish Phase 4 (name the
-env/track root literals in renderer_hook.cpp + hangar `children.nodes[15]` path), then `/pre-pr-check`.
+**Status:** Phases 0-2 PLAYTESTED GOOD + cleaned up (2026-06-20); SHIPPED + MERGED as PR #140
+(hd-pod-entity-association). Pile fixed; temp diagnostics removed; `try_replace_pod` reduced to
+hangar-only (dead in-race branch + `currentPlayer_Test` + `0x00E28980` removed). Phase 4 env/track
+root literals DONE; only the hangar `children.nodes[15]` index path remains, deferred to a follow-up PR.
 Reflection dropout is a SEPARATE deferred engine-level thread (see below). Living document. Owner: lightningpirate.
 
 Goal: make the HD glTF pod replacer associate each rendered pod with the **racer entity that

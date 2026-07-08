@@ -7,6 +7,12 @@ and have it play back in any other install (decomp build, and ideally annodue to
 playerbase wants to watch, compare, and race against their own and others' runs; nothing
 like this exists for SWE1R yet.
 
+Related want *(2026-07-02)*: **input takeover / TAS-like tooling** — feed an authored or
+recorded input stream back into the live game, with frame-advance, savestates, rerecording,
+and a piano-roll input editor. It is the recorder run in reverse and reuses almost all of this
+roadmap's machinery; it also doubles as a determinism test harness for the verification effort.
+See section 10.
+
 Like the modding work, this is a **delta on understood behavior**: it lives in the
 `dinput_hook/` Microsoft Detours layer, **not** in the `src/` faithful reimpls. `src/` stays
 a clean decomp; `dinput_hook/` owns the recorder, the playback feed, and the file format.
@@ -84,13 +90,87 @@ wiring), keep **B** as a "perfect capture" mode for content creators, treat **C 
 > (`0xE22A40`) instead of the wall-clock delta. That's a real starting point for Tier C (force fixed
 > dt + drive the timestep, as the CE camera mod does for slow-mo), though cross-hardware
 > bit-reproducibility of the float physics still needs care.
-> **Update (2026-06-19):** a **fixed-timestep SPIKE now exists** on branch `proto/fixed-timestep`
+> **Update (2026-06-19; revised):** fixed-timestep **SHIPPED as PR #194** (open, experimental)
 > (`dinput_hook/game_deltas/swrMain_delta.cpp`) — it drives `swrMain_RunFrame`'s phase-1 (sim)
 > calls on a wall-clock accumulator at a fixed dt, reusing the `swr_FastMode` @0x50cb68 path above,
-> while render runs free. It was built to fix framerate-dependent traction (Oovo sliding), but it is
-> the **same machinery Tier C needs**: once it sub-steps only the world sim and float
-> reproducibility is settled, input-only replay/validation becomes viable. See
+> sub-stepping only the world sim while render runs free, and the lap clock now counts sim ticks. It
+> was built to fix framerate-dependent traction (Oovo sliding), but it is the **same machinery Tier C
+> needs**: once float reproducibility is settled, input-only replay/validation becomes viable. See
 > COMMUNITY_ISSUES_ROADMAP.md §3 and [[fps_dependent_physics]].
+
+### 3.1 Scrubbing & random access — the tiers are *layers*, not alternatives
+
+*(2026-07-02)* A replay UI must **seek, scrub, reverse, and run several replays on one timeline**.
+This is the sharpest constraint on Tier C and it reframes the whole tier model.
+
+**Tier C is forward-only by nature.** A deterministic input-replay has no random access: state at
+time `T` is *only* obtainable by simulating every tick from `T0` to `T`, and physics is not
+time-reversible. So a naive Tier C replay cannot seek (a jump = a full re-sim up to the target),
+cannot scrub backward, and cannot cheaply host several replays a scrubber jumps around in. Tier A,
+by contrast, indexes any frame in O(1) and reverses for free.
+
+**Resolution: decouple the stored format from the playback representation.** You never *play back*
+Tier C directly — on load you materialize a seekable representation from it. Two mechanisms, chosen
+by what the scrubber must show:
+
+- **(a) Load-time bake -> Tier A.** Run the deterministic re-sim once, front-to-back at the canonical
+  fixed tick, writing per-frame pod transforms into an in-memory Tier-A buffer. Scrubbing is then
+  O(1) index + interpolate (the P1 Catmull-Rom / slerp). One-time cost (headless re-sim runs faster
+  than realtime). **Loses** full-scene state at arbitrary `T` (only pod motion is baked) and
+  interactivity (the interactive live-Tier-C path instead backs input takeover / TAS — section 10).
+  Right for ghost-compare / race timelines.
+- **(b) In-memory full-state checkpoints + seek-then-resim.** Periodically snapshot the entire sim
+  state (annodue's 10 regions) into an in-memory ring while re-simming; a seek loads the nearest
+  checkpoint `<= T` and fast-forwards the gap. Bounds seek latency, supports reverse, and shows the
+  **full scene** correctly at any `T`. This *is* Tier B — but because the snapshots stay
+  **in-process**, they dodge the cross-machine pointer wall (B1) entirely (exactly why annodue's
+  rewind is safe). Compress with annodue's `TemporalCompressor`.
+
+**Several replays compose cheaply** because ghosts are phantom entities excluded from collision -> the
+replays never interact -> each is an independent sim. Bake (or checkpoint) each once; the timeline
+maps `timeline_T -> each replay's local time (T - offset) -> sample`. `N` affects **load-time** (N
+bakes), never **scrub latency**. (Running N live sims in lockstep and seeking would cost N re-sims
+*per seek* — hence bake up front.)
+
+**The takeaway — the tiers are a stack, not a menu:**
+
+| Layer | Role | Tier |
+|-------|------|------|
+| **Storage / verification** | tiny, shareable, re-derivable artifact | **C** (inputs + seed + sparse RNG log) |
+| **Scrub / playback runtime** | O(1) seek, ghost compare | **A** (baked from C on load) |
+| **Full-scene / reverse / Studio runtime** | any-`T` scene fidelity, reverse | **B** (in-memory checkpoints) |
+
+You *share* Tier C; you *watch* what it bakes into. The bake is exactly the deterministic re-sim the
+verification roadmap validates — so scrubbing closes cleanly on the entropy census (3.2) rather than
+adding new risk. The only cost Tier C's forward-only nature imposes is a **load-time bake** (plus RAM
+for checkpoints if reverse / full-scene scrub is wanted).
+
+### 3.2 Tier-C entropy census (de-risk, 2026-07-02)
+
+An RE pass on the engine's own nondeterminism (full treatment: `VERIFICATION_ROADMAP.md` §8b) makes
+Tier C **more feasible than section 3 assumed** — two of three feared sources cleared, the third
+reduced to a bounded capture:
+
+- **Wall-clock: not in the SP sim path.** `stdlib_timeGetTime@0x48c490`'s only in-race read is the
+  MP-`'REMO'` extrapolation branch of `swrObjTest_F3` (skipped in SP). Physics / AI / collision read
+  no real time.
+- **RNG: one deterministic int32 LCG.** `swrUtils_Rand@0x4816b0`, single global state
+  `swrUtils_randState@0x50cb7c`, fixed seed `0x2750250`, no `srand` anywhere. Full state = **4 bytes**,
+  integer -> bit-identical cross-CPU. *Catch:* it is shared by sim-rate gameplay and render-rate
+  cosmetics, so at different framerates the gameplay stream diverges — but the only player-trajectory
+  RNG is engine part-breakage (damage only), so **a clean run is RNG-free for the player's path**.
+  Mitigate with a **sparse gameplay-RNG log** (value+tick per draw) rather than separating the stream
+  (which would be sim-altering).
+- **Animation: snapshot at `T0`.** Collision hazards are animated; each animation's `animation_time`
+  advances by `swrRace_deltaTimeSecs` (`swrModel_AnimationUpdateTime@0x426330`) and **carries over
+  from the cutscene** (not reset at race start), so `T0` must snapshot per-entry `animation_time` +
+  `key_frame_index` across `swrScene_animations@0xe9edc0` `[0..swrScene_animations_count]` and assert
+  `swrModel_GlobalAnimationSpeed@0x4b7fa8 == 1.0`.
+- **Anchor `T0` at countdown start** so the boost-start rev is captured as input (Tier C) and the jump
+  start re-sims faithfully. (Tier A is immune to all of the above — it records positions.)
+
+Dominant remaining Tier-C risk after this census: **cross-CPU x87 float determinism** of the physics
+itself (mitigated by a single pinned verifier + checkpoint-epsilon, per `VERIFICATION_ROADMAP.md` §2).
 
 ---
 
@@ -268,7 +348,61 @@ Phase 8).
 
 ---
 
-## 10. References
+## 10. Input takeover & TAS-like tooling (want, 2026-07-02)
+
+The ask: feed an authored or recorded input stream back into the **live** game, with
+frame-advance, savestates/rerecording, slow-mo, and a piano-roll editor. The key realization is
+that this is **the recorder run in reverse**, and almost every piece already exists on this
+roadmap or in the engine.
+
+### 10.1 The injection seam (RE-grounded)
+`swrControl_ProcessInputs@0x404dd0` is the single function that each frame (in `GuiAdvance`,
+**before** the `swrEvent_CallAllF0..F3` tick) maps hardware into the *entire* sim-consumed input
+state:
+- axis block `swrRace_ThrottleInput` (4 floats summed from Joystick/Mouse/Keyboard axis inputs),
+- processed-button floats `(&swrRace_PitchInput)[1..15]` (`@0xec883c`), `swrRace_ThrustInput@0xec884c`,
+  `swrRace_BoostInput@0xec8850`,
+- clamped steering shorts/chars `DAT_00e98ee0..` + the input bitsets `inRaceLocalPlayerInputBitset1/3@0xe98eb0/0xe98e90`,
+- and it advances the **charged-boost hold accumulator** `DAT_00ec88a0[i] += swrRace_deltaTimeSecs`.
+
+So the **recorder READS this function's output; takeover WRITES it** — one bidirectional seam.
+Hook `swrControl_ProcessInputs`; in takeover mode substitute the authored values for the whole
+output set above (and let the charge accumulator re-derive from the injected held-button state).
+This is the *same* boundary the Tier-C recorder captures at (roadblock R1), and the same input set
+the fixed-timestep work already had to latch across ticks (see `fixed_timestep_feature` memory —
+miss one representation and playback desyncs). Menu/full-game TAS also needs the UI-input outputs
+produced here (`swrControl_PollAccept/Cancel`, `swrControl_acceptPressedEdge`, ...), not just the
+in-race block — cross-ref the gamepad menu-nav seam (`gamepad_nav_bridge` memory).
+
+### 10.2 Feature ladder — what each piece reuses
+| TAS feature | Reuses |
+|-------------|--------|
+| **Input playback / takeover** | the seam above + the Tier-C input format — this IS Tier C on the live rendering build (the *interactive* branch the §3.1 bake explicitly gives up) |
+| **Frame-advance / pause-step** | the fixed-timestep controller (PR #194 already sub-steps the world sim on an accumulator; frame-advance = manually pump one sub-step), reusing its once-per-frame-vs-sub-step decomposition so a manual step does NOT re-poll input / rebuild HUD |
+| **Savestate / rerecord** | in-memory Tier-B checkpoints (§3.1b) = annodue's 10-region savestate (already exists in annodue — cross-design) |
+| **Slow-mo / turbo** | `swr_FastMode` / `swr_frameDeltaTime` (already RE'd; the CE camera mod uses it) |
+| **Piano-roll input editor** | ImGui UI over the Tier-C input stream (new UI; data model already defined) |
+
+### 10.3 Determinism (ties to the entropy census, §3.2 / VERIFICATION §8b)
+Live TAS playback *renders*, so cosmetic RNG draws happen (unlike the headless verifier). But
+frame-advance runs a locked **1-render-per-tick** cadence, which makes the cosmetic draw count
+deterministic; combined with the fixed seed (`swrUtils_randState@0x50cb7c`) + the T0 animation
+snapshot, a TAS reproduces exactly in frame-advance. The **sparse gameplay-RNG log** bridges the
+live↔headless gap if cadences differ. The charge accumulator is pinned by fixed-dt. Net: TAS
+authoring inherits the census's determinism guarantees for free.
+
+### 10.4 Relationship to verification (complementary, not opposed)
+A TAS'd run is **not** a human run: in the capability classification (`VERIFICATION_ROADMAP.md` §5)
+"input-playback / TAS" is a declared class that invalidates a *human* leaderboard submission. But
+TAS tooling and the verifier are the **same pipeline** — TAS is the authoring front-end, the
+headless verifier is the back-end, both built on input injection + deterministic re-sim. Two
+payoffs: (1) a TAS input file + its expected trajectory is a **deterministic regression test for the
+sim** (does the reference build reproduce a known stream bit-for-bit?), directly de-risking Phase 4;
+(2) it enables a dedicated TAS category on SRC if the community wants one. The interactive live-Tier-C
+path this needs is exactly the one §3.1's bake-to-Tier-A sacrifices — so TAS is *why* we keep the
+non-baked live-playback path.
+
+## 11. References
 - `src/Swr/swrMultiplayer.h` — `PublishPodState` / `ApplyPlayerStates` / REMO state handlers.
 - `src/Swr/swrObj.c:428` — `swrObjTest_F3` (stub); `src/Swr/swrRace.h:98` — `ExtrapolateTransform`
   (annotated "multiplayer/replay extrapolation"), F3 per-frame pipeline.

@@ -176,6 +176,14 @@ maps to one registered panel (SS2a).
 - pit-droid count
 - Truguts
 
+**Session Stats** (read-only; speedrunner-facing -- see SS4a)
+- attempts / resets / finishes (+ finish rate)
+- deaths (by cause: crash / hazard / engine / overheat / fall)
+- death locations (from swrRace.positionDeath) -> in-level markers / minimap dots / heatmap
+- session time; time on current track; time since last death
+- best lap + best race time this session (per track)
+- per-track table (attempts / deaths / best); [ Reset stats ]
+
 #### Settings
 
 **Controls**
@@ -324,17 +332,75 @@ place or stages a "restart with these settings" payload.
 
 ---
 
+## 4a. Session statistics panel -- speedrunner-facing. Effort: M
+
+A read-only "Session Stats" panel (its own collapsing section, player face, runs live) that tallies
+the things a runner watches during a grind: **attempts, resets, deaths, finishes, finish rate,
+session time, and best lap / best race time this session**, with a per-track breakdown and a
+[Reset stats] button. Think a lightweight in-game attempt/death counter -- not a full LiveSplit, but
+the numbers people otherwise track on paper. Pairs naturally with the Quick Race panel (grind a
+track, watch the counters climb).
+
+This is a *new tracking layer*, not a reorg of existing controls -- the overlay has to detect game
+events itself by polling state each frame (the panel already runs every frame). No new game writes;
+purely observe. Grounded sources for each counter:
+
+- **Attempt / reset / finish** -- watch the `swrObjJdge` race lifecycle: a fresh `'Begn'` (or the
+  judge entity appearing via `swrEvent_GetItem('Jdge', 0)`) = attempt; the `'RStr'` path = reset;
+  the `'Fini'` state / `swrObjTest_FLAG1_FINISHED` (0x2000000) on the local pod = finish. Edge-detect
+  state transitions; don't double-count frames.
+- **Deaths (by cause)** -- the death/explosion subsystem (crash / hazard / engine-blow / overheat /
+  fall) sets observable pod state (see [[death_explosion_subsystem]]); poll the local pod
+  (`currentPlayer_Test`) for the death/respawn transition and bucket by trigger. The execution path
+  is reimpl-blocked, but *detecting* a death (a flag/timer edge) is feasible read-only.
+- **Times** -- session time = wall-clock since launch; current-track time + best lap / best race time
+  come from the race timer / `swrScore` (the race-manager HUD already computes these; saved bests
+  live in the profile, see [[save_profile_subsystem]]). Use `swrRace_deltaTimeSecs` to accumulate.
+- **Per-track table** -- key the counters by `hang->track_index` / the active track id.
+
+Persistence: session-only by default (reset on launch or via the button); optionally persist
+lifetime totals to `SW_RACER_RE.ini`. Risk is low (read-only); the real work is *reliable* edge
+detection of start/death/finish without the reimplemented event hooks -- a small spike on which pod
+fields/flags move on each transition de-risks it. Overlaps: [[death_explosion_subsystem]] (death
+detection), [[race_manager_subsystem]] (lifecycle + timer), [[save_profile_subsystem]] (best times).
+
+### 4a.1 Death-location capture + visualization
+
+The capture is nearly free: `swrRace` already records the death spot in `positionDeath`
+(~+0x178, right after `positionPrev`), so on each death edge log `{positionDeath, cause, track id,
+session time, lap}` into a per-track death list. That list then drives three escalating views:
+
+- **List / table** (MVP, in the panel) -- recent deaths with cause + world pos + lap; click-to-focus.
+- **In-level markers** (the fun one) -- project each logged world position to screen with the active
+  `swrViewport`'s view-projection (the GL renderer already has these matrices), then draw a marker
+  (X / skull, colored by cause, faded by age) via ImGui's **foreground DrawList** -- only for deaths
+  on the current track, behind a frustum/clip check. No game geometry touched; it's a HUD overlay
+  pinned to world space. This is the cheapest "show it in the level" and reuses the DrawList overlay
+  capability already noted in SS7.
+- **Minimap dots** -- plot the same positions on the in-race map (the "map mode" HUD). Needs the
+  map's world->map transform (swrPlayerHUD map projection), so it's a follow-on once that transform
+  is pinned; pairs with the resolution-independent UI work.
+
+Stretch: a density **heatmap** (bucket positions, color by frequency) to surface the spots that kill
+runners most; and persistent **world-space billboards** injected into the GL scene (same hook style
+as the pod-cable tube, [[pod_cable_curve_renderer]]) for markers that occlude correctly instead of
+drawing flat on top. MVP is capture + list + projected DrawList markers; minimap + heatmap +
+in-scene billboards are independent follow-ons.
+
+---
+
 ## 5. Work plan (phased)
 
-### Phase A -- Shell. Effort: M
-Stand up the panel registry, menu bar, two-face build flag, and per-panel pause field. Wrap the
-current monolith in ONE registered panel first (behavior-identical, behind F5 as today) to prove
-the shell with zero behavior change.
+### Phase A -- Shell. Effort: M. DONE 2026-06-24
+Stood up the panel registry (`DebugPanel` + `debug_ui_register`), the main menu bar, and the
+two-face split (runtime `dev_only` toggle rather than a build flag). Per-panel pause field deferred
+to Phase D (no pause infrastructure exists yet). Done together with Phase B rather than wrapping the
+monolith in one panel first.
 
-### Phase B -- Migrate the live menu into panels. Effort: M
-Split `opengl_render_imgui()` into its natural panels: Graphics Settings, Render Debug, Scene
-Inspector, Texture Inspector, Tools. Rehome the orphan `some Ui x/y` sliders and "matrices pos"
-into Inspect. No new features -- pure decomposition. After this, the two contested insertion points
+### Phase B -- Migrate the live menu into panels. Effort: M. DONE 2026-06-24
+Split `opengl_render_imgui()` into seven panels: Graphics Settings + HD Models (Render), Render
+Debug (Debug), Scene + Textures + Pod Transforms (Inspect), Hook Log (Tools). "matrices pos" became
+the Pod Transforms panel. No new features -- pure decomposition. The two contested insertion points
 no longer exist.
 
 ### Phase C -- Land the in-flight branches as panels. Effort: S each
@@ -349,8 +415,10 @@ After the SS4 spike. Build the Race panel; player-facing, pause-on-open, control
 
 ### Phase E -- Roadmap panels. Effort: L (parallelizable)
 One panel per roadmap as each lands: Camera, AI Tune (table + plots), Netcode, Replay (timeline),
-UI anchor inspector (overlay), Net/peer table, local splitscreen. Adopt the bigger ImGui widgets
-here (BeginTable, PlotLines, foreground DrawList overlays).
+UI anchor inspector (overlay), Net/peer table, local splitscreen, **Session Stats (SS4a)**. Adopt
+the bigger ImGui widgets here (BeginTable, PlotLines, foreground DrawList overlays). Session Stats
+is a good standalone first pick -- self-contained, read-only, player-facing, and gated mainly on a
+small event-detection spike rather than another subsystem landing.
 
 ### Cross-cutting (any phase)
 Controller navigation for the player face; search/filter (ImGuiTextFilter); presets/profiles to
@@ -360,11 +428,27 @@ ini; later, docking + pop-out (SS7).
 
 ## 6. Status
 
-- **DONE / shipped:** the monolith menu itself (`opengl_render_imgui`), gamepad-nav toggle, the
-  graphics-settings persistence path.
-- **READY to fold in:** feature/debug-cheats-menu, feature/gamepad-rumble,
-  perf/remove-per-frame-glfinish (all have working ImGui controls today, just in the wrong place).
-- **NEXT:** Phase A (shell), then Phase B (decompose), which together unblock the merge churn.
+- **DONE / shipped:** Phase A (shell) + Phase B (decompose) landed together (2026-06-24). The
+  monolithic `opengl_render_imgui()` is gone; the per-frame entry is now `debug_ui_render()`
+  (`dinput_hook/debug_ui.cpp`). A `DebugPanel` registry (`dinput_hook/debug_ui.h`) drives a single
+  **"SWE1R Debug" window of collapsing-header sections**, grouped by category with a `SeparatorText`
+  per category; the FPS readout and the Developer-panels toggle sit at the top of that window.
+  (A first attempt used a main menu bar + one floating window per panel; it was reworked into the
+  accordion -- the registry layer was unchanged.) The old controls split into seven registered
+  sections: **Render** -> Graphics Settings (player, expanded by default) + HD Models (player);
+  **Debug** -> Render Debug; **Inspect** -> Scene / Textures / Pod Transforms; **Tools** -> Hook Log.
+  The two contested insertion points no longer exist. The "two faces" split is realized via a
+  `dev_only` flag plus a runtime **Developer panels** toggle (defaults on in debug builds, off in
+  release, so players never see dev clutter -- no extra build flag needed). Section expand-state +
+  the dev toggle persist to `SW_RACER_RE.ini` (`[debug_ui]` / `[debug_ui_panels]`); sections seed
+  from the ini once via `SetNextItemOpen(ImGuiCond_Once)` then mirror the live header state. The
+  `show_logs` / `show_debug` / `matrices pos` gating checkboxes were retired in favor of the section
+  expand-state. SHIPPED + MERGED as PR #184 (debug-ui-panel-registry).
+- **READY to fold in (Phase C):** feature/debug-cheats-menu, feature/gamepad-rumble,
+  perf/remove-per-frame-glfinish. Each now becomes a single `debug_ui_register(&panel)` in its own
+  delta file instead of splicing shared code -- so they stop conflicting.
+- **NEXT:** Phase C (rebase the in-flight branches onto the registry), then the SS4 Quick-Select
+  spike (Phase D).
 
 ---
 
