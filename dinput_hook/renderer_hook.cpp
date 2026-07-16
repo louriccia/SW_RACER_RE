@@ -502,7 +502,7 @@ void parse_display_list_commands(const rdMatrix44 &model_matrix, const swrModel_
 // (row-vector convention, clip = v * mvp). Tests all 8 corners against each homogeneous clip
 // half-space; only culls when every corner is outside the SAME plane, which is conservative and
 // safe pre-divide (the clip-space image of the box is the convex hull of the corner images).
-static bool aabb_outside_frustum(const float aabb[6], const rdMatrix44 &mvp) {
+bool aabb_outside_frustum(const float aabb[6], const rdMatrix44 &mvp) {
     // An inverted AABB was never authored; don't trust it to bound anything.
     if (aabb[0] > aabb[3] || aabb[1] > aabb[4] || aabb[2] > aabb[5])
         return false;
@@ -563,9 +563,18 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
 
     const uint32_t &type = mesh->mesh_material->type;
     if (imgui_state.HD_replacement) {
-        if (imgui_state.show_replacementTries && environment_models_drawn == false &&
+        // The first non-environment model ends the env-to-cubemap stamping for this frame (the
+        // scene graph draws the environment first). This flip was accidentally nested inside the
+        // show_replacementTries debug gate, so with HD on EVERY mesh paid the cubemap redraw (two
+        // FBO binds + attachment + viewport switches each, ~13 us/mesh): a race frame spent ~11 ms
+        // stamping the whole track into the env cubemap every frame. hd_scene_captures opts back
+        // into whole-scene stamping (live track reflections on the pod, at that cost) until the
+        // captures can be precalculated per track instead.
+        if (!imgui_state.hd_scene_captures && environment_models_drawn == false &&
             !isEnvModel(model_id)) {
-            imgui_state.replacementTries += std::string("=== ENV DONE ===\n");
+            if (imgui_state.show_replacementTries) {
+                imgui_state.replacementTries += std::string("=== ENV DONE ===\n");
+            }
             environment_models_drawn = true;
         }
 
