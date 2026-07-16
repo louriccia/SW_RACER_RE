@@ -224,6 +224,8 @@ void read_settings_ini() {
         GetPrivateProfileIntW(L"settings", L"cache_meshes", 1, ini_path.c_str());
     imgui_state.cull_meshes =
         GetPrivateProfileIntW(L"settings", L"cull_meshes", 1, ini_path.c_str());
+    imgui_state.stream_dynamic_meshes =
+        GetPrivateProfileIntW(L"settings", L"stream_dynamic_meshes", 1, ini_path.c_str());
 
     read_hd_font_setting();
     if (!hd_font_assets_available()) {
@@ -339,6 +341,9 @@ void save_settings_ini() {
 
     WritePrivateProfileStringW(L"settings", L"cull_meshes", imgui_state.cull_meshes ? L"1" : L"0",
                                ini_path.c_str());
+
+    WritePrivateProfileStringW(L"settings", L"stream_dynamic_meshes",
+                               imgui_state.stream_dynamic_meshes ? L"1" : L"0", ini_path.c_str());
 
     WritePrivateProfileStringW(L"settings", L"hd_font", imgui_state.hd_font ? L"1" : L"0",
                                ini_path.c_str());
@@ -1097,6 +1102,12 @@ static void panel_graphics_settings() {
     // Frustum culling: skip GL state setup + upload + draw for meshes fully outside the view.
     // Off-screen pods otherwise cost full price (~90 meshes each with AI full LOD).
     if (ImGui::Checkbox("Cull off-screen meshes (perf)", &imgui_state.cull_meshes)) {
+        save_settings_ini();
+    }
+
+    // Animated meshes (pods, cables) re-stream vertices every frame; the ring buffer replaces a
+    // per-mesh glBufferData with a memcpy into persistently mapped memory.
+    if (ImGui::Checkbox("Stream animated meshes (perf)", &imgui_state.stream_dynamic_meshes)) {
         save_settings_ini();
     }
 

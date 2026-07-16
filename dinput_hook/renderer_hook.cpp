@@ -136,6 +136,7 @@ static bool g_mesh_gl_state_valid = false;
 static uint32_t g_last_render_mode = 0;
 static GLuint g_last_program = 0;
 static GLuint g_last_texture = 0;
+static GLuint g_last_vao = 0;
 static int g_last_cull_key = -1;// -1 unknown, 0 disabled, else the GLenum cull face
 struct TexParamShadow {
     GLint mag_filter = -1;
@@ -148,8 +149,16 @@ void invalidate_mesh_gl_state_cache() {
     g_mesh_gl_state_valid = false;
     g_last_program = 0;
     g_last_texture = 0;
+    g_last_vao = 0;
     g_last_cull_key = -1;
     g_tex_param_shadow.clear();
+}
+
+static void bind_mesh_vao(GLuint vao) {
+    if (vao != g_last_vao) {
+        glBindVertexArray(vao);
+        g_last_vao = vao;
+    }
 }
 
 // Compare-and-set helpers keeping the shadow == GL-state invariant.
@@ -215,6 +224,103 @@ struct Vertex {
         };
     };
 };
+
+// Streaming ring for animated-mesh vertex uploads. An animated mesh (pod parts, cables) re-streams
+// its vertices every frame; uploading each through its own glBindBuffer+glBufferData costs ~2us of
+// driver time apiece (~2.7 ms/frame on a 16-racer grid). Instead, rebuilt meshes memcpy into a
+// persistently mapped buffer and draw from a vertex offset -- zero GL calls per upload. The buffer
+// is split into NUM_REGIONS regions used round-robin, one per presented frame; a fence at present
+// guards each region so the CPU never overwrites vertices a still-in-flight frame reads. With
+// regions sized well above the worst measured frame, the wait never fires in practice. A region
+// overflow (or missing GL 4.4 buffer storage) falls back to the per-mesh glBufferData path.
+struct StreamRing {
+    static constexpr int NUM_REGIONS = 4;
+    static constexpr size_t REGION_VERTICES = 400'000;// 12.8 MB per region at 32 B/vertex
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    struct Vertex *mapped = nullptr;
+    int region = 0;
+    size_t cursor = 0;// vertex offset within the current region
+    GLsync region_fences[NUM_REGIONS] = {};
+    bool unavailable = false;
+};
+static StreamRing g_stream_ring;
+
+static bool stream_ring_available() {
+    StreamRing &ring = g_stream_ring;
+    if (ring.unavailable)
+        return false;
+    if (ring.vao != 0)
+        return true;
+    if (!glBufferStorage || !glFenceSync || !glClientWaitSync) {
+        ring.unavailable = true;
+        return false;
+    }
+    glGenVertexArrays(1, &ring.vao);
+    glGenBuffers(1, &ring.vbo);
+    glBindVertexArray(ring.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, ring.vbo);
+    const GLsizeiptr bytes =
+        GLsizeiptr(StreamRing::NUM_REGIONS * StreamRing::REGION_VERTICES * sizeof(Vertex));
+    const GLbitfield map_flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+    glBufferStorage(GL_ARRAY_BUFFER, bytes, nullptr, map_flags);
+    ring.mapped = (Vertex *) glMapBufferRange(GL_ARRAY_BUFFER, 0, bytes, map_flags);
+    if (!ring.mapped) {
+        glDeleteVertexArrays(1, &ring.vao);
+        glDeleteBuffers(1, &ring.vbo);
+        ring.vao = 0;
+        ring.vbo = 0;
+        ring.unavailable = true;
+        return false;
+    }
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+    glEnableVertexAttribArray(2);
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          reinterpret_cast<void *>(offsetof(Vertex, pos)));
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          reinterpret_cast<void *>(offsetof(Vertex, color)));
+    glVertexAttribPointer(2, 2, GL_SHORT, GL_FALSE, sizeof(Vertex),
+                          reinterpret_cast<void *>(offsetof(Vertex, tu)));
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          reinterpret_cast<void *>(offsetof(Vertex, normal)));
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    g_last_vao = 0;// this ran mid-traversal; keep the VAO shadow honest
+    return true;
+}
+
+// Copies the vertices into the current region and returns their base vertex index in the ring
+// buffer, or -1 when the region is full (the caller falls back to a dedicated upload).
+static int stream_ring_write(const std::vector<Vertex> &vertices) {
+    StreamRing &ring = g_stream_ring;
+    if (ring.cursor + vertices.size() > StreamRing::REGION_VERTICES)
+        return -1;
+    const size_t base = ring.region * StreamRing::REGION_VERTICES + ring.cursor;
+    memcpy(ring.mapped + base, vertices.data(), vertices.size() * sizeof(Vertex));
+    ring.cursor += vertices.size();
+    return (int) base;
+}
+
+// Called once per presented frame: fence the region just written, rotate to the next one, and make
+// sure the GPU is done reading it (it was fenced NUM_REGIONS-1 frames ago, so this never blocks in
+// practice).
+static void stream_ring_end_frame() {
+    StreamRing &ring = g_stream_ring;
+    if (ring.vao == 0)
+        return;
+    if (ring.region_fences[ring.region])
+        glDeleteSync(ring.region_fences[ring.region]);
+    ring.region_fences[ring.region] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    ring.region = (ring.region + 1) % StreamRing::NUM_REGIONS;
+    ring.cursor = 0;
+    if (GLsync fence = ring.region_fences[ring.region]) {
+        glClientWaitSync(fence, GL_SYNC_FLUSH_COMMANDS_BIT, 1'000'000'000);
+        glDeleteSync(fence);
+        ring.region_fences[ring.region] = nullptr;
+    }
+}
 
 // Pod cable curve (see swrRace_delta.cpp): bend amplitude for the cable mesh currently being
 // rendered, or -1 when the current mesh is not a curved cable. Set by debug_render_node when it
@@ -744,6 +850,7 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
 
     static std::vector<Vertex> triangles;
     int mesh_vertex_count;
+    GLint mesh_first_vertex = 0;
 
     // Geometry cache. Cable meshes are excluded: they regenerate their tube every frame from
     // g_active_cable_amplitude (which animates even when the node matrix is static), so caching
@@ -753,56 +860,76 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
     // and render_mesh's remaining self-time is the GL state setup (shader lookup + glUseProgram +
     // the ~17 uniform uploads + texture binds) -- the four together partition the per-draw cost.
     const bool cacheable = imgui_state.cache_meshes && g_active_cable_amplitude < 0.0f;
+    const bool can_stream = imgui_state.stream_dynamic_meshes && stream_ring_available();
     if (cacheable) {
         CachedMeshGeometry &cached = g_mesh_geometry_cache[mesh];
         const bool needs_rebuild =
             cached.vao == 0 || memcmp(&cached.model_matrix, &model_matrix, sizeof(rdMatrix44)) != 0;
-        if (needs_rebuild) {
+        if (!needs_rebuild) {
+            bind_mesh_vao(cached.vao);
+            mesh_vertex_count = cached.vertex_count;
+        } else {
             parse_display_list_commands(model_matrix, mesh, triangles);
             ZoneScopedN("mesh_upload");
-            if (cached.vao == 0) {
-                glGenVertexArrays(1, &cached.vao);
-                glGenBuffers(1, &cached.vbo);
-                glBindVertexArray(cached.vao);
-                glBindBuffer(GL_ARRAY_BUFFER, cached.vbo);
-                glEnableVertexAttribArray(0);
-                glEnableVertexAttribArray(1);
-                glEnableVertexAttribArray(2);
-                glEnableVertexAttribArray(3);
-                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                                      reinterpret_cast<void *>(offsetof(Vertex, pos)));
-                glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                                      reinterpret_cast<void *>(offsetof(Vertex, color)));
-                glVertexAttribPointer(2, 2, GL_SHORT, GL_FALSE, sizeof(Vertex),
-                                      reinterpret_cast<void *>(offsetof(Vertex, tu)));
-                glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                                      reinterpret_cast<void *>(offsetof(Vertex, normal)));
+            // A mesh that rebuilds despite having a buffer is animated (its matrix changed) and
+            // will rebuild again next frame -- stream it through the ring instead of re-uploading
+            // its dedicated buffer. The cache entry keeps its old matrix+content, which stays
+            // internally consistent (the buffer holds vertices transformed by exactly that matrix).
+            const int stream_base =
+                (cached.vao != 0 && can_stream) ? stream_ring_write(triangles) : -1;
+            if (stream_base >= 0) {
+                bind_mesh_vao(g_stream_ring.vao);
+                mesh_first_vertex = stream_base;
+                mesh_vertex_count = (int) triangles.size();
             } else {
-                glBindVertexArray(cached.vao);
-                glBindBuffer(GL_ARRAY_BUFFER, cached.vbo);
+                if (cached.vao == 0) {
+                    glGenVertexArrays(1, &cached.vao);
+                    glGenBuffers(1, &cached.vbo);
+                    bind_mesh_vao(cached.vao);
+                    glBindBuffer(GL_ARRAY_BUFFER, cached.vbo);
+                    glEnableVertexAttribArray(0);
+                    glEnableVertexAttribArray(1);
+                    glEnableVertexAttribArray(2);
+                    glEnableVertexAttribArray(3);
+                    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                                          reinterpret_cast<void *>(offsetof(Vertex, pos)));
+                    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                                          reinterpret_cast<void *>(offsetof(Vertex, color)));
+                    glVertexAttribPointer(2, 2, GL_SHORT, GL_FALSE, sizeof(Vertex),
+                                          reinterpret_cast<void *>(offsetof(Vertex, tu)));
+                    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                                          reinterpret_cast<void *>(offsetof(Vertex, normal)));
+                } else {
+                    bind_mesh_vao(cached.vao);
+                    glBindBuffer(GL_ARRAY_BUFFER, cached.vbo);
+                }
+                // DYNAMIC_DRAW: a cached mesh whose matrix changes re-uploads here, so STATIC_DRAW
+                // would be a misleading hint and can stall.
+                glBufferData(GL_ARRAY_BUFFER, triangles.size() * sizeof(Vertex), triangles.data(),
+                             GL_DYNAMIC_DRAW);
+                cached.vertex_count = (int) triangles.size();
+                cached.model_matrix = model_matrix;
             }
-            // DYNAMIC_DRAW: a cached mesh whose matrix changes re-uploads here, so STATIC_DRAW would
-            // be a misleading hint and can stall.
-            glBufferData(GL_ARRAY_BUFFER, triangles.size() * sizeof(Vertex), triangles.data(),
-                         GL_DYNAMIC_DRAW);
-            cached.vertex_count = (int) triangles.size();
-            cached.model_matrix = model_matrix;
-        } else {
-            glBindVertexArray(cached.vao);
+            mesh_vertex_count = (int) triangles.size();
         }
-        mesh_vertex_count = cached.vertex_count;
     } else {
         parse_display_list_commands(model_matrix, mesh, triangles);
         ZoneScopedN("mesh_upload");
-        glBindVertexArray(spec.vao);
-        glBindBuffer(GL_ARRAY_BUFFER, spec.buffer);
-        glBufferData(GL_ARRAY_BUFFER, triangles.size() * sizeof(Vertex), triangles.data(),
-                     GL_DYNAMIC_DRAW);
+        const int stream_base = can_stream ? stream_ring_write(triangles) : -1;
+        if (stream_base >= 0) {
+            bind_mesh_vao(g_stream_ring.vao);
+            mesh_first_vertex = stream_base;
+        } else {
+            bind_mesh_vao(spec.vao);
+            glBindBuffer(GL_ARRAY_BUFFER, spec.buffer);
+            glBufferData(GL_ARRAY_BUFFER, triangles.size() * sizeof(Vertex), triangles.data(),
+                         GL_DYNAMIC_DRAW);
+        }
         mesh_vertex_count = (int) triangles.size();
     }
     {
         ZoneScopedN("mesh_draw");
-        glDrawArrays(GL_TRIANGLES, 0, mesh_vertex_count);
+        glDrawArrays(GL_TRIANGLES, mesh_first_vertex, mesh_vertex_count);
     }
 
     if (imgui_state.HD_replacement && !environment_models_drawn) {
@@ -860,8 +987,8 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
         glUniformMatrix4fv(shader.proj_matrix_pos, 1, GL_FALSE, &proj_mat.vA.x);
         memcpy(shader.shadow.proj, &proj_mat.vA.x, sizeof(shader.shadow.proj));
 
-        // Reuses the VAO bound above (cached or scratch); vertex count must match that geometry.
-        glDrawArrays(GL_TRIANGLES, 0, mesh_vertex_count);
+        // Reuses the VAO bound above (cached, ring or scratch); range must match that geometry.
+        glDrawArrays(GL_TRIANGLES, mesh_first_vertex, mesh_vertex_count);
 
         glBindFramebuffer(GL_FRAMEBUFFER, default_framebuffer);
         glViewport(old_viewport[0], old_viewport[1], old_viewport[2], old_viewport[3]);
@@ -1558,6 +1685,7 @@ extern "C" int stdDisplay_Update_Hook() {
     }
     glFinish();
 
+    stream_ring_end_frame();
     TracyGpuCollect;
     glfwSwapBuffers(glfwGetCurrentContext());
     FrameMark;
