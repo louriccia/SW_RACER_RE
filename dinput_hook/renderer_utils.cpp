@@ -1030,6 +1030,8 @@ void renderer_drawGLTF(const rdMatrix44 &proj_matrix, const rdMatrix44 &view_mat
     ZoneScopedN("drawGLTF");
     ensureTracyGpuContext();
     TracyGpuZone("gpu_drawGLTF");
+    // This path binds its own programs/textures, possibly between two N64 mesh draws.
+    invalidate_mesh_gl_state_cache();
     if (!model.setuped) {
         setupModel(model);
     }
@@ -1100,6 +1102,8 @@ void renderer_drawGLTFPod(const rdMatrix44 &proj_matrix, const rdMatrix44 &view_
     ZoneScopedN("drawGLTFPod");
     ensureTracyGpuContext();
     TracyGpuZone("gpu_drawGLTFPod");
+    // This path binds its own programs/textures, possibly between two N64 mesh draws.
+    invalidate_mesh_gl_state_cache();
     if (!model.setuped) {
         setupModel(model);
     }
