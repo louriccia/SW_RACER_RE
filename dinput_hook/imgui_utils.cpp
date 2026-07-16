@@ -222,6 +222,8 @@ void read_settings_ini() {
 
     imgui_state.cache_meshes =
         GetPrivateProfileIntW(L"settings", L"cache_meshes", 1, ini_path.c_str());
+    imgui_state.cull_meshes =
+        GetPrivateProfileIntW(L"settings", L"cull_meshes", 1, ini_path.c_str());
 
     read_hd_font_setting();
     if (!hd_font_assets_available()) {
@@ -333,6 +335,9 @@ void save_settings_ini() {
                                imgui_state.mp_disable_collision ? L"1" : L"0", ini_path.c_str());
 
     WritePrivateProfileStringW(L"settings", L"cache_meshes", imgui_state.cache_meshes ? L"1" : L"0",
+                               ini_path.c_str());
+
+    WritePrivateProfileStringW(L"settings", L"cull_meshes", imgui_state.cull_meshes ? L"1" : L"0",
                                ini_path.c_str());
 
     WritePrivateProfileStringW(L"settings", L"hd_font", imgui_state.hd_font ? L"1" : L"0",
@@ -1086,6 +1091,12 @@ static void panel_graphics_settings() {
     // Per-mesh GL geometry cache: static meshes upload once instead of re-streaming every frame
     // (the profiled #1 per-draw CPU cost). Off = the old rebuild-every-frame path.
     if (ImGui::Checkbox("Cache mesh geometry (perf)", &imgui_state.cache_meshes)) {
+        save_settings_ini();
+    }
+
+    // Frustum culling: skip GL state setup + upload + draw for meshes fully outside the view.
+    // Off-screen pods otherwise cost full price (~90 meshes each with AI full LOD).
+    if (ImGui::Checkbox("Cull off-screen meshes (perf)", &imgui_state.cull_meshes)) {
         save_settings_ini();
     }
 

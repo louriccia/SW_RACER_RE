@@ -48,6 +48,7 @@ typedef struct ImGuiState {
     bool enable_fog = true;
     bool enable_gamepad_nav = true;
     bool cache_meshes = true;// cache per-mesh GL geometry; static meshes upload once, not every frame
+    bool cull_meshes = true;// skip GL state/upload/draw for meshes whose AABB is outside the frustum
     bool hd_font = true;// swap the game's built-in fonts for HD replacements (live toggle via journal)
     bool vsync = true;// glfwSwapInterval(1); toggle off to separate vsync judder from render-time variance
     bool ai_full_lod = true;// force every racer (incl. AI) onto the full pod model (no LOD pop-in)

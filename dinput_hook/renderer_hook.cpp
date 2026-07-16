@@ -351,6 +351,41 @@ void parse_display_list_commands(const rdMatrix44 &model_matrix, const swrModel_
     }
 }
 
+// True if a local-space AABB (min xyz, max xyz) lies completely outside the clip volume of mvp
+// (row-vector convention, clip = v * mvp). Tests all 8 corners against each homogeneous clip
+// half-space; only culls when every corner is outside the SAME plane, which is conservative and
+// safe pre-divide (the clip-space image of the box is the convex hull of the corner images).
+static bool aabb_outside_frustum(const float aabb[6], const rdMatrix44 &mvp) {
+    // An inverted AABB was never authored; don't trust it to bound anything.
+    if (aabb[0] > aabb[3] || aabb[1] > aabb[4] || aabb[2] > aabb[5])
+        return false;
+    unsigned outside_all = 0x3F;
+    for (int i = 0; i < 8 && outside_all != 0; i++) {
+        const float x = (i & 1) ? aabb[3] : aabb[0];
+        const float y = (i & 2) ? aabb[4] : aabb[1];
+        const float z = (i & 4) ? aabb[5] : aabb[2];
+        const float cx = x * mvp.vA.x + y * mvp.vB.x + z * mvp.vC.x + mvp.vD.x;
+        const float cy = x * mvp.vA.y + y * mvp.vB.y + z * mvp.vC.y + mvp.vD.y;
+        const float cz = x * mvp.vA.z + y * mvp.vB.z + z * mvp.vC.z + mvp.vD.z;
+        const float cw = x * mvp.vA.w + y * mvp.vB.w + z * mvp.vC.w + mvp.vD.w;
+        unsigned outside = 0;
+        if (cx < -cw)
+            outside |= 0x1;
+        if (cx > cw)
+            outside |= 0x2;
+        if (cy < -cw)
+            outside |= 0x4;
+        if (cy > cw)
+            outside |= 0x8;
+        if (cz < -cw)
+            outside |= 0x10;
+        if (cz > cw)
+            outside |= 0x20;
+        outside_all &= outside;
+    }
+    return outside_all != 0;
+}
+
 void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabled_lights,
                        bool mirrored, const rdMatrix44 &proj_matrix, const rdMatrix44 &view_matrix,
                        const rdMatrix44 &model_matrix, MODELID model_id) {
@@ -391,6 +426,34 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
         if (try_replace(model_id, proj_matrix, view_matrix, model_matrix, envInfos, mirrored,
                         type) &&
             !imgui_state.show_original_and_replacements) {
+            return;
+        }
+    }
+
+    // Frustum culling: skip the GL work (state setup + upload + draw) for a mesh whose AABB is
+    // entirely off-screen -- with ai_full_lod every AI pod is ~90 meshes drawn at full detail even
+    // when far behind the camera. Two meshes can't use their own AABB and are never culled: a
+    // skinned mesh (vertex_base_offset != 0) renders vertices staged by earlier meshes' parses,
+    // possibly under a different matrix, and a bent cable regenerates its tube geometry outside the
+    // authored box. A culled mesh still parses whenever the drawn path would have, so the N64
+    // shared-vertex staging a later skinned mesh consumes stays identical to the uncalled path.
+    if (imgui_state.cull_meshes && mesh->vertex_base_offset == 0 &&
+        g_active_cable_amplitude < 0.0f) {
+        rdMatrix44 mvp;
+        rdMatrix_Multiply44(&mvp, &model_matrix, &view_matrix);
+        rdMatrix_Multiply44(&mvp, &mvp, &proj_matrix);
+        if (aabb_outside_frustum(mesh->aabb, mvp)) {
+            bool would_parse = true;
+            if (imgui_state.cache_meshes) {
+                const auto it = g_mesh_geometry_cache.find(mesh);
+                would_parse = it == g_mesh_geometry_cache.end() || it->second.vao == 0 ||
+                              memcmp(&it->second.model_matrix, &model_matrix,
+                                     sizeof(rdMatrix44)) != 0;
+            }
+            if (would_parse) {
+                static std::vector<Vertex> parse_only_scratch;
+                parse_display_list_commands(model_matrix, mesh, parse_only_scratch);
+            }
             return;
         }
     }
