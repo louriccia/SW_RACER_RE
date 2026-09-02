@@ -1,6 +1,10 @@
 # SW_RACER_RE — Camera System Roadmap
 
-**Status:** design (2026-06-12). Living document. Owner: lightningpirate.
+**Status:** design (2026-06-12); **Phase 1 SHIPPED 2026-09-02**. Living document. Owner: lightningpirate.
+
+**Phase 1 (free camera) is merged as PR #257** (`feature/freecam`) -- `dinput_hook/camera/camera.{cpp,h}` exists as the delta-layer controller this document specifies, driven from the per-frame render hook with an ImGui panel. Phases 0 (player-camera settings panel), 3 (photo mode) and 2 (focus/spectator) are the next rungs and now build on real code rather than a plan.
+
+**Community ask -- cockpit / racer-POV camera** (issue #292, tim-tim707 responsive): a first-person / in-cockpit view, motivated by VR use. Lands naturally in Phase 0's cockpit toggle plus the Phase 1 rig; see the phase table below.
 
 Goal: a **sophisticated camera system** for SWE1R — free camera, configurable chase cameras,
 focus/spectator + orbit, photo mode, dynamic (speed-reactive) camera + shake, a broadcast/
