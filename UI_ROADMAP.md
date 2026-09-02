@@ -398,6 +398,42 @@ is viable, but the seam set is wider than the original audit implied.
   together (don't ship one without the other -- that is what got reverted), or jump to the anchored
   builders (A2/B).
 
+### 7b. Status as of 2026-09-02 (supersedes everything above in SS7)
+
+_Everything in SS7 above describes the pre-#185 world and is kept only for the history of why the
+draw-only patch was reverted. The lines below are the live status._
+
+_This section was reconstructed on 2026-09-02 after the previous SS7b (written 2026-08-31) was lost:
+the roadmaps are gitignored in the main worktree but tracked on `local/roadmaps-and-tooling`, whose
+last backup was 2026-07-08, so checking that branch out silently overwrote the newer working copy.
+The PR/status facts below were re-derived from upstream; any finer prose from the lost version is
+gone. **Back roadmaps up before switching to that branch.**_
+
+- **Phase A -- SHIPPED**, merged as PR #185 (2026-06-25, `feature/ui-resolution-independent`). The
+  uniform draw and the matching uniform cursor mapping shipped together, which is what the reverted
+  Phase 1 failed to do.
+- **Edge-anchoring / widescreen fill -- SHIPPED**, merged as PR #241 (2026-09-02,
+  `feature/ui-widescreen-hud`). Menus + in-race HUD anchor to the real screen edges instead of
+  pillarboxing, via a runtime anchor-reconciliation table (`g_anchored_elements` +
+  `hud_sprite_anchor` / `hud_text_anchor`) rather than by rewriting the builders. The
+  resolution-independent toggle also ships **ON by default** as of that PR -- fresh installs only,
+  since the ini fallback applies only when the key is absent, so existing configs keep their setting.
+  The same PR re-keyed the anchor tables off the `swrUISprite` enum in `src/types_enums.h` and named
+  the HUD text columns (`kHudTextX*`).
+- **HD 2D sprite replacement -- SHIPPED** as PR #231 (`assets/replacement_sprites/`, keyed by
+  `swrSprite_` name). The SS3 contract holds: logical `header`/`page` dims unchanged, only the
+  physical pixels swap.
+- **Phase B (reimplement builders responsively, page by page) -- NOT STARTED, and no longer
+  blocked.** The old prerequisite (some F1 widget-class procs / sub-builders still GUI-carve-blocked
+  in Ghidra) is CLEARED: the widget class -> ctor -> proc map was carved and named in PR #72, and
+  PR #272 landed 24 swrUI/swrSprite setter bodies. With #241 merged the layout layer is settled too.
+  Because #241 delivers the visible widescreen payoff through the anchor table, Phase B is now a
+  question of whether the remaining pages are worth an L-effort rewrite, not a blocking dependency.
+- **ABANDONED:** centering/pillarbox as the *end state* (SS9 / SS0) -- superseded by edge-anchoring
+  in #241. The centering offset itself still ships as the res-independent baseline.
+- **Open UI bug:** the game cursor is at half its correct position when the resolution-independent UI
+  is turned OFF. Lower priority since #241 made the res-independent path the default.
+
 ---
 
 ## 8. Function / global reference (reconfirm at impl time)
