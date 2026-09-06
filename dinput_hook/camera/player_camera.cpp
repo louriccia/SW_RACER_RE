@@ -2,6 +2,7 @@
 #include "../hook_helper.h"
 #include "../debug_ui.h"
 #include "../imgui_utils.h"
+#include "../config.h"
 
 #include <imgui.h>
 
@@ -333,77 +334,54 @@ void apply_shake(swrObjcMan *cman, swrRace *racer) {
     rdMatrix_AddRotationFromVectorAngle44Before(&cman->unk20_mat, roll, 0.0f, 1.0f, 0.0f, &in);
 }
 
-constexpr const wchar_t *INI_SECTION = L"player_camera";
-
-float ini_get_float(const wchar_t *ini, const wchar_t *key, float def) {
-    wchar_t got[48], defbuf[48];
-    swprintf(defbuf, 48, L"%.4f", def);
-    GetPrivateProfileStringW(INI_SECTION, key, defbuf, got, 48, ini);
-    return (float) wcstod(got, nullptr);
-}
-void ini_set_float(const wchar_t *ini, const wchar_t *key, float v) {
-    wchar_t buf[48];
-    swprintf(buf, 48, L"%.4f", v);
-    WritePrivateProfileStringW(INI_SECTION, key, buf, ini);
-}
-bool ini_get_bool(const wchar_t *ini, const wchar_t *key, bool def) {
-    return GetPrivateProfileIntW(INI_SECTION, key, def, ini) != 0;
-}
-void ini_set_bool(const wchar_t *ini, const wchar_t *key, bool v) {
-    WritePrivateProfileStringW(INI_SECTION, key, v ? L"1" : L"0", ini);
-}
+constexpr const char *INI_SECTION = "player_camera";
 
 void load_config() {
-    const wchar_t *ini = settings_ini_path();
-    g_cfg.view = std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"view", g_cfg.view, ini), 0,
-                            VIEW_COUNT - 1);
-    g_cfg.trail_scale = ini_get_float(ini, L"trail_scale", g_cfg.trail_scale);
-    g_cfg.height_scale = ini_get_float(ini, L"height_scale", g_cfg.height_scale);
-    g_cfg.fov_offset = ini_get_float(ini, L"fov_offset", g_cfg.fov_offset);
-    g_cfg.dynamic_fov = ini_get_float(ini, L"dynamic_fov", g_cfg.dynamic_fov);
-    g_cfg.roll_influence = ini_get_float(ini, L"roll_influence", g_cfg.roll_influence);
-    g_cfg.cockpit_near_scale = ini_get_float(ini, L"cockpit_near_scale", g_cfg.cockpit_near_scale);
-    g_cfg.cockpit_right = ini_get_float(ini, L"cockpit_right", g_cfg.cockpit_right);
-    g_cfg.cockpit_forward = ini_get_float(ini, L"cockpit_forward", g_cfg.cockpit_forward);
-    g_cfg.cockpit_up = ini_get_float(ini, L"cockpit_up", g_cfg.cockpit_up);
+    g_cfg.view = std::clamp(config::get_int(INI_SECTION, "view", g_cfg.view), 0, VIEW_COUNT - 1);
+    g_cfg.trail_scale = config::get_float(INI_SECTION, "trail_scale", g_cfg.trail_scale);
+    g_cfg.height_scale = config::get_float(INI_SECTION, "height_scale", g_cfg.height_scale);
+    g_cfg.fov_offset = config::get_float(INI_SECTION, "fov_offset", g_cfg.fov_offset);
+    g_cfg.dynamic_fov = config::get_float(INI_SECTION, "dynamic_fov", g_cfg.dynamic_fov);
+    g_cfg.roll_influence = config::get_float(INI_SECTION, "roll_influence", g_cfg.roll_influence);
+    g_cfg.cockpit_near_scale = config::get_float(INI_SECTION, "cockpit_near_scale", g_cfg.cockpit_near_scale);
+    g_cfg.cockpit_right = config::get_float(INI_SECTION, "cockpit_right", g_cfg.cockpit_right);
+    g_cfg.cockpit_forward = config::get_float(INI_SECTION, "cockpit_forward", g_cfg.cockpit_forward);
+    g_cfg.cockpit_up = config::get_float(INI_SECTION, "cockpit_up", g_cfg.cockpit_up);
     g_cfg.show_pod_first_person =
-        ini_get_bool(ini, L"show_pod_first_person", g_cfg.show_pod_first_person);
-    g_cfg.hide_own_pod = ini_get_bool(ini, L"hide_own_pod", g_cfg.hide_own_pod);
-    g_cfg.hide_hud = ini_get_bool(ini, L"hide_hud", g_cfg.hide_hud);
-    g_cfg.hide_guide_arrow = ini_get_bool(ini, L"hide_guide_arrow", g_cfg.hide_guide_arrow);
-    g_cfg.hide_suns = ini_get_bool(ini, L"hide_suns", g_cfg.hide_suns);
-    g_cfg.hide_light_streaks = ini_get_bool(ini, L"hide_light_streaks", g_cfg.hide_light_streaks);
-    g_cfg.shake_intensity = ini_get_float(ini, L"shake_intensity", g_cfg.shake_intensity);
-    g_cfg.shake_speed = ini_get_float(ini, L"shake_speed", g_cfg.shake_speed);
-    g_cfg.shake_boost = ini_get_float(ini, L"shake_boost", g_cfg.shake_boost);
-    g_cfg.shake_boost_burst = ini_get_float(ini, L"shake_boost_burst", g_cfg.shake_boost_burst);
-    g_cfg.shake_vibration = ini_get_float(ini, L"shake_vibration", g_cfg.shake_vibration);
+        config::get_int(INI_SECTION, "show_pod_first_person", g_cfg.show_pod_first_person);
+    g_cfg.hide_own_pod = config::get_int(INI_SECTION, "hide_own_pod", g_cfg.hide_own_pod);
+    g_cfg.hide_hud = config::get_int(INI_SECTION, "hide_hud", g_cfg.hide_hud);
+    g_cfg.hide_guide_arrow = config::get_int(INI_SECTION, "hide_guide_arrow", g_cfg.hide_guide_arrow);
+    g_cfg.hide_suns = config::get_int(INI_SECTION, "hide_suns", g_cfg.hide_suns);
+    g_cfg.hide_light_streaks = config::get_int(INI_SECTION, "hide_light_streaks", g_cfg.hide_light_streaks);
+    g_cfg.shake_intensity = config::get_float(INI_SECTION, "shake_intensity", g_cfg.shake_intensity);
+    g_cfg.shake_speed = config::get_float(INI_SECTION, "shake_speed", g_cfg.shake_speed);
+    g_cfg.shake_boost = config::get_float(INI_SECTION, "shake_boost", g_cfg.shake_boost);
+    g_cfg.shake_boost_burst = config::get_float(INI_SECTION, "shake_boost_burst", g_cfg.shake_boost_burst);
+    g_cfg.shake_vibration = config::get_float(INI_SECTION, "shake_vibration", g_cfg.shake_vibration);
 }
 void save_config() {
-    const wchar_t *ini = settings_ini_path();
-    wchar_t buf[16];
-    swprintf(buf, 16, L"%d", g_cfg.view);
-    WritePrivateProfileStringW(INI_SECTION, L"view", buf, ini);
-    ini_set_float(ini, L"trail_scale", g_cfg.trail_scale);
-    ini_set_float(ini, L"height_scale", g_cfg.height_scale);
-    ini_set_float(ini, L"fov_offset", g_cfg.fov_offset);
-    ini_set_float(ini, L"dynamic_fov", g_cfg.dynamic_fov);
-    ini_set_float(ini, L"roll_influence", g_cfg.roll_influence);
-    ini_set_float(ini, L"cockpit_near_scale", g_cfg.cockpit_near_scale);
-    ini_set_float(ini, L"cockpit_right", g_cfg.cockpit_right);
-    ini_set_float(ini, L"cockpit_forward", g_cfg.cockpit_forward);
-    ini_set_float(ini, L"cockpit_up", g_cfg.cockpit_up);
-    ini_set_bool(ini, L"show_pod_first_person", g_cfg.show_pod_first_person);
-    ini_set_bool(ini, L"hide_own_pod", g_cfg.hide_own_pod);
-    ini_set_bool(ini, L"hide_hud", g_cfg.hide_hud);
-    ini_set_bool(ini, L"hide_guide_arrow", g_cfg.hide_guide_arrow);
-    ini_set_bool(ini, L"hide_suns", g_cfg.hide_suns);
-    ini_set_bool(ini, L"hide_light_streaks", g_cfg.hide_light_streaks);
-    ini_set_float(ini, L"shake_intensity", g_cfg.shake_intensity);
-    ini_set_float(ini, L"shake_speed", g_cfg.shake_speed);
-    ini_set_float(ini, L"shake_boost", g_cfg.shake_boost);
-    ini_set_float(ini, L"shake_boost_burst", g_cfg.shake_boost_burst);
-    ini_set_float(ini, L"shake_vibration", g_cfg.shake_vibration);
+    config::set_int(INI_SECTION, "view", g_cfg.view);
+    config::set_float(INI_SECTION, "trail_scale", g_cfg.trail_scale);
+    config::set_float(INI_SECTION, "height_scale", g_cfg.height_scale);
+    config::set_float(INI_SECTION, "fov_offset", g_cfg.fov_offset);
+    config::set_float(INI_SECTION, "dynamic_fov", g_cfg.dynamic_fov);
+    config::set_float(INI_SECTION, "roll_influence", g_cfg.roll_influence);
+    config::set_float(INI_SECTION, "cockpit_near_scale", g_cfg.cockpit_near_scale);
+    config::set_float(INI_SECTION, "cockpit_right", g_cfg.cockpit_right);
+    config::set_float(INI_SECTION, "cockpit_forward", g_cfg.cockpit_forward);
+    config::set_float(INI_SECTION, "cockpit_up", g_cfg.cockpit_up);
+    config::set_bool(INI_SECTION, "show_pod_first_person", g_cfg.show_pod_first_person);
+    config::set_bool(INI_SECTION, "hide_own_pod", g_cfg.hide_own_pod);
+    config::set_bool(INI_SECTION, "hide_hud", g_cfg.hide_hud);
+    config::set_bool(INI_SECTION, "hide_guide_arrow", g_cfg.hide_guide_arrow);
+    config::set_bool(INI_SECTION, "hide_suns", g_cfg.hide_suns);
+    config::set_bool(INI_SECTION, "hide_light_streaks", g_cfg.hide_light_streaks);
+    config::set_float(INI_SECTION, "shake_intensity", g_cfg.shake_intensity);
+    config::set_float(INI_SECTION, "shake_speed", g_cfg.shake_speed);
+    config::set_float(INI_SECTION, "shake_boost", g_cfg.shake_boost);
+    config::set_float(INI_SECTION, "shake_boost_burst", g_cfg.shake_boost_burst);
+    config::set_float(INI_SECTION, "shake_vibration", g_cfg.shake_vibration);
 }
 
 void panel_player_camera() {
