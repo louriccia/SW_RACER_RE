@@ -2,7 +2,8 @@
 #include "hook_helper.h"
 #include "debug_ui.h"
 #include "patch.h"
-#include "imgui_utils.h"// settings_ini_path
+#include "imgui_utils.h"             // settings_ini_path
+#include "game_deltas/tracks_delta.h"// swrUI_GetTrackNameFromId_delta
 
 #include <imgui.h>
 
@@ -25,50 +26,53 @@ void hook_function(const char *function_name, uint32_t original_address, uint8_t
 }
 
 // ---------------------------------------------------------------------------------------------
-// State
+// Settings ([orchestrator] in SW_RACER_RE.ini)
 
-static bool g_armed = false;
-static int g_races_started = 0;
-static int g_races_finished = 0;
 static int g_laps = 1;
 static int g_racers = 20;
-static float g_pause_s = 10.0f;
+static float g_cooldown_s =
+    60.0f;// results / betting window: from the winner's finish to the next load
 static bool g_rotate_tracks = true;
 static bool g_unstick = true;
 static float g_stuck_s = 8.0f;// no progress for this long -> snap the pod back onto the spline
-static bool g_dnf = true;
+static bool g_dnf = false;
 static float g_dnf_s = 240.0f;    // after the winner, racers still out are marked finished
 static bool g_full_physics = true;// keep every AI pod off the on-rails LOD path
 static bool g_ai_damage = true;   // AI take fire damage and can explode like a human
 static bool g_ai_repair =
     false;// let AI repair (off: fires burn until the engine blows -- more drama)
-static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
-static float g_repair_start = 0.5f;// worst engine damage that makes an AI start repairing
-static float g_repair_stop = 0.2f; // ... and stop again
-static int g_ai_explosions = 0;
+static float g_repair_start = 0.5f;
+static float g_repair_stop = 0.2f;
+static bool g_ai_lighting = true; // light AI pods from the followed pod's light bank
 static float g_snapshot_s = 20.0f;// periodic field snapshot to hook.log (0 = off)
-static DWORD g_last_snapshot_ms = 0;
 
-static bool g_next_pending = false;   // a race ended; start the next one once the pause elapses
-static bool g_start_requested = false;// panel "Start now"; consumed by the per-frame service
-static bool g_skip_requested =
-    false;// panel "Skip": abandon the current race / pause, go to the next
-static bool g_restart_requested = false;  // panel "Restart": abandon and rerun the same track
-static int g_force_track = -1;            // next start_race uses this track instead of picking one
-static bool g_pause_override_once = false;// the next race end schedules the next start immediately
-static DWORD g_next_at_ms = 0;
-static bool g_fini_fired = false;// 'Fini' already sent for the current race
+// ---------------------------------------------------------------------------------------------
+// Run state
+
+static bool g_armed = false;
+static int g_races_started = 0;
+static int g_races_finished = 0;
+static bool g_start_requested = false;  // panel "Start now" (from a menu)
+static bool g_skip_requested = false;   // panel "Skip": end the current race / cooldown now
+static bool g_restart_requested = false;// panel "Restart": end it and rerun the same track
+static int g_force_track = -1;          // next start_race uses this track instead of picking one
+static int g_next_track = -1;// pre-picked at the winner's finish so the overlay can show it
 static char g_status[128] = "idle";
 
-// Per-slot progress watch for the stuck detector (indexed like swrScoresPtr).
+// Per race
+static bool g_cooldown_active = false;// winner is in; counting down to the next race
+static DWORD g_cooldown_end_ms = 0;
+static bool g_fini_fired = false;
+static DWORD g_last_snapshot_ms = 0;
+static DWORD g_first_finish_ms = 0;
 static const int MAX_RACERS = 20;
 static float g_last_progress[MAX_RACERS];
 static DWORD g_last_progress_ms[MAX_RACERS];
 static int g_snaps[MAX_RACERS];
 static bool g_dnf_marked[MAX_RACERS];
-static DWORD g_first_finish_ms = 0;
 static int g_snaps_total = 0;
 static int g_dnf_total = 0;
+static int g_ai_explosions = 0;
 
 // Track pick: uniform over the 25 tracks, never one of the last TRACK_HISTORY played.
 static const int TRACK_COUNT = 25;
@@ -95,6 +99,10 @@ static swrObjJdge *get_jdge() {
 
 static bool jdge_asleep(const swrObjJdge *jdge) {
     return (((const uint8_t *) &jdge->obj.flags)[1] & 0x10) != 0;
+}
+
+static bool racer_out_on_track(const swrScore *score) {
+    return (score->flag & 1) != 0 && (score->flag & 2) == 0 && score->obj_test_ptr != NULL;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -130,7 +138,7 @@ static void apply_lod_patch(bool on) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Race entry
+// Track pick + race entry
 
 typedef void(__cdecl *swrObjHang_LoadScreen_t)(swrObjHang *hang, int a, int b);
 
@@ -163,6 +171,21 @@ static int pick_track(int current) {
     return candidates[rand() % n];
 }
 
+static const char *track_name(int track_index) {
+    static char buf[64];
+    const char *raw = swrUI_GetTrackNameFromId_delta(track_index);
+    size_t o = 0;
+    for (const char *p = raw ? raw : ""; *p && o + 1 < sizeof(buf); p++) {
+        if (*p == '~' && p[1]) {
+            p++;
+            continue;
+        }
+        buf[o++] = *p;
+    }
+    buf[o] = '\0';
+    return buf;
+}
+
 static void reset_race_watch() {
     for (int i = 0; i < MAX_RACERS; i++) {
         g_last_progress[i] = -1.0f;
@@ -172,10 +195,13 @@ static void reset_race_watch() {
     }
     g_first_finish_ms = 0;
     g_fini_fired = false;
+    g_cooldown_active = false;
+    g_cooldown_end_ms = 0;
 }
 
 // Configure the hangar for an all-AI race and jump straight into the loading screen, the way the
-// demo 'Abrt' handler and the pause-menu 'RStr' restart do.
+// demo 'Abrt' handler and the pause-menu 'RStr' restart do. Never call from inside the ImGui frame:
+// LoadScreen renders the progress bar through stdDisplay_Update (nested frame).
 static void start_race(swrObjHang *hang) {
     hang->demo_mode = 1;
     hang->num_players = (char) g_racers;
@@ -184,16 +210,18 @@ static void start_race(swrObjHang *hang) {
     hang->timeAttackMode = 0;
     if (g_force_track >= 0) {
         hang->track_index = (char) g_force_track;
-        g_force_track = -1;
     } else {
-        hang->track_index = (char) pick_track(hang->track_index);
+        hang->track_index =
+            (char) (g_next_track >= 0 ? g_next_track : pick_track(hang->track_index));
         remember_track(hang->track_index);
     }
+    g_force_track = -1;
+    g_next_track = -1;
 
     g_races_started++;
     reset_race_watch();
-    set_status("race %d: track %d, %d racers, %d lap(s)", g_races_started, hang->track_index,
-               g_racers, g_laps);
+    set_status("race %d: track %d (%s), %d racers, %d lap(s)", g_races_started, hang->track_index,
+               track_name(hang->track_index), g_racers, g_laps);
     ((swrObjHang_LoadScreen_t) swrObjHang_LoadScreen_ADDR)(hang, 1, 0);
 }
 
@@ -202,22 +230,23 @@ static void start_race(swrObjHang *hang) {
 
 typedef int(__cdecl *swrObjHang_F4_t)(swrObjHang *hang, int *subEvents, int *p3);
 
-// Race-end events reach the hangar here ('Fini' after a completed race, 'Abrt' on a bail-out).
+// Race-end events reach the hangar here ('Fini' after a race, 'Abrt' on a bail-out). Chain the next
+// race right here, exactly where the retail demo loop calls LoadScreen, so the holotable results
+// screen is never shown: the results / betting window already happened on the track.
 // swrObjHang_F4 is a reverse-hooked HANG stub, so hook the raw game address (see hook_mechanism).
 static int __cdecl swrObjHang_F4_delta(swrObjHang *hang, int *subEvents, int *p3) {
     const int event = *subEvents;
     const int r = hook_call_original((swrObjHang_F4_t) swrObjHang_F4_ADDR, hang, subEvents, p3);
-    if (g_armed && (event == 'Fini' || event == 'Abrt')) {
+    if (g_armed && swrMultiplayer_IsMultiplayerEnabled() == 0 &&
+        (event == 'Fini' || event == 'Abrt')) {
         if (g_races_started == 0) {// the first race was started from the menu by hand
             g_races_started = 1;
             remember_track(hang->track_index);
         }
         g_races_finished++;
-        g_next_pending = true;
-        g_next_at_ms = GetTickCount() + (g_pause_override_once ? 0 : (DWORD) (g_pause_s * 1000.0f));
-        g_pause_override_once = false;
-        set_status("race %d ended (%s); %d snaps, %d DNF so far; next in %.0fs", g_races_started,
-                   event == 'Fini' ? "Fini" : "Abrt", g_snaps_total, g_dnf_total, g_pause_s);
+        set_status("race %d ended (%s); %d snaps, %d DNF, %d explosions so far", g_races_started,
+                   event == 'Fini' ? "Fini" : "Abrt", g_snaps_total, g_dnf_total, g_ai_explosions);
+        start_race(hang);
     }
     return r;
 }
@@ -232,14 +261,14 @@ static int __cdecl swrObjHang_F4_delta(swrObjHang *hang, int *subEvents, int *p3
 // detail refresh (gate at 100) on too.
 static const int FULL_PHYSICS_LOD = 90;
 
-typedef void(__cdecl *swrRace_CalcTargetTurnRate_t)(swrRace *player);
-
-// Engine damage has no effect on an AI pod in vanilla: the steering pull lives in the player
-// control path and the explosion check lives in swrRace_Repair, which only humans (and the
-// post-finish FORCE_GROUND pod) ever run. Give AI the same routine with a pilot-like policy: start
-// repairing once an engine is badly damaged and the pod is not boosting, stop once it is mostly
-// healed. Repair heals the worst engine at the pod's repairRate and, for an engine at full damage,
-// runs the vanilla explode-after-warning path (swrRace_Explode -> death -> respawn).
+// Engine damage has no effect on an AI pod in vanilla: the steering pull lives in the player control
+// path and the explosion check lives in swrRace_Repair, which only humans (and the post-finish
+// FORCE_GROUND pod) ever run. The human path (swrRace_UpdatePlayerControl) also ticks
+// swrRace_ApplyEngineDamage every frame: each engine on fire (engineStatus bit 8, lit by
+// swrRace_UpdateHeat) takes (rand*0.1 + 0.1) * dt damage until repaired or destroyed. Same tick here
+// (minus that routine's fire SFX / rumble, which key on the shared channel-0 sfx flag), then Repair:
+// with REPAIRING clear it never selects an engine to heal but still runs the destroyed-engine
+// warning + explosion path (swrRace_Explode -> death -> respawn).
 static void supervise_ai_damage(swrRace *pod) {
     if ((pod->flags0 & swrObjTest_FLAG0_AI) == 0 || (pod->flags0 & swrObjTest_FLAG0_LOCAL) != 0)
         return;
@@ -248,10 +277,6 @@ static void supervise_ai_damage(swrRace *pod) {
         (pod->flags1 & swrObjTest_FLAG1_FINISHED) != 0 ||
         (pod->flags1 & swrObjTest_FLAG1_FORCE_GROUND) != 0)
         return;
-    // The human path (swrRace_UpdatePlayerControl) ticks swrRace_ApplyEngineDamage every frame: each
-    // engine on fire (engineStatus bit 8, lit by swrRace_UpdateHeat) takes (rand*0.1 + 0.1) * dt
-    // damage until repaired or destroyed. Same tick here, minus that routine's fire SFX / rumble
-    // (they key on the shared channel-0 sfx flag, not on the pod being local).
     const float dt = (float) swrRace_deltaTimeSecs;
     bool fire = false;
     float worst = 0.0f;
@@ -263,8 +288,6 @@ static void supervise_ai_damage(swrRace *pod) {
         }
         worst = std::max(worst, pod->engineHealth[i]);
     }
-    // With REPAIRING clear, swrRace_Repair never selects an engine to heal (repairTimer stays
-    // negative) but still runs the destroyed-engine warning + explosion path.
     bool repairing = false;
     if (g_ai_repair) {
         repairing = (pod->flags0 & swrObjTest_FLAG0_REPAIRING) != 0;
@@ -286,6 +309,8 @@ static void supervise_ai_damage(swrRace *pod) {
     }
 }
 
+typedef void(__cdecl *swrRace_CalcTargetTurnRate_t)(swrRace *player);
+
 static void __cdecl swrRace_CalcTargetTurnRate_delta(swrRace *player) {
     if (g_armed && g_full_physics && player != NULL &&
         (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 && player->lodDistance > FULL_PHYSICS_LOD)
@@ -295,12 +320,21 @@ static void __cdecl swrRace_CalcTargetTurnRate_delta(swrRace *player) {
         supervise_ai_damage(player);
 }
 
+void orchestrator_RegisterHooks() {
+    hook_function("swrObjHang_F4", (uint32_t) swrObjHang_F4_ADDR, (uint8_t *) swrObjHang_F4_delta);
+    hook_function("swrRace_CalcTargetTurnRate", (uint32_t) swrRace_CalcTargetTurnRate_ADDR,
+                  (uint8_t *) swrRace_CalcTargetTurnRate_delta);
+    srand((unsigned) time(NULL));
+}
+
+// ---------------------------------------------------------------------------------------------
+// In-race supervision
+
 // Light AI pods. Every pod carries a light bank index (its entity id), but swrObjJdge_SpawnRacer tags
 // only LOCAL pods' root node to use it (flags_5 |= 0xc, light_index) plus per-part light bits, and
 // only a pod followed by a camera-man gets its bank refreshed from the terrain
 // (swrObjcMan_UpdateLighting). In an all-AI race that is the favourite (score flag 0x20). Point every
-// other full pod at that bank with the same node tags SpawnRacer applies, so the whole field is lit
-// like a player pod (from the terrain under the followed pod).
+// other full pod at that bank with the same node tags SpawnRacer applies.
 static const int LIGHT_BANK_COUNT = 12;// numEnabledLights[12]; lightColor1[13] is indexed +1
 
 static void apply_ai_lighting(swrObjJdge *jdge) {
@@ -332,20 +366,6 @@ static void apply_ai_lighting(swrObjJdge *jdge) {
             if (pod->partNodes[k] != NULL)
                 pod->partNodes[k]->flags_5 |= 0x100;
     }
-}
-
-void orchestrator_RegisterHooks() {
-    hook_function("swrObjHang_F4", (uint32_t) swrObjHang_F4_ADDR, (uint8_t *) swrObjHang_F4_delta);
-    hook_function("swrRace_CalcTargetTurnRate", (uint32_t) swrRace_CalcTargetTurnRate_ADDR,
-                  (uint8_t *) swrRace_CalcTargetTurnRate_delta);
-    srand((unsigned) time(NULL));
-}
-
-// ---------------------------------------------------------------------------------------------
-// In-race supervision
-
-static bool racer_out_on_track(const swrScore *score) {
-    return (score->flag & 1) != 0 && (score->flag & 2) == 0 && score->obj_test_ptr != NULL;
 }
 
 // A pod whose lap progress has not moved for g_stuck_s is snapped back onto the spline with the
@@ -401,20 +421,9 @@ static void log_snapshot(swrObjJdge *jdge, DWORD now) {
     fflush(hook_log);
 }
 
-// Once the winner is in, racers still out after g_dnf_s are marked finished (score flag 0x2) so
-// swrObjJdge_F2 stops waiting for them; its own state-2 pass then extrapolates their times.
+// Optional: after the winner, racers still out after g_dnf_s are marked finished (score flag 0x2).
 static void supervise_dnf(swrObjJdge *jdge, DWORD now) {
-    bool any_finished = false;
-    for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++)
-        if ((swrScoresPtr[i].flag & 2) != 0)
-            any_finished = true;
-    if (!any_finished)
-        return;
-    if (g_first_finish_ms == 0) {
-        g_first_finish_ms = now;
-        return;
-    }
-    if (now - g_first_finish_ms < (DWORD) (g_dnf_s * 1000.0f))
+    if (g_first_finish_ms == 0 || now - g_first_finish_ms < (DWORD) (g_dnf_s * 1000.0f))
         return;
     for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++) {
         swrScore *score = &swrScoresPtr[i];
@@ -428,8 +437,23 @@ static void supervise_dnf(swrObjJdge *jdge, DWORD now) {
     }
 }
 
+static bool any_finished(const swrObjJdge *jdge) {
+    for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++)
+        if ((swrScoresPtr[i].flag & 2) != 0)
+            return true;
+    return false;
+}
+
+// End the race: judge teardown -> 'Fini' to the hangar -> swrObjHang_F4_delta chains the next race.
+static void end_race(swrObjJdge *jdge, int event) {
+    if (g_fini_fired)
+        return;
+    g_fini_fired = true;
+    swrObjJdge_Clear(jdge, event);
+}
+
 // ---------------------------------------------------------------------------------------------
-// Per-frame service
+// Per-frame service (game thread, before the ImGui frame)
 
 void orchestrator_Service() {
     apply_lod_patch(g_armed);
@@ -446,44 +470,49 @@ void orchestrator_Service() {
     hang->demo_mode = 1;
 
     swrObjJdge *jdge = get_jdge();
-    if (jdge != NULL && !jdge_asleep(jdge) && swrJdge_Cleared == 0) {
+    const bool in_race = jdge != NULL && !jdge_asleep(jdge) && swrJdge_Cleared == 0;
+    if (in_race) {
         const int state = jdge->flag & 0xf;
         const DWORD now = GetTickCount();
-        // Skip / Restart while racing: abort the race the way the game's own bail-out does ('Abrt'
-        // -> teardown -> hangar), then the F4 hook schedules the next start; zero the pause so it
-        // fires at once. Restart pins the same track for that start.
+
         if (g_skip_requested || g_restart_requested) {
             if (g_restart_requested)
                 g_force_track = hang->track_index;
             g_skip_requested = false;
             g_restart_requested = false;
-            g_pause_override_once = true;
             set_status("race %d: %s requested -> Abrt", g_races_started,
                        g_force_track >= 0 ? "restart" : "skip");
-            swrObjJdge_Clear(jdge, 'Abrt');
+            end_race(jdge, 'Abrt');
             return;
         }
-        if (g_ai_lighting && firstLocalPlayer == NULL)
+        if (firstLocalPlayer != NULL)
+            return;// a human is racing: never touch that race
+
+        if (g_ai_lighting)
             apply_ai_lighting(jdge);
-        if (state == 1 && firstLocalPlayer == NULL) {
+        if (state == 1 || state == 2) {
             log_snapshot(jdge, now);
             if (g_unstick)
                 supervise_stuck(jdge, now);
-            if (g_dnf)
+            // Winner in -> open the results / betting window and pre-pick the next track so the
+            // overlay can announce it. The rest of the field keeps racing underneath.
+            if (!g_cooldown_active && any_finished(jdge)) {
+                g_cooldown_active = true;
+                g_first_finish_ms = now;
+                g_cooldown_end_ms = now + (DWORD) (g_cooldown_s * 1000.0f);
+                g_next_track = pick_track(hang->track_index);
+                set_status("race %d: winner in; next race (track %d, %s) in %.0fs", g_races_started,
+                           g_next_track, track_name(g_next_track), g_cooldown_s);
+            }
+            if (g_cooldown_active && g_dnf)
                 supervise_dnf(jdge, now);
-        }
-        // Racing state 2 = every relevant racer has finished. With no human it only leaves on an
-        // accept edge (swrObjJdge_F0), so fire the finish ourselves. swrObjJdge_Clear is
-        // reverse-hooked (its symbol reaches the game code).
-        if (state == 2 && firstLocalPlayer == NULL && !g_fini_fired) {
-            g_fini_fired = true;
-            set_status("race %d: all finished -> Fini", g_races_started);
-            swrObjJdge_Clear(jdge, 'Fini');
+            if (g_cooldown_active && now >= g_cooldown_end_ms)
+                end_race(jdge, 'Fini');
         }
         return;
     }
 
-    // Out of a race, Skip ends the pause and Restart reruns the last track right away.
+    // Out of a race (menus): Start now / Skip start one, Restart reruns the last track.
     if (g_skip_requested || g_restart_requested) {
         if (g_restart_requested)
             g_force_track = hang->track_index;
@@ -491,22 +520,19 @@ void orchestrator_Service() {
         g_restart_requested = false;
         g_start_requested = true;
     }
-    // Race entry runs only here: swrObjHang_LoadScreen renders the loading progress bar (a nested
-    // frame through stdDisplay_Update), so it must not be called from inside the ImGui frame.
-    if (g_start_requested || (g_next_pending && GetTickCount() >= g_next_at_ms)) {
+    if (g_start_requested) {
         g_start_requested = false;
-        g_next_pending = false;
         start_race(hang);
     }
 }
 
 extern "C" void orchestrator_ToggleArmed(void) {
     g_armed = !g_armed;
-    g_next_pending = false;
     g_start_requested = false;
     g_skip_requested = false;
     g_restart_requested = false;
     g_force_track = -1;
+    g_next_track = -1;
     if (g_armed) {
         reset_race_watch();
     } else {
@@ -518,8 +544,8 @@ extern "C" void orchestrator_ToggleArmed(void) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Live leaderboard (spike stand-in for the broadcast overlay; the vanilla HUD draws nothing with
-// numLocalPlayers == 0)
+// Broadcast overlay stand-in: live leaderboard while racing, results + "next race" card once the
+// winner is in (the vanilla HUD draws nothing with numLocalPlayers == 0).
 
 static void strip_codes(const char *in, char *out, size_t n) {
     size_t o = 0;
@@ -533,59 +559,75 @@ static void strip_codes(const char *in, char *out, size_t n) {
     out[o] = '\0';
 }
 
-void orchestrator_DrawOverlay() {
-    if (!g_armed)
-        return;
-    swrObjJdge *jdge = get_jdge();
-    const bool in_race = jdge != NULL && !jdge_asleep(jdge) && swrScoresPtr != NULL;
+static void pilot_name(const swrScore *score, char *out, size_t n) {
+    char raw[128] = {0};
+    if (score->pilotId != NULL && *score->pilotId >= 0 && *score->pilotId < 23)
+        swrText_FormatPodName(*score->pilotId, raw, sizeof(raw));
+    strip_codes(raw, out, n);
+}
+
+static void format_time(float seconds, char *out, size_t n) {
+    if (seconds < 0.0f)
+        seconds = 0.0f;
+    const int ms = (int) (seconds * 1000.0f + 0.5f);
+    snprintf(out, n, "%d:%02d.%03d", ms / 60000, (ms / 1000) % 60, ms % 1000);
+}
+
+static const ImGuiWindowFlags OVERLAY_FLAGS =
+    ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
+    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing;
+
+static void draw_board(swrObjJdge *jdge) {
+    // Order: finished by total time, then the rest by progress (the game's standings position is
+    // the same idea, but it is not refreshed for finished racers once the field thins out).
+    int order[MAX_RACERS];
+    int n = 0;
+    for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++)
+        if (swrScoresPtr[i].obj_test_ptr != NULL)
+            order[n++] = i;
+    std::sort(order, order + n, [](int a, int b) {
+        const swrScore *sa = &swrScoresPtr[a];
+        const swrScore *sb = &swrScoresPtr[b];
+        const bool fa = (sa->flag & 2) != 0, fb = (sb->flag & 2) != 0;
+        if (fa != fb)
+            return fa;
+        if (fa)
+            return sa->results_P1_total_time < sb->results_P1_total_time;
+        return swrObjJdge_GetRacerProgress((swrScore *) sa) >
+               swrObjJdge_GetRacerProgress((swrScore *) sb);
+    });
 
     ImGui::SetNextWindowPos(ImVec2(10.0f, 60.0f), ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.55f);
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
-                                   ImGuiWindowFlags_AlwaysAutoResize |
-                                   ImGuiWindowFlags_NoSavedSettings |
-                                   ImGuiWindowFlags_NoFocusOnAppearing;
-    if (!ImGui::Begin("##race_tv_board", NULL, flags)) {
-        ImGui::End();
-        return;
-    }
-    ImGui::Text("Race %d", g_races_started);
-    if (g_next_pending) {
-        const DWORD now = GetTickCount();
-        ImGui::Text("Next race in %.0fs",
-                    now >= g_next_at_ms ? 0.0f : (g_next_at_ms - now) / 1000.0f);
-    }
-    if (in_race) {
-        int order[MAX_RACERS];
-        int n = 0;
-        for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++)
-            if (swrScoresPtr[i].obj_test_ptr != NULL)
-                order[n++] = i;
-        std::sort(order, order + n, [](int a, int b) {
-            const int pa = (short) swrScoresPtr[a].results_P1_Position;
-            const int pb = (short) swrScoresPtr[b].results_P1_Position;
-            return (pa > 0 ? pa : 99) < (pb > 0 ? pb : 99);
-        });
+    if (ImGui::Begin("##race_tv_board", NULL, OVERLAY_FLAGS)) {
+        ImGui::Text(g_cooldown_active ? "RESULTS  (race %d)" : "RACE %d", g_races_started);
         if (ImGui::BeginTable("board", 4, ImGuiTableFlags_SizingFixedFit)) {
             for (int k = 0; k < n; k++) {
                 swrScore *score = &swrScoresPtr[order[k]];
-                char raw[128] = {0}, name[128] = {0};
-                if (score->pilotId != NULL && *score->pilotId >= 0 && *score->pilotId < 23)
-                    swrText_FormatPodName(*score->pilotId, raw, sizeof(raw));
-                strip_codes(raw, name, sizeof(name));
+                char name[64], detail[48];
+                pilot_name(score, name, sizeof(name));
+                const bool fin = (score->flag & 2) != 0;
+                if (fin) {
+                    format_time(score->results_P1_total_time, detail, sizeof(detail));
+                } else {
+                    const float progress = swrObjJdge_GetRacerProgress(score);
+                    snprintf(detail, sizeof(detail), "lap %d  %3.0f%%", (int) progress + 1,
+                             (progress - (int) progress) * 100.0f);
+                }
                 const char *tag = "";
-                if ((score->flag & 2) != 0)
-                    tag = g_dnf_marked[order[k]] ? "DNF" : "FIN";
+                if (fin)
+                    tag = g_dnf_marked[order[k]] ? "DNF" : "";
+                else if (g_cooldown_active)
+                    tag = "racing";
                 else if (g_snaps[order[k]] > 0)
                     tag = "snapped";
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::Text("%2d", (int) (short) score->results_P1_Position);
+                ImGui::Text("%2d", k + 1);
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(name);
                 ImGui::TableNextColumn();
-                ImGui::Text("L%d %.2f", (int) score->results_P1_Lap,
-                            swrObjJdge_GetRacerProgress(score));
+                ImGui::TextUnformatted(detail);
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(tag);
             }
@@ -593,6 +635,35 @@ void orchestrator_DrawOverlay() {
         }
     }
     ImGui::End();
+}
+
+static void draw_next_race_card(const swrObjHang *hang) {
+    const ImGuiIO &io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - 10.0f, 60.0f), ImGuiCond_Always,
+                            ImVec2(1.0f, 0.0f));
+    ImGui::SetNextWindowBgAlpha(0.55f);
+    if (ImGui::Begin("##race_tv_next", NULL, OVERLAY_FLAGS)) {
+        ImGui::Text("NEXT RACE");
+        const int track = g_next_track >= 0 ? g_next_track : (int) hang->track_index;
+        ImGui::Text("%s", track_name(track));
+        ImGui::Text("%d racers, %d lap%s", g_racers, g_laps, g_laps == 1 ? "" : "s");
+        const DWORD now = GetTickCount();
+        const float left = now >= g_cooldown_end_ms ? 0.0f : (g_cooldown_end_ms - now) / 1000.0f;
+        ImGui::Text("starts in %d:%02d", (int) left / 60, (int) left % 60);
+    }
+    ImGui::End();
+}
+
+void orchestrator_DrawOverlay() {
+    if (!g_armed)
+        return;
+    swrObjHang *hang = get_hang();
+    swrObjJdge *jdge = get_jdge();
+    if (hang == NULL || jdge == NULL || jdge_asleep(jdge) || swrScoresPtr == NULL)
+        return;
+    draw_board(jdge);
+    if (g_cooldown_active)
+        draw_next_race_card(hang);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -622,7 +693,7 @@ static void load_config() {
     g_laps = std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"laps", g_laps, ini), 1, 10);
     g_racers =
         std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"racers", g_racers, ini), 1, 20);
-    g_pause_s = ini_get_float(ini, L"pause_s", g_pause_s);
+    g_cooldown_s = ini_get_float(ini, L"cooldown_s", g_cooldown_s);
     g_rotate_tracks =
         GetPrivateProfileIntW(INI_SECTION, L"rotate_tracks", g_rotate_tracks, ini) != 0;
     g_unstick = GetPrivateProfileIntW(INI_SECTION, L"unstick", g_unstick, ini) != 0;
@@ -642,7 +713,7 @@ static void save_config() {
     const wchar_t *ini = settings_ini_path();
     ini_set_int(ini, L"laps", g_laps);
     ini_set_int(ini, L"racers", g_racers);
-    ini_set_float(ini, L"pause_s", g_pause_s);
+    ini_set_float(ini, L"cooldown_s", g_cooldown_s);
     ini_set_int(ini, L"rotate_tracks", g_rotate_tracks);
     ini_set_int(ini, L"unstick", g_unstick);
     ini_set_float(ini, L"stuck_s", g_stuck_s);
@@ -661,15 +732,18 @@ static void save_config() {
 // Panel
 
 static void panel_orchestrator() {
-    ImGui::TextWrapped("Phase 0 spike: unattended AI-only races back to back. Arm it, then start "
-                       "a Free Play race normally (or press Start now from a menu). F8 toggles.");
+    ImGui::TextWrapped(
+        "Unattended AI-only races back to back. Arm it, then start a Free Play race "
+        "normally (or press Start now from a menu). F8 toggles. When the winner finishes "
+        "the overlay shows results + the next race; at zero the next race loads directly.");
     bool changed = false;
     bool armed = g_armed;
     if (ImGui::Checkbox("Armed", &armed))
         orchestrator_ToggleArmed();
     changed |= ImGui::SliderInt("Racers", &g_racers, 1, 20);
     changed |= ImGui::SliderInt("Laps", &g_laps, 1, 10);
-    changed |= ImGui::SliderFloat("Pause between races (s)", &g_pause_s, 0.0f, 120.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Results / betting window after the winner (s)", &g_cooldown_s,
+                                  5.0f, 900.0f, "%.0f");
     changed |= ImGui::Checkbox("Random track (no repeat in last 10)", &g_rotate_tracks);
     changed |= ImGui::Checkbox("Full physics for all AI (no on-rails LOD)", &g_full_physics);
     changed |= ImGui::Checkbox("AI engine damage: fires burn, engines explode", &g_ai_damage);
@@ -693,19 +767,18 @@ static void panel_orchestrator() {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(120.0f);
     changed |= ImGui::SliderFloat("after winner (s)##dnf", &g_dnf_s, 10.0f, 600.0f, "%.0f");
-
     if (changed)
         save_config();
 
     swrObjHang *hang = get_hang();
     swrObjJdge *jdge = get_jdge();
     const bool in_race = jdge != NULL && !jdge_asleep(jdge);
-    ImGui::BeginDisabled(!g_armed || hang == NULL || in_race || g_next_pending);
+    ImGui::BeginDisabled(!g_armed || hang == NULL || in_race);
     if (ImGui::Button("Start now"))
         g_start_requested = true;
     ImGui::EndDisabled();
     ImGui::SameLine();
-    ImGui::BeginDisabled(!g_armed || hang == NULL || (!in_race && !g_next_pending));
+    ImGui::BeginDisabled(!g_armed || hang == NULL);
     if (ImGui::Button("Skip"))
         g_skip_requested = true;
     ImGui::SameLine();
@@ -718,8 +791,9 @@ static void panel_orchestrator() {
                 g_races_started, g_races_finished, g_snaps_total, g_dnf_total, g_ai_explosions,
                 g_lod_patched ? "on" : "off");
     if (jdge != NULL)
-        ImGui::Text("Judge: %s, state %d, %d racers", in_race ? "awake" : "asleep",
-                    jdge->flag & 0xf, jdge->num_players);
+        ImGui::Text("Judge: %s, state %d, %d racers%s", in_race ? "awake" : "asleep",
+                    jdge->flag & 0xf, jdge->num_players,
+                    g_cooldown_active ? ", results window open" : "");
     ImGui::TextWrapped("Status: %s", g_status);
 }
 
