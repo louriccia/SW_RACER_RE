@@ -1,6 +1,7 @@
 #include "imgui_utils.h"
 #include "debug_ui.h"
 #include "n64_shader.h"
+#include "config.h"
 #include "sdf_text.h"
 #include "camera/camera.h"
 #include "camera/player_camera.h"
@@ -114,12 +115,6 @@ ImGuiState imgui_state = {
     .collect_textures_skip_pod_textures = true,
 };
 
-static std::wstring ini_path = [] {
-    wchar_t buff[1024];
-    GetModuleFileNameW(nullptr, std::data(buff), std::size(buff));
-    return (std::filesystem::path(buff).parent_path() / "SW_RACER_RE.ini").wstring();
-}();
-
 // Per-slot config lives in [sdf_font_0]..[sdf_font_4]; the "set" marker means user-customized.
 static void sdf_fonts_load_ini();  // called at startup (before the first text frame builds atlases)
 void sdf_fonts_save_ini(int slot); // called by the SDF Fonts panel on edit-commit
@@ -156,7 +151,7 @@ static void check_game_dir_writable() {
 }
 
 bool read_hd_font_setting() {
-    imgui_state.hd_font = GetPrivateProfileIntW(L"settings", L"hd_font", 1, ini_path.c_str());
+    imgui_state.hd_font = config::get_int("settings", "hd_font", 1);
     return imgui_state.hd_font;
 }
 
@@ -215,37 +210,34 @@ static bool texture_replacement_assets_available() {
 }
 
 // Multiplayer player-set pod upgrades. Seven categories in swrRace_CalculateUpgradedStat order
-// (0..6); the labels drive the slider UI, the keys persist each level to SW_RACER_RE.ini.
+// (0..6); the labels drive the slider UI, the keys persist each level via the config layer.
 static const char *const mp_upgrade_labels[7] = {
     "Traction", "Turning", "Acceleration", "Top Speed", "Air Brake", "Cooling", "Repair"};
-static const wchar_t *const mp_upgrade_ini_keys[7] = {
-    L"mp_upg_traction", L"mp_upg_turning", L"mp_upg_accel", L"mp_upg_topspeed",
-    L"mp_upg_airbrake", L"mp_upg_cooling", L"mp_upg_repair"};
+static const char *const mp_upgrade_ini_keys[7] = {
+    "mp_upg_traction", "mp_upg_turning", "mp_upg_accel", "mp_upg_topspeed",
+    "mp_upg_airbrake", "mp_upg_cooling", "mp_upg_repair"};
 
 void read_settings_ini() {
-    const UINT msaa_samples =
-        GetPrivateProfileIntW(L"settings", L"msaa_samples", 0, ini_path.c_str());
+    config::reload();// pick up on-disk edits before reading
+
+    const int msaa_samples = config::get_int("settings", "msaa_samples", 0);
     if (msaa_samples != 0) {
         imgui_state.msaa_samples = msaa_samples;
     }
 
-    const UINT anisotropy = GetPrivateProfileIntW(L"settings", L"anisotropy", 0, ini_path.c_str());
+    const int anisotropy = config::get_int("settings", "anisotropy", 0);
     if (anisotropy != 0) {
         imgui_state.anisotropy = anisotropy;
     }
 
-    imgui_state.tex_mag_filter =
-        GetPrivateProfileIntW(L"settings", L"tex_mag_filter", TEX_MAG_FAITHFUL, ini_path.c_str());
+    imgui_state.tex_mag_filter = config::get_int("settings", "tex_mag_filter", TEX_MAG_FAITHFUL);
     if (imgui_state.tex_mag_filter < TEX_MAG_FAITHFUL || imgui_state.tex_mag_filter > TEX_MAG_LINEAR)
         imgui_state.tex_mag_filter = TEX_MAG_FAITHFUL;
 
-    wchar_t alpha_cutoff_buf[32] = {0};
-    GetPrivateProfileStringW(L"settings", L"alpha_cutoff", L"0.5", alpha_cutoff_buf, 32,
-                             ini_path.c_str());
-    float alpha_cutoff = (float) wcstod(alpha_cutoff_buf, nullptr);
+    const float alpha_cutoff = config::get_float("settings", "alpha_cutoff", 0.5f);
     imgui_state.alpha_cutoff = (alpha_cutoff >= 0.0f && alpha_cutoff <= 1.0f) ? alpha_cutoff : 0.5f;
 
-    imgui_state.target_fps = GetPrivateProfileIntW(L"settings", L"target_fps", 0, ini_path.c_str());
+    imgui_state.target_fps = config::get_int("settings", "target_fps", 0);
     if (imgui_state.target_fps != 0) {
         if (imgui_state.target_fps < 10) {
             imgui_state.target_fps = 10;
@@ -254,64 +246,44 @@ void read_settings_ini() {
         }
     }
 
-    imgui_state.show_fps_overlay =
-        GetPrivateProfileIntW(L"settings", L"show_fps_overlay", 0, ini_path.c_str());
+    imgui_state.show_fps_overlay = config::get_int("settings", "show_fps_overlay", 0);
+    imgui_state.show_fps_graph = config::get_int("settings", "show_fps_graph", 0);
 
-    imgui_state.show_fps_graph =
-        GetPrivateProfileIntW(L"settings", L"show_fps_graph", 0, ini_path.c_str());
-
-    imgui_state.enable_fog = GetPrivateProfileIntW(L"settings", L"enable_fog", 1, ini_path.c_str());
-    imgui_state.enable_gamepad_nav =
-        GetPrivateProfileIntW(L"settings", L"enable_gamepad_nav", 1, ini_path.c_str());
+    imgui_state.enable_fog = config::get_int("settings", "enable_fog", 1);
+    imgui_state.enable_gamepad_nav = config::get_int("settings", "enable_gamepad_nav", 1);
 
     // Millisecond precision on every displayed time (default on). Lives in the times delta.
-    g_time_show_millis =
-        GetPrivateProfileIntW(L"settings", L"time_show_millis", 1, ini_path.c_str()) != 0;
+    g_time_show_millis = config::get_int("settings", "time_show_millis", 1) != 0;
     imgui_state.enable_weather =
-        GetPrivateProfileIntW(L"settings", L"enable_weather", 1, ini_path.c_str());
+        config::get_int("settings", "enable_weather", 1);
 
     imgui_state.ui_resolution_independent =
-        GetPrivateProfileIntW(L"settings", L"ui_resolution_independent", 1, ini_path.c_str()) != 0;
-    wchar_t ui_scale_buf[32] = {0};
-    GetPrivateProfileStringW(L"settings", L"ui_scale", L"1.0", ui_scale_buf, 32, ini_path.c_str());
-    float ui_scale = (float) wcstod(ui_scale_buf, nullptr);
+        config::get_int("settings", "ui_resolution_independent", 1) != 0;
+    const float ui_scale = config::get_float("settings", "ui_scale", 1.0f);
     imgui_state.ui_scale = (ui_scale >= 0.5f && ui_scale <= 2.0f) ? ui_scale : 1.0f;
 
-    imgui_state.mp_disable_collision =
-        GetPrivateProfileIntW(L"settings", L"mp_disable_collision", 1, ini_path.c_str());
+    imgui_state.mp_disable_collision = config::get_int("settings", "mp_disable_collision", 1);
 
-    imgui_state.cache_meshes =
-        GetPrivateProfileIntW(L"settings", L"cache_meshes", 1, ini_path.c_str());
-    imgui_state.reflection_texgen =
-        GetPrivateProfileIntW(L"settings", L"reflection_texgen", 1, ini_path.c_str());
-    wchar_t texgen_scale_buf[32] = {0};
-    GetPrivateProfileStringW(L"settings", L"reflection_texgen_scale", L"2.0", texgen_scale_buf, 32,
-                             ini_path.c_str());
-    float texgen_scale = (float) wcstod(texgen_scale_buf, nullptr);
+    imgui_state.cache_meshes = config::get_int("settings", "cache_meshes", 1);
+    imgui_state.reflection_texgen = config::get_int("settings", "reflection_texgen", 1);
+    const float texgen_scale = config::get_float("settings", "reflection_texgen_scale", 2.0f);
     imgui_state.reflection_texgen_scale =
         (texgen_scale >= 0.5f && texgen_scale <= 3.0f) ? texgen_scale : 2.0f;
-    wchar_t texgen_rot_buf[32] = {0};
-    GetPrivateProfileStringW(L"settings", L"reflection_texgen_rotation", L"0.0", texgen_rot_buf, 32,
-                             ini_path.c_str());
-    float texgen_rot = (float) wcstod(texgen_rot_buf, nullptr);
+    const float texgen_rot = config::get_float("settings", "reflection_texgen_rotation", 0.0f);
     imgui_state.reflection_texgen_rotation =
         (texgen_rot >= 0.0f && texgen_rot <= 360.0f) ? texgen_rot : 0.0f;
-    wchar_t texgen_off_buf[64] = {0};
-    GetPrivateProfileStringW(L"settings", L"reflection_texgen_offset", L"0.5 0.5", texgen_off_buf,
-                             64, ini_path.c_str());
     {
+        const std::string offset =
+            config::get_string("settings", "reflection_texgen_offset", "0.5 0.5");
         float ou = 0.5f, ov = 0.5f;
-        if (swscanf(texgen_off_buf, L"%f %f", &ou, &ov) == 2) {
+        if (sscanf(offset.c_str(), "%f %f", &ou, &ov) == 2) {
             imgui_state.reflection_texgen_offset[0] = (ou >= -1.0f && ou <= 1.0f) ? ou : 0.5f;
             imgui_state.reflection_texgen_offset[1] = (ov >= -1.0f && ov <= 1.0f) ? ov : 0.5f;
         }
     }
-    imgui_state.cull_meshes =
-        GetPrivateProfileIntW(L"settings", L"cull_meshes", 1, ini_path.c_str());
-    imgui_state.stream_dynamic_meshes =
-        GetPrivateProfileIntW(L"settings", L"stream_dynamic_meshes", 1, ini_path.c_str());
-    imgui_state.hd_scene_captures =
-        GetPrivateProfileIntW(L"settings", L"hd_scene_captures", 0, ini_path.c_str());
+    imgui_state.cull_meshes = config::get_int("settings", "cull_meshes", 1);
+    imgui_state.stream_dynamic_meshes = config::get_int("settings", "stream_dynamic_meshes", 1);
+    imgui_state.hd_scene_captures = config::get_int("settings", "hd_scene_captures", 0);
 
     read_hd_font_setting();
     if (!hd_font_assets_available()) {
@@ -321,109 +293,83 @@ void read_settings_ini() {
         enable_texture_replacement = false;// assets/replacement_textures missing -> nothing to load
     }
 
-    imgui_state.vsync = GetPrivateProfileIntW(L"settings", L"vsync", 1, ini_path.c_str());
+    imgui_state.vsync = config::get_int("settings", "vsync", 1);
 
-    imgui_state.ai_full_lod =
-        GetPrivateProfileIntW(L"settings", L"ai_full_lod", 1, ini_path.c_str());
+    imgui_state.ai_full_lod = config::get_int("settings", "ai_full_lod", 1);
     set_ai_full_lod(imgui_state.ai_full_lod);
 
-    imgui_state.HD_replacement =
-        GetPrivateProfileIntW(L"settings", L"hd_replacement", 1, ini_path.c_str());
+    imgui_state.HD_replacement = config::get_int("settings", "hd_replacement", 1);
     if (!hd_model_assets_available()) {
         imgui_state.HD_replacement = false;// assets/gltf missing -> nothing to replace
     }
 
     // Default to the build's compiled-in visibility (debug shows, release hides).
-    show_imgui =
-        (char) GetPrivateProfileIntW(L"settings", L"show_imgui", show_imgui, ini_path.c_str());
+    show_imgui = (char) config::get_int("settings", "show_imgui", show_imgui);
 
-    wchar_t fov_scale_buf[32] = {0};
-    GetPrivateProfileStringW(L"settings", L"fov_scale", L"1.0", fov_scale_buf, 32,
-                             ini_path.c_str());
-    float fov_scale = (float) wcstod(fov_scale_buf, nullptr);
+    const float fov_scale = config::get_float("settings", "fov_scale", 1.0f);
     imgui_state.fov_scale = (fov_scale >= 0.5f && fov_scale <= 2.0f) ? fov_scale : 1.0f;
 
-    imgui_state.console_far_clip =
-        GetPrivateProfileIntW(L"settings", L"console_far_clip", 0, ini_path.c_str());
-    wchar_t far_scale_buf[32] = {0};
-    GetPrivateProfileStringW(L"settings", L"console_far_scale", L"1.0", far_scale_buf, 32,
-                             ini_path.c_str());
-    float console_far_scale = (float) wcstod(far_scale_buf, nullptr);
+    imgui_state.console_far_clip = config::get_int("settings", "console_far_clip", 0);
+    const float console_far_scale = config::get_float("settings", "console_far_scale", 1.0f);
     imgui_state.console_far_scale =
         (console_far_scale >= 0.05f && console_far_scale <= 1.0f) ? console_far_scale : 1.0f;
 
-    wchar_t vol_buf[32] = {0};
-    GetPrivateProfileStringW(L"settings", L"master_volume", L"1.0", vol_buf, 32, ini_path.c_str());
-    float master_volume = (float) wcstod(vol_buf, nullptr);
+    const float master_volume = config::get_float("settings", "master_volume", 1.0f);
     imgui_state.master_volume =
         (master_volume >= 0.0f && master_volume <= 1.0f) ? master_volume : 1.0f;
-    GetPrivateProfileStringW(L"settings", L"cutscene_volume", L"0.7", vol_buf, 32,
-                             ini_path.c_str());
-    float cutscene_volume = (float) wcstod(vol_buf, nullptr);
+    const float cutscene_volume = config::get_float("settings", "cutscene_volume", 0.7f);
     imgui_state.cutscene_volume =
         (cutscene_volume >= 0.0f && cutscene_volume <= 1.0f) ? cutscene_volume : 0.7f;
 
-    imgui_state.show_pod_names =
-        GetPrivateProfileIntW(L"settings", L"show_pod_names", 1, ini_path.c_str());
+    imgui_state.show_pod_names = config::get_int("settings", "show_pod_names", 1);
 
-    imgui_state.show_collision =
-        GetPrivateProfileIntW(L"settings", L"show_collision", 0, ini_path.c_str());
-    imgui_state.show_triggers =
-        GetPrivateProfileIntW(L"settings", L"show_triggers", 0, ini_path.c_str());
-    imgui_state.show_hitbox =
-        GetPrivateProfileIntW(L"settings", L"show_hitbox", 0, ini_path.c_str());
-    imgui_state.collision_wireframe =
-        GetPrivateProfileIntW(L"settings", L"collision_wireframe", 0, ini_path.c_str());
-    wchar_t collision_opacity_buf[32] = {0};
-    GetPrivateProfileStringW(L"settings", L"collision_opacity", L"0.35", collision_opacity_buf, 32,
-                             ini_path.c_str());
-    float collision_opacity = (float) wcstod(collision_opacity_buf, nullptr);
+    imgui_state.show_collision = config::get_int("settings", "show_collision", 0);
+    imgui_state.show_triggers = config::get_int("settings", "show_triggers", 0);
+    imgui_state.show_hitbox = config::get_int("settings", "show_hitbox", 0);
+    imgui_state.collision_wireframe = config::get_int("settings", "collision_wireframe", 0);
+    const float collision_opacity = config::get_float("settings", "collision_opacity", 0.35f);
     imgui_state.collision_opacity =
         (collision_opacity >= 0.0f && collision_opacity <= 1.0f) ? collision_opacity : 0.35f;
 
-    imgui_state.sdf_text =
-        GetPrivateProfileIntW(L"settings", L"sdf_text", 0, ini_path.c_str()) != 0;
+    imgui_state.sdf_text = config::get_int("settings", "sdf_text", 0) != 0;
 
     // Per-slot SDF font customization; must load before the first text frame builds the atlases.
     sdf_fonts_load_ini();
 
     imgui_state.skip_intro_fmv =
-        GetPrivateProfileIntW(L"settings", L"skip_intro_fmv", 0, ini_path.c_str());
+        config::get_int("settings", "skip_intro_fmv", 0);
     imgui_state.skip_cantina_intro =
-        GetPrivateProfileIntW(L"settings", L"skip_cantina_intro", 0, ini_path.c_str());
+        config::get_int("settings", "skip_cantina_intro", 0);
     imgui_state.skip_taunt =
-        GetPrivateProfileIntW(L"settings", L"skip_taunt", 0, ini_path.c_str());
+        config::get_int("settings", "skip_taunt", 0);
     imgui_state.skip_prerace_cinematic =
-        GetPrivateProfileIntW(L"settings", L"skip_prerace_cinematic", 0, ini_path.c_str());
+        config::get_int("settings", "skip_prerace_cinematic", 0);
     imgui_state.skip_prerace_camera =
-        GetPrivateProfileIntW(L"settings", L"skip_prerace_camera", 0, ini_path.c_str());
+        config::get_int("settings", "skip_prerace_camera", 0);
     imgui_state.skip_results =
-        GetPrivateProfileIntW(L"settings", L"skip_results", 0, ini_path.c_str());
+        config::get_int("settings", "skip_results", 0);
     imgui_state.skip_circuit_winner =
-        GetPrivateProfileIntW(L"settings", L"skip_circuit_winner", 0, ini_path.c_str());
+        config::get_int("settings", "skip_circuit_winner", 0);
     imgui_state.skip_credits =
-        GetPrivateProfileIntW(L"settings", L"skip_credits", 0, ini_path.c_str());
+        config::get_int("settings", "skip_credits", 0);
     imgui_state.restore_prerace_track_sweep =
-        GetPrivateProfileIntW(L"settings", L"restore_prerace_track_sweep", 1, ini_path.c_str());
+        config::get_int("settings", "restore_prerace_track_sweep", 1);
     imgui_state.restore_screen_fades =
-        GetPrivateProfileIntW(L"settings", L"restore_screen_fades", 1, ini_path.c_str());
+        config::get_int("settings", "restore_screen_fades", 1);
     imgui_state.cinematic_letterbox =
-        GetPrivateProfileIntW(L"settings", L"cinematic_letterbox", 1, ini_path.c_str());
+        config::get_int("settings", "cinematic_letterbox", 1);
     imgui_state.cursor_use_game_sprite =
-        GetPrivateProfileIntW(L"settings", L"cursor_use_game_sprite", 0, ini_path.c_str()) != 0;
+        config::get_int("settings", "cursor_use_game_sprite", 0) != 0;
 
-    imgui_state.fast_restart =
-        GetPrivateProfileIntW(L"settings", L"fast_restart", 1, ini_path.c_str());
+    imgui_state.fast_restart = config::get_int("settings", "fast_restart", 1);
 
-    imgui_state.mp_allow_upgrades =
-        GetPrivateProfileIntW(L"settings", L"mp_allow_upgrades", 0, ini_path.c_str());
+    imgui_state.mp_allow_upgrades = config::get_int("settings", "mp_allow_upgrades", 0);
     for (int i = 0; i < 7; i++) {
-        int level = GetPrivateProfileIntW(L"settings", mp_upgrade_ini_keys[i], 0, ini_path.c_str());
+        int level = config::get_int("settings", mp_upgrade_ini_keys[i], 0);
         imgui_state.mp_upgrade_levels[i] = (level < 0) ? 0 : (level > 5) ? 5 : level;
     }
 
-    g_window_mode =
-        GetPrivateProfileIntW(L"settings", L"window_mode", WINDOW_MODE_WINDOWED, ini_path.c_str());
+    g_window_mode = config::get_int("settings", "window_mode", WINDOW_MODE_WINDOWED);
     if (g_window_mode < WINDOW_MODE_WINDOWED || g_window_mode > WINDOW_MODE_FULLSCREEN)
         g_window_mode = WINDOW_MODE_WINDOWED;
     // The window starts as a maximized windowed window, so only apply non-windowed modes here.
@@ -434,217 +380,172 @@ void read_settings_ini() {
 }
 
 void save_settings_ini() {
-    WritePrivateProfileStringW(L"settings", L"msaa_samples",
-                               std::to_wstring(imgui_state.msaa_samples).c_str(), ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"anisotropy",
-                               std::to_wstring(imgui_state.anisotropy).c_str(), ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"tex_mag_filter",
-                               std::to_wstring(imgui_state.tex_mag_filter).c_str(), ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"alpha_cutoff",
-                               std::to_wstring(imgui_state.alpha_cutoff).c_str(), ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"target_fps",
-                               std::to_wstring(imgui_state.target_fps).c_str(), ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"show_fps_overlay",
-                               imgui_state.show_fps_overlay ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"show_fps_graph",
-                               imgui_state.show_fps_graph ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"enable_fog", imgui_state.enable_fog ? L"1" : L"0",
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"enable_gamepad_nav",
-                               imgui_state.enable_gamepad_nav ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"time_show_millis",
-                               g_time_show_millis ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"enable_weather",
-                               imgui_state.enable_weather ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"ui_resolution_independent",
-                               imgui_state.ui_resolution_independent ? L"1" : L"0",
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"ui_scale",
-                               std::to_wstring(imgui_state.ui_scale).c_str(), ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"mp_disable_collision",
-                               imgui_state.mp_disable_collision ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"cache_meshes", imgui_state.cache_meshes ? L"1" : L"0",
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"reflection_texgen",
-                               imgui_state.reflection_texgen ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"reflection_texgen_scale",
-                               std::to_wstring(imgui_state.reflection_texgen_scale).c_str(),
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"reflection_texgen_rotation",
-                               std::to_wstring(imgui_state.reflection_texgen_rotation).c_str(),
-                               ini_path.c_str());
-    WritePrivateProfileStringW(
-        L"settings", L"reflection_texgen_offset",
-        (std::to_wstring(imgui_state.reflection_texgen_offset[0]) + L" " +
-         std::to_wstring(imgui_state.reflection_texgen_offset[1]))
-            .c_str(),
-        ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"cull_meshes", imgui_state.cull_meshes ? L"1" : L"0",
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"stream_dynamic_meshes",
-                               imgui_state.stream_dynamic_meshes ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"hd_scene_captures",
-                               imgui_state.hd_scene_captures ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"hd_font", imgui_state.hd_font ? L"1" : L"0",
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"vsync", imgui_state.vsync ? L"1" : L"0",
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"ai_full_lod", imgui_state.ai_full_lod ? L"1" : L"0",
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"fov_scale",
-                               std::to_wstring(imgui_state.fov_scale).c_str(), ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"console_far_clip",
-                               imgui_state.console_far_clip ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"console_far_scale",
-                               std::to_wstring(imgui_state.console_far_scale).c_str(),
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"master_volume",
-                               std::to_wstring(imgui_state.master_volume).c_str(),
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"cutscene_volume",
-                               std::to_wstring(imgui_state.cutscene_volume).c_str(),
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"hd_replacement",
-                               imgui_state.HD_replacement ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"show_imgui", show_imgui ? L"1" : L"0",
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"show_pod_names",
-                               imgui_state.show_pod_names ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"show_collision",
-                               imgui_state.show_collision ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"show_triggers",
-                               imgui_state.show_triggers ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"show_hitbox", imgui_state.show_hitbox ? L"1" : L"0",
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"collision_wireframe",
-                               imgui_state.collision_wireframe ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"collision_opacity",
-                               std::to_wstring(imgui_state.collision_opacity).c_str(),
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"sdf_text", imgui_state.sdf_text ? L"1" : L"0",
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_intro_fmv",
-                               imgui_state.skip_intro_fmv ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_cantina_intro",
-                               imgui_state.skip_cantina_intro ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_taunt",
-                               imgui_state.skip_taunt ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_prerace_cinematic",
-                               imgui_state.skip_prerace_cinematic ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_prerace_camera",
-                               imgui_state.skip_prerace_camera ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_results",
-                               imgui_state.skip_results ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_circuit_winner",
-                               imgui_state.skip_circuit_winner ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_credits",
-                               imgui_state.skip_credits ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"restore_prerace_track_sweep",
-                               imgui_state.restore_prerace_track_sweep ? L"1" : L"0",
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"restore_screen_fades",
-                               imgui_state.restore_screen_fades ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"cinematic_letterbox",
-                               imgui_state.cinematic_letterbox ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"cursor_use_game_sprite",
-                               imgui_state.cursor_use_game_sprite ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"fast_restart", imgui_state.fast_restart ? L"1" : L"0",
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"mp_allow_upgrades",
-                               imgui_state.mp_allow_upgrades ? L"1" : L"0", ini_path.c_str());
+    config::set_int("settings", "msaa_samples", imgui_state.msaa_samples);
+    config::set_int("settings", "anisotropy", imgui_state.anisotropy);
+    config::set_int("settings", "tex_mag_filter", imgui_state.tex_mag_filter);
+    config::set_float("settings", "alpha_cutoff", imgui_state.alpha_cutoff);
+    config::set_int("settings", "target_fps", imgui_state.target_fps);
+    config::set_bool("settings", "show_fps_overlay", imgui_state.show_fps_overlay);
+    config::set_bool("settings", "show_fps_graph", imgui_state.show_fps_graph);
+    config::set_bool("settings", "enable_fog", imgui_state.enable_fog);
+    config::set_bool("settings", "enable_gamepad_nav", imgui_state.enable_gamepad_nav);
+    config::set_bool("settings", "time_show_millis", g_time_show_millis);
+    config::set_bool("settings", "ui_resolution_independent", imgui_state.ui_resolution_independent);
+    config::set_float("settings", "ui_scale", imgui_state.ui_scale);
+    config::set_bool("settings", "mp_disable_collision", imgui_state.mp_disable_collision);
+    config::set_bool("settings", "cache_meshes", imgui_state.cache_meshes);
+    config::set_bool("settings", "reflection_texgen", imgui_state.reflection_texgen);
+    config::set_float("settings", "reflection_texgen_scale", imgui_state.reflection_texgen_scale);
+    config::set_float("settings", "reflection_texgen_rotation",
+                      imgui_state.reflection_texgen_rotation);
+    config::set_string("settings", "reflection_texgen_offset",
+                       std::to_string(imgui_state.reflection_texgen_offset[0]) + " " +
+                           std::to_string(imgui_state.reflection_texgen_offset[1]));
+    config::set_bool("settings", "cull_meshes", imgui_state.cull_meshes);
+    config::set_bool("settings", "stream_dynamic_meshes", imgui_state.stream_dynamic_meshes);
+    config::set_bool("settings", "hd_scene_captures", imgui_state.hd_scene_captures);
+    config::set_bool("settings", "hd_font", imgui_state.hd_font);
+    config::set_bool("settings", "sdf_text", imgui_state.sdf_text);
+    config::set_bool("settings", "vsync", imgui_state.vsync);
+    config::set_bool("settings", "ai_full_lod", imgui_state.ai_full_lod);
+    config::set_float("settings", "fov_scale", imgui_state.fov_scale);
+    config::set_bool("settings", "console_far_clip", imgui_state.console_far_clip);
+    config::set_float("settings", "console_far_scale", imgui_state.console_far_scale);
+    config::set_float("settings", "master_volume", imgui_state.master_volume);
+    config::set_float("settings", "cutscene_volume", imgui_state.cutscene_volume);
+    config::set_bool("settings", "hd_replacement", imgui_state.HD_replacement);
+    config::set_bool("settings", "show_imgui", show_imgui);
+    config::set_bool("settings", "show_pod_names", imgui_state.show_pod_names);
+    config::set_bool("settings", "show_collision", imgui_state.show_collision);
+    config::set_bool("settings", "show_triggers", imgui_state.show_triggers);
+    config::set_bool("settings", "show_hitbox", imgui_state.show_hitbox);
+    config::set_bool("settings", "collision_wireframe", imgui_state.collision_wireframe);
+    config::set_float("settings", "collision_opacity", imgui_state.collision_opacity);
+    config::set_bool("settings", "cursor_use_game_sprite", imgui_state.cursor_use_game_sprite);
+    config::set_bool("settings", "fast_restart", imgui_state.fast_restart);
+    config::set_bool("settings", "mp_allow_upgrades", imgui_state.mp_allow_upgrades);
+    config::set_int("settings", "enable_weather", imgui_state.enable_weather);
+    config::set_int("settings", "skip_intro_fmv", imgui_state.skip_intro_fmv);
+    config::set_int("settings", "skip_cantina_intro", imgui_state.skip_cantina_intro);
+    config::set_int("settings", "skip_taunt", imgui_state.skip_taunt);
+    config::set_int("settings", "skip_prerace_cinematic", imgui_state.skip_prerace_cinematic);
+    config::set_int("settings", "skip_prerace_camera", imgui_state.skip_prerace_camera);
+    config::set_int("settings", "skip_results", imgui_state.skip_results);
+    config::set_int("settings", "skip_circuit_winner", imgui_state.skip_circuit_winner);
+    config::set_int("settings", "skip_credits", imgui_state.skip_credits);
+    config::set_int("settings", "restore_prerace_track_sweep", imgui_state.restore_prerace_track_sweep);
+    config::set_int("settings", "restore_screen_fades", imgui_state.restore_screen_fades);
+    config::set_int("settings", "cinematic_letterbox", imgui_state.cinematic_letterbox);
     for (int i = 0; i < 7; i++) {
-        WritePrivateProfileStringW(L"settings", mp_upgrade_ini_keys[i],
-                                   std::to_wstring(imgui_state.mp_upgrade_levels[i]).c_str(),
-                                   ini_path.c_str());
+        config::set_int("settings", mp_upgrade_ini_keys[i], imgui_state.mp_upgrade_levels[i]);
     }
-
-    WritePrivateProfileStringW(L"settings", L"window_mode", std::to_wstring(g_window_mode).c_str(),
-                               ini_path.c_str());
+    config::set_int("settings", "window_mode", g_window_mode);
+    config::save();
 }
 
 // ---- SDF per-slot font persistence, profiles + file picker (see panel_fonts)
-static void sdf_font_section(int slot, wchar_t *out, size_t n) {
-    swprintf(out, n, L"sdf_font_%d", slot);// main-ini working-state section
+// Slot state lives in two places: the main config (reached through the portable parser, so a
+// later config::save() cannot clobber it) and standalone shareable profile files, which the
+// parser does not cover and so stay on the Win32 INI calls. A null `ini` means the main config.
+static void sdf_font_section(int slot, char *out, size_t n) {
+    snprintf(out, n, "sdf_font_%d", slot);
 }
 
-static float sdf_ini_get_float(const wchar_t *ini, const wchar_t *sec, const wchar_t *key,
-                               float def) {
-    wchar_t buf[64] = {0}, defbuf[64];
+static float sdf_get_float(const wchar_t *ini, const char *sec, const char *key, float def) {
+    if (ini == nullptr)
+        return config::get_float(sec, key, def);
+    wchar_t wsec[64], wkey[64], buf[64] = {0}, defbuf[64];
+    MultiByteToWideChar(CP_UTF8, 0, sec, -1, wsec, 64);
+    MultiByteToWideChar(CP_UTF8, 0, key, -1, wkey, 64);
     swprintf(defbuf, 64, L"%g", def);
-    GetPrivateProfileStringW(sec, key, defbuf, buf, 64, ini);
+    GetPrivateProfileStringW(wsec, wkey, defbuf, buf, 64, ini);
     return (float) wcstod(buf, nullptr);
 }
 
-static void sdf_ini_set_float(const wchar_t *ini, const wchar_t *sec, const wchar_t *key, float v) {
-    wchar_t buf[64];
+static void sdf_set_float(const wchar_t *ini, const char *sec, const char *key, float v) {
+    if (ini == nullptr) {
+        config::set_float(sec, key, v);
+        return;
+    }
+    wchar_t wsec[64], wkey[64], buf[64];
+    MultiByteToWideChar(CP_UTF8, 0, sec, -1, wsec, 64);
+    MultiByteToWideChar(CP_UTF8, 0, key, -1, wkey, 64);
     swprintf(buf, 64, L"%g", v);
-    WritePrivateProfileStringW(sec, key, buf, ini);
+    WritePrivateProfileStringW(wsec, wkey, buf, ini);
 }
 
-// Shared by the main-ini working state and by profile files. Reading derives fileAuto/shearAuto.
-static void sdf_slot_read(SdfFontSlot *c, const wchar_t *ini, const wchar_t *sec) {
-    wchar_t wfile[SDF_FONT_PATH_MAX] = {0};
-    GetPrivateProfileStringW(sec, L"file", L"", wfile, SDF_FONT_PATH_MAX, ini);
-    WideCharToMultiByte(CP_UTF8, 0, wfile, -1, c->file, SDF_FONT_PATH_MAX, nullptr, nullptr);
+static int sdf_get_int(const wchar_t *ini, const char *sec, const char *key, int def) {
+    if (ini == nullptr)
+        return config::get_int(sec, key, def);
+    wchar_t wsec[64], wkey[64];
+    MultiByteToWideChar(CP_UTF8, 0, sec, -1, wsec, 64);
+    MultiByteToWideChar(CP_UTF8, 0, key, -1, wkey, 64);
+    return GetPrivateProfileIntW(wsec, wkey, def, ini);
+}
+
+static std::string sdf_get_string(const wchar_t *ini, const char *sec, const char *key) {
+    if (ini == nullptr)
+        return config::get_string(sec, key, "");
+    wchar_t wsec[64], wkey[64], wbuf[SDF_FONT_PATH_MAX] = {0};
+    MultiByteToWideChar(CP_UTF8, 0, sec, -1, wsec, 64);
+    MultiByteToWideChar(CP_UTF8, 0, key, -1, wkey, 64);
+    GetPrivateProfileStringW(wsec, wkey, L"", wbuf, SDF_FONT_PATH_MAX, ini);
+    char out[SDF_FONT_PATH_MAX] = {0};
+    WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, out, SDF_FONT_PATH_MAX, nullptr, nullptr);
+    return out;
+}
+
+static void sdf_set_string(const wchar_t *ini, const char *sec, const char *key,
+                           const std::string &v) {
+    if (ini == nullptr) {
+        config::set_string(sec, key, v);
+        return;
+    }
+    wchar_t wsec[64], wkey[64], wval[SDF_FONT_PATH_MAX] = {0};
+    MultiByteToWideChar(CP_UTF8, 0, sec, -1, wsec, 64);
+    MultiByteToWideChar(CP_UTF8, 0, key, -1, wkey, 64);
+    MultiByteToWideChar(CP_UTF8, 0, v.c_str(), -1, wval, SDF_FONT_PATH_MAX);
+    WritePrivateProfileStringW(wsec, wkey, wval, ini);
+}
+
+// Shared by the main-config working state and by profile files. Reading derives fileAuto/shearAuto.
+static void sdf_slot_read(SdfFontSlot *c, const wchar_t *ini, const char *sec) {
+    const std::string file = sdf_get_string(ini, sec, "file");
+    snprintf(c->file, SDF_FONT_PATH_MAX, "%s", file.c_str());
     c->fileAuto = (c->file[0] == '\0');
     c->shearAuto = false;
-    c->shear = sdf_ini_get_float(ini, sec, L"shear", 0.0f);
-    c->weight = sdf_ini_get_float(ini, sec, L"weight", 0.0f);
-    c->scale = sdf_ini_get_float(ini, sec, L"scale", 1.0f);
+    c->shear = sdf_get_float(ini, sec, "shear", 0.0f);
+    c->weight = sdf_get_float(ini, sec, "weight", 0.0f);
+    c->scale = sdf_get_float(ini, sec, "scale", 1.0f);
     if (c->scale < 0.1f)
         c->scale = 0.1f;// 0 is reserved as the engine's "unresolved" sentinel
-    c->offsetX = sdf_ini_get_float(ini, sec, L"offset_x", 0.0f);
-    c->offsetY = sdf_ini_get_float(ini, sec, L"offset_y", 0.0f);
-    c->lineHeight = sdf_ini_get_float(ini, sec, L"line_height", 1.0f);
-    c->letterSpacing = sdf_ini_get_float(ini, sec, L"letter_spacing", 0.0f);
-    c->shadowForceOff = GetPrivateProfileIntW(sec, L"shadow_off", 0, ini) != 0;
-    c->shadowDx = sdf_ini_get_float(ini, sec, L"shadow_dx", 1.0f);
-    c->shadowDy = sdf_ini_get_float(ini, sec, L"shadow_dy", 1.0f);
+    c->offsetX = sdf_get_float(ini, sec, "offset_x", 0.0f);
+    c->offsetY = sdf_get_float(ini, sec, "offset_y", 0.0f);
+    c->lineHeight = sdf_get_float(ini, sec, "line_height", 1.0f);
+    c->letterSpacing = sdf_get_float(ini, sec, "letter_spacing", 0.0f);
+    c->shadowForceOff = sdf_get_int(ini, sec, "shadow_off", 0) != 0;
+    c->shadowDx = sdf_get_float(ini, sec, "shadow_dx", 1.0f);
+    c->shadowDy = sdf_get_float(ini, sec, "shadow_dy", 1.0f);
     // Absent key (-1) = auto: classify_slots seeds uppercase from the vanilla font's caps-only flag.
-    int up = GetPrivateProfileIntW(sec, L"uppercase", -1, ini);
+    const int up = sdf_get_int(ini, sec, "uppercase", -1);
     c->uppercaseAuto = up < 0;
     c->uppercase = up == 1;
 }
 
-static void sdf_slot_write(const SdfFontSlot *c, const wchar_t *ini, const wchar_t *sec) {
-    wchar_t wfile[SDF_FONT_PATH_MAX] = {0};
-    if (!c->fileAuto && c->file[0])
-        MultiByteToWideChar(CP_UTF8, 0, c->file, -1, wfile, SDF_FONT_PATH_MAX);
-    WritePrivateProfileStringW(sec, L"file", wfile, ini);
-    sdf_ini_set_float(ini, sec, L"shear", c->shear);
-    sdf_ini_set_float(ini, sec, L"weight", c->weight);
-    sdf_ini_set_float(ini, sec, L"scale", c->scale);
-    sdf_ini_set_float(ini, sec, L"offset_x", c->offsetX);
-    sdf_ini_set_float(ini, sec, L"offset_y", c->offsetY);
-    sdf_ini_set_float(ini, sec, L"line_height", c->lineHeight);
-    sdf_ini_set_float(ini, sec, L"letter_spacing", c->letterSpacing);
-    WritePrivateProfileStringW(sec, L"shadow_off", c->shadowForceOff ? L"1" : L"0", ini);
-    sdf_ini_set_float(ini, sec, L"shadow_dx", c->shadowDx);
-    sdf_ini_set_float(ini, sec, L"shadow_dy", c->shadowDy);
-    // Auto -> leave the key out so it keeps tracking the vanilla font's caps-only setting.
-    if (c->uppercaseAuto)
-        WritePrivateProfileStringW(sec, L"uppercase", nullptr, ini);
-    else
-        WritePrivateProfileStringW(sec, L"uppercase", c->uppercase ? L"1" : L"0", ini);
+static void sdf_slot_write(const SdfFontSlot *c, const wchar_t *ini, const char *sec) {
+    sdf_set_string(ini, sec, "file", (!c->fileAuto && c->file[0]) ? c->file : "");
+    sdf_set_float(ini, sec, "shear", c->shear);
+    sdf_set_float(ini, sec, "weight", c->weight);
+    sdf_set_float(ini, sec, "scale", c->scale);
+    sdf_set_float(ini, sec, "offset_x", c->offsetX);
+    sdf_set_float(ini, sec, "offset_y", c->offsetY);
+    sdf_set_float(ini, sec, "line_height", c->lineHeight);
+    sdf_set_float(ini, sec, "letter_spacing", c->letterSpacing);
+    sdf_set_string(ini, sec, "shadow_off", c->shadowForceOff ? "1" : "0");
+    sdf_set_float(ini, sec, "shadow_dx", c->shadowDx);
+    sdf_set_float(ini, sec, "shadow_dy", c->shadowDy);
+    // Auto -> write the sentinel so the slot keeps tracking the vanilla font's caps-only setting.
+    sdf_set_string(ini, sec, "uppercase", c->uppercaseAuto ? "-1" : (c->uppercase ? "1" : "0"));
 }
 
 // Active profile name + whether the working state diverged from it. Name only is persisted.
@@ -654,37 +555,36 @@ static bool g_profile_modified = false;
 // Last-session config, auto-restored at startup. Slots without the "set" marker stay on auto.
 static void sdf_fonts_load_ini() {
     for (int i = 0; i < sdf_text_slot_count(); i++) {
-        wchar_t sec[32];
-        sdf_font_section(i, sec, 32);
-        if (GetPrivateProfileIntW(sec, L"set", 0, ini_path.c_str()) == 0)
+        char sec[32];
+        sdf_font_section(i, sec, sizeof(sec));
+        if (config::get_int(sec, "set", 0) == 0)
             continue;// not customized -> the engine keeps its built-in role defaults
         SdfFontSlot *c = sdf_text_slot(i);
         if (c)
-            sdf_slot_read(c, ini_path.c_str(), sec);
+            sdf_slot_read(c, nullptr, sec);
     }
     // Remember (do not re-apply) the last active profile, for the panel label + Save target.
-    wchar_t wprof[128] = {0};
-    GetPrivateProfileStringW(L"settings", L"sdf_font_profile", L"", wprof, 128, ini_path.c_str());
-    char prof[128] = {0};
-    WideCharToMultiByte(CP_UTF8, 0, wprof, -1, prof, sizeof(prof), nullptr, nullptr);
-    g_active_profile = prof;
+    g_active_profile = config::get_string("settings", "sdf_font_profile", "");
 }
 
 void sdf_fonts_save_ini(int slot) {
-    wchar_t sec[32];
-    sdf_font_section(slot, sec, 32);
+    char sec[32];
+    sdf_font_section(slot, sec, sizeof(sec));
     SdfFontSlot *c = sdf_text_slot(slot);
     if (!c)
         return;
-    WritePrivateProfileStringW(sec, L"set", L"1", ini_path.c_str());
-    sdf_slot_write(c, ini_path.c_str(), sec);
+    config::set_bool(sec, "set", true);
+    sdf_slot_write(c, nullptr, sec);
+    config::save();
     g_profile_modified = true;// working state diverged from the active profile
 }
 
 static void sdf_fonts_reset_ini(int slot) {
-    wchar_t sec[32];
-    sdf_font_section(slot, sec, 32);
-    WritePrivateProfileStringW(sec, nullptr, nullptr, ini_path.c_str());// delete the whole section
+    char sec[32];
+    sdf_font_section(slot, sec, sizeof(sec));
+    // The parser has no section delete; clearing the marker is what load_ini actually tests.
+    config::set_bool(sec, "set", false);
+    config::save();
     g_profile_modified = true;
 }
 
@@ -722,9 +622,8 @@ static std::string sdf_sanitize_name(const char *in) {
 }
 
 static void sdf_profile_persist_active() {
-    wchar_t w[128] = {0};
-    MultiByteToWideChar(CP_UTF8, 0, g_active_profile.c_str(), -1, w, 128);
-    WritePrivateProfileStringW(L"settings", L"sdf_font_profile", w, ini_path.c_str());
+    config::set_string("settings", "sdf_font_profile", g_active_profile);
+    config::save();
 }
 
 // Write the current 5-slot config to a profile file (one shareable file per profile).
@@ -739,8 +638,8 @@ static void sdf_profile_save(const std::string &name) {
         SdfFontSlot *c = sdf_text_slot(i);
         if (!c)
             continue;
-        wchar_t sec[16];
-        swprintf(sec, 16, L"slot_%d", i);
+        char sec[16];
+        snprintf(sec, sizeof(sec), "slot_%d", i);
         sdf_slot_write(c, path.c_str(), sec);
     }
     g_active_profile = name;
@@ -757,8 +656,8 @@ static void sdf_profile_load(const std::string &name) {
         SdfFontSlot *c = sdf_text_slot(i);
         if (!c)
             continue;
-        wchar_t sec[16];
-        swprintf(sec, 16, L"slot_%d", i);
+        char sec[16];
+        snprintf(sec, sizeof(sec), "slot_%d", i);
         sdf_slot_read(c, path.c_str(), sec);
         sdf_text_apply_slot(i);   // rebuild if the font/shear changed
         sdf_fonts_save_ini(i);    // persist as working state so it survives relaunch
@@ -833,10 +732,6 @@ extern "C" int cutscene_should_skip_prerace_cinematic(void) {
     return imgui_state.skip_prerace_cinematic ? 1 : 0;
 }
 
-
-const wchar_t *settings_ini_path() {
-    return ini_path.c_str();
-}
 
 const char *swrModel_NodeTypeStr(uint32_t nodeType) {
     switch (nodeType) {
