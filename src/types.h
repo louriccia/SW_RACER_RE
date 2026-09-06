@@ -560,7 +560,7 @@ extern "C"
         float engineHealthMin[6]; // engine health related
         float engineHealth[6]; // 0x288 left top-mid-bot, right top-mid-bot
         unsigned int engineStatus[6];
-        char unk2b8[4];
+        float unk2b8; // 0x2b8. collision / terrain vibration magnitude (0..1), the force-feedback "vibrator"; drives the player-camera shake
         float repairTimer; // 0x2bc
         float damageWarningTimer; // 0x2c0
         float totalDamage; // 0x2c4
@@ -3137,6 +3137,16 @@ extern "C"
         char unk2c[4];
         MODELID puppet_modelId;
     } swrRacerData; // sizeof(0x34)
+
+    // Per-pod visual / camera row (swrRacer_PodVisualData[23], by pilot id); read by the swrRace_Podd*
+    // animators and swrObjcMan_UpdateChaseCamera / UpdatePreRaceSweep.
+    typedef struct swrRacerVisualData
+    {
+        float unk0[19];
+        float chaseCamTrail;  // 0x4c. chase-camera distance behind the pod (doubled in the far chase view)
+        float chaseCamHeight; // 0x50. chase-camera height above the pod
+        float unk54[6];
+    } swrRacerVisualData; // sizeof(0x6c)
 
     // see swrText_CreateEntry. swrTextEntries[1|2]Pos should be swrTextEntryInfo
     typedef struct swrTextEntryInfo

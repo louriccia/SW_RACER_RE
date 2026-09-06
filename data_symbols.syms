@@ -296,6 +296,7 @@ rdVector_negZ 0x004c2598 rdVector3 = {0.0, 0.0, -1.0}
 swrRacer_PodData 0x004c2700 swrRacerData[23]
 swrRacer_PodHandlingData 0x004c2bb0 PodHandlingData[23]
 swrRacer_AI_PodHandlingData 0x004c3114 PodHandlingData
+swrRacer_PodVisualData 0x004c7088 swrRacerVisualData[23]
 # ai_antiskid 0x004c3114 float
 # ai_turn_response 0x004c3118 float
 # ai_max_turn_rate 0x004c311c float
