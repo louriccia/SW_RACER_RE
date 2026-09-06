@@ -4,9 +4,18 @@
 // Ghidra: File -> Parse C Source -> Add types.h -> Parse to Program -> Use open archive
 
 #include <windows.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
+
+// Layout assertion usable from both the C reimpls and the C++ delta layer. Ghidra's C parser
+// skips it along with the rest of the preprocessor.
+#ifdef __cplusplus
+#define SWR_ASSERT_LAYOUT(cond, msg) static_assert(cond, msg)
+#else
+#define SWR_ASSERT_LAYOUT(cond, msg) _Static_assert(cond, msg)
+#endif
 
 #include "types_a3d.h"
 #include "types_directx.h"
@@ -551,7 +560,7 @@ extern "C"
         float engineHealthMin[6]; // engine health related
         float engineHealth[6]; // 0x288 left top-mid-bot, right top-mid-bot
         unsigned int engineStatus[6];
-        char unk2b8[4];
+        float unk2b8; // 0x2b8. collision / terrain vibration magnitude (0..1), the force-feedback "vibrator"; drives the player-camera shake
         float repairTimer; // 0x2bc
         float damageWarningTimer; // 0x2c0
         float totalDamage; // 0x2c4
@@ -734,7 +743,9 @@ extern "C"
         char bMirror;
         char current_player_for_vehicle_selection; // 0: first local player selects vehicle, 1: second local player selects vehicle.
         char num_local_players;
-        char unk71;
+        // 0x71. networked player count, mirrored from sithPlayer_g_numPlayers by
+        // swrMultiplayer_NotifyHangarPlayerChange.
+        char num_network_players;
         char num_players; // counts local players and AI
         char vehiclePlayer;
         char vehicleOpponent[22];
@@ -776,10 +787,9 @@ extern "C"
         int hud_mode; // 0x124. annodue: _hud_mode
         int event;
         char unk128[4];
-        void* camSweepState; // 0x12c. post-race camera-sweep state; while non-null F2 walks unk134_mat and F0 gates the finish -> results transition on it
-        rdMatrix44 unk134_mat; // 0x134. post-race fly-by transform, driven by swrSpline_EvaluateToMatrix only while camSweepState != NULL
-        float unk174[11];
-        float unk1a0; // 0x1a0. reset to 1.0 at 'Load'; purpose not yet identified (no reader found in the judge functions)
+        void* camSweepState; // 0x130. camera-sweep gate; while non-null F2 walks camSweepCursor and F0 gates the finish -> results transition on it
+        swrSplineCursor camSweepCursor; // 0x134. cinematic camera path walker. swrObjJdge_F2 (+0x32) evaluates it into camSweepTransform while camSweepState != NULL; seeded by swrObjJdge_SetupTrackEnvironment, and left with a NULL spline on a track that has no camera path
+        rdMatrix44 camSweepTransform; // 0x164. swrSpline_EvaluateToMatrix output for the sweep; reset to identity at 'Load'/'RSet'
         void* cam_spline;
         int unk1a8;
         int planetId;
@@ -798,6 +808,12 @@ extern "C"
         int unk1e0;
         float unk1e4;
     } swrObjJdge; // sizeof(0x1e8)
+    // camSweepCursor/camSweepTransform replaced a single rdMatrix44 plus two float runs covering
+    // the same 0x70 bytes; pin the layout so a future edit cannot shift the fields after them.
+    SWR_ASSERT_LAYOUT(sizeof(swrObjJdge) == 0x1e8, "swrObjJdge size changed");
+    SWR_ASSERT_LAYOUT(offsetof(swrObjJdge, camSweepCursor) == 0x134, "camSweepCursor moved");
+    SWR_ASSERT_LAYOUT(offsetof(swrObjJdge, camSweepTransform) == 0x164, "camSweepTransform moved");
+    SWR_ASSERT_LAYOUT(offsetof(swrObjJdge, cam_spline) == 0x1a4, "cam_spline moved");
 
     typedef struct swrObjScen
     {
@@ -880,43 +896,43 @@ extern "C"
         float unkbc;
     } swrObjElmo; // sizeof(0xc0)
 
+    // Generic particle entity ('Smok'): engine smoke, track fire, explosion bursts,
+    // Sebulba's flame attack. Up to 5 billboards, aged by F0 and drawn by F3. Every
+    // Start/End pair below is interpolated over the per-particle phase,
+    // (lifetime / totalLifetime) + i / particleCount wrapped into [0,1].
     typedef struct swrObjSmok
     {
         swrObj obj;
-        char unk8[32];
-        char unk28[32];
-        char unk48[24];
-        int unk60;
-        int unk64;
-        float unk68_ms;
+        char unk8[24];
+        rdMatrix44 transform; // 0x20. scale on the diagonal; row vD (0x50) holds the spawn position
+        int type; // 0x60. swrObjSmok_TYPE
+        int flags; // 0x64. swrObjSmok_FLAG
+        float lifetime; // 0x68. seconds remaining, counted down by F0
         char unk6c[4];
-        int unk70;
-        float unk74;
-        float unk78;
-        float unk7c;
-        char unk80[4];
-        float unk84;
-        float unk88;
-        float unk8c;
-        float unk90;
-        float unk94;
-        float unk98;
-        float unk9c;
-        float unka0;
-        float unka4;
-        float unka8_ms;
-        char unkac[28];
-        char unkc8[12];
-        float unkd4_ms;
-        float unkd8_ms;
-        char unkdc[12];
-        char unke8[8];
-        float unkf0;
-        struct swrModel_Node* unkf4_model;
-        float unkf8;
-        float unkfc;
-        float unk100;
-        float unk104;
+        int particleCount; // 0x70
+        rdVector3 velocity; // 0x74. particles drift along this, scaled by phase
+        float fadeInEnd; // 0x80. alpha ramps in over phase [0, fadeInEnd]
+        float fadeOutStart; // 0x84. alpha ramps out over phase [fadeOutStart, 1]
+        float widthStart; // 0x88. billboard half-extent across the velocity axis
+        float widthEnd; // 0x8c
+        float lengthStart; // 0x90. billboard extent along the velocity axis
+        float lengthEnd; // 0x94
+        float spinRateStart; // 0x98. degrees/sec about the velocity axis
+        float spinRateEnd; // 0x9c
+        float uvScrollStart; // 0xa0. texture V scroll rate
+        float uvScrollEnd; // 0xa4
+        float totalLifetime; // 0xa8. seconds; the phase denominator
+        float unkac;
+        float unkb0;
+        rdVector4 colorStart; // 0xb4
+        rdVector4 colorEnd; // 0xc4
+        // Phase-space alpha window. Both advance 4 / totalLifetime per second in F0 and
+        // gate alpha outside [tail, front], so the effect reveals itself outward from spawn.
+        float alphaWindowTail; // 0xd4
+        float alphaWindowFront; // 0xd8
+        float particleSpin[5]; // 0xdc. accumulated spin angle per particle
+        void* ownerHandle; // 0xf0. owner's backref slot, NULLed by swrObjSmok_Free
+        struct swrModel_Node* particleNodes[5]; // 0xf4. borrowed from fireballChildNodesPtr[id * 5]
     } swrObjSmok; // sizeof(0x108)
 
     typedef struct swrObjcMan
@@ -3004,19 +3020,20 @@ extern "C"
 
     typedef unsigned int (*tSithCallback)(tSithMessage* message);
 
-    // Inaccurate
+    // Multiplayer player slot; offsets from the slot arithmetic in
+    // swrMultiplayer_ClearPlayerSlot / RegisterPlayer / sithPlayer_HidePlayer (base
+    // 0x00e9f3c0, stride 0xb0). SWR shifted the fields vs the Jedi Knight struct of the
+    // same name, which never fit; JK's pThing / pInSector / respawnMask land in unk8c.
     typedef struct SithPlayer
     {
-        wchar_t awName[32];
-        SithPlayerFlag flags;
-        wchar_t unk[32];
-        DPID playerNetId;
-        SithThing* pThing;
-        char unk8c[24];
-        SithSector* pInSector;
-        int respawnMask;
-        unsigned int msecLastCommTime;
-    } SithPlayer; // sizeof(0xb0) ? in SWR. Doesnt fit the name and the unk
+        int unk0;
+        wchar_t awName[32]; // 0x04. aliased by the swrMultiplayer_playerNames view
+        wchar_t unk44[32]; // 0x44. second wide string, terminated alongside awName by ClearPlayerSlot
+        SithPlayerFlag flags; // 0x84
+        DPID playerNetId; // 0x88
+        char unk8c[32];
+        unsigned int msecLastCommTime; // 0xac. zeroed when the slot is registered
+    } SithPlayer; // sizeof(0xb0)
 
     typedef struct StdConffileArg
     {
@@ -3120,6 +3137,16 @@ extern "C"
         char unk2c[4];
         MODELID puppet_modelId;
     } swrRacerData; // sizeof(0x34)
+
+    // Per-pod visual / camera row (swrRacer_PodVisualData[23], by pilot id); read by the swrRace_Podd*
+    // animators and swrObjcMan_UpdateChaseCamera / UpdatePreRaceSweep.
+    typedef struct swrRacerVisualData
+    {
+        float unk0[19];
+        float chaseCamTrail;  // 0x4c. chase-camera distance behind the pod (doubled in the far chase view)
+        float chaseCamHeight; // 0x50. chase-camera height above the pod
+        float unk54[6];
+    } swrRacerVisualData; // sizeof(0x6c)
 
     // see swrText_CreateEntry. swrTextEntries[1|2]Pos should be swrTextEntryInfo
     typedef struct swrTextEntryInfo
@@ -3247,14 +3274,14 @@ extern "C"
         uint8_t unk[16]; // 0x28
     };
 
-    // actual usage of this struct unclear, maybe camera positions on junkyard
-    struct swrUICameraPlacement
+    // One front-end camera framing, indexed by swrObjHang.cameraState out of maybeUICameraPlacements.
+    typedef struct swrUICameraPlacement
     {
-        rdVector3 position1; // 0x0
-        rdVector3 position2; // 0xc
+        rdVector3 position1; // 0x0  eye
+        rdVector3 position2; // 0xc  look-at
         uint32_t unk1; // 0x18
         uint32_t unk2; // 0x1c
-    };
+    } swrUICameraPlacement; // sizeof(0x20)
 
 #ifdef __cplusplus
 }

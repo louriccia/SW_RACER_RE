@@ -3,6 +3,7 @@
 #include "n64_shader.h"
 #include "randomizer.h"
 #include "camera/camera.h"
+#include "camera/player_camera.h"
 
 #include <string>
 #include <set>
@@ -747,6 +748,7 @@ void imgui_Update() {
         read_settings_ini();
         register_builtin_debug_panels();
         freecam_RegisterPanel();// camera system (dinput_hook/camera)
+        playercam_RegisterPanel();
         debug_ui_register_builtin_shell_panels();
         debug_ui_load_settings();
     }

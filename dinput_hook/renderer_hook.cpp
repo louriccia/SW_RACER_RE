@@ -12,6 +12,7 @@
 #include "stb_image.h"
 #include "texture_replacement.h"
 #include "camera/camera.h"
+#include "camera/player_camera.h"
 
 extern "C" {
 #include "./game_deltas/DirectX_delta.h"
@@ -32,6 +33,7 @@ extern "C" {
 #include "./game_deltas/swrControl_delta.h"
 #include "./game_deltas/swrModel_delta.h"
 #include "./game_deltas/swrSpline_delta.h"
+#include "./game_deltas/swrAssetBuffer_delta.h"
 #include "./game_deltas/swrObjJdge_delta.h"
 #include "./game_deltas/swrGamepadNav_delta.h"
 #include "./game_deltas/swrMultiplayer_delta.h"
@@ -885,7 +887,14 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
         glUniform3fv(shader.light_color_pos, 1, &lightColor1[light_index].x);
     if (shadow_setf(sh.light_dir, &lightDirection1[light_index].x, 3))
         glUniform3fv(shader.light_dir_pos, 1, &lightDirection1[light_index].x);
-    // TODO light 2
+    // Second bank light (num_enabled_lights == 2): transient per-pod illumination, e.g. wall-scrape
+    // sparks. swrObjcMan_UpdateLighting flickers lightColor2/lightDirection2 while flags0 & 0x30000000.
+    if (shadow_seti(sh.num_lights, num_enabled_lights))
+        glUniform1i(shader.num_lights_pos, num_enabled_lights);
+    if (shadow_setf(sh.light_color2, &lightColor2[light_index].x, 3))
+        glUniform3fv(shader.light_color2_pos, 1, &lightColor2[light_index].x);
+    if (shadow_setf(sh.light_dir2, &lightDirection2[light_index].x, 3))
+        glUniform3fv(shader.light_dir2_pos, 1, &lightDirection2[light_index].x);
 
     const bool fog_enabled = imgui_state.enable_fog && (GameSettingFlags & 0x40) == 0;
     if (shadow_seti(sh.fog_enabled, fog_enabled ? 1 : 0))
@@ -1105,7 +1114,16 @@ void debug_render_node(const swrViewport &current_vp, const swrModel_Node *node,
         current_vp.node_flags1_exact_match_for_rendering;
     const bool any_match_fail =
         (current_vp.node_flags1_any_match_for_rendering & node->flags_1) == 0;
-    if (exact_match_fail || any_match_fail) {
+    swrRace *root_owner = pod_root_owner(node);
+    const bool local_pod_root =
+        root_owner != nullptr && (root_owner->flags0 & swrObjTest_FLAG0_LOCAL) != 0;
+    if (local_pod_root && playercam_HideOwnPod())
+        return;
+    const bool unhide_local_pod =
+        local_pod_root && playercam_ShowPodInFirstPerson() &&
+        (root_owner->flags0 & (swrObjTest_FLAG0_POD_HIDDEN | swrObjTest_FLAG0_DEAD)) ==
+            swrObjTest_FLAG0_POD_HIDDEN;
+    if ((exact_match_fail || any_match_fail) && !unhide_local_pod) {
         // The scene's per-node visibility flags hide this node. We honor that, with one exception:
         // a racer's pod that its OWN camera hides. swrRace_PoddAnimateEngines clears the pod root's
         // visible bit whenever the pod is in a hide-from-own-view camera mode (first-person / bumper
@@ -1453,7 +1471,7 @@ void swrViewport_Render_Hook(int x) {
     const bool mirrored = (GameSettingFlags & 0x4000) != 0;
 
     const rdClipFrustum *frustum = rdCamera_pCurCamera->pClipFrustum;
-    const float n = frustum->zNear;
+    const float n = frustum->zNear * playercam_NearClipScale();
     const float t = 1.0f / tan(0.5 * rdCamera_pCurCamera->fov / 180.0 * 3.14159);
     // The game's fov is the HORIZONTAL fov, calibrated for 4:3. Hold the 4:3 VERTICAL fov constant
     // across aspect ratios (Hor+) so widescreen reveals more horizontally instead of cropping the
@@ -2029,6 +2047,7 @@ extern "C" void init_renderer_hooks() {
     // rdCamera_Update seam. Toggle in-race with F9; WASD + Space/Ctrl to move, arrows or RMB-drag to
     // look, Shift/Alt for fast/slow.
     freecam_RegisterHooks();
+    playercam_RegisterHooks();
 
 #if ENABLE_GAMEPAD_NAV
     // Feed the gamepad's D-pad / START / BACK into the game's menu + in-race input.
@@ -2480,6 +2499,10 @@ extern "C" void init_renderer_hooks() {
     // hangar menu cap was also raised to 100 in tracks_delta.c.
     swrObjJdge_PatchLapTimeOverflow();
 
+    // Must land before swrScene_Startup, which allocates the asset buffer once and keeps it for
+    // the process.
+    swrAssetBuffer_PatchSize();
+
     // Weather: the game's 80-particle, fixed-box, sprite-based system (whose motion-blur streak draw
     // was stubbed out) is replaced with our own particle simulation drawn in the GL layer --
     // swrWeather_RenderParticles_delta runs the tick + draw instead of the original. Enable/Disable
@@ -2560,6 +2583,10 @@ extern "C" void init_renderer_hooks() {
     hook_function("swrSpline_LoadSplineById", (uint32_t) swrSpline_LoadSplineById,
                   (uint8_t *) swrSpline_LoadSplineById_ADDR);
     hook_replace(swrSpline_LoadSplineById, swrSpline_LoadSplineById_delta);
+
+    hook_function("swrSpline_EvaluateToMatrix", (uint32_t) swrSpline_EvaluateToMatrix,
+                  (uint8_t *) swrSpline_EvaluateToMatrix_ADDR);
+    hook_replace(swrSpline_EvaluateToMatrix, swrSpline_EvaluateToMatrix_delta);
 
     fprintf(hook_log, "Done\n");
     fflush(hook_log);
