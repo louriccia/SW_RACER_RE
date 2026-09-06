@@ -40,6 +40,7 @@ extern "C" {
 #include "./game_deltas/swrPlayerHUD_delta.h"
 #include "./game_deltas/swrWeather_delta.h"
 #include "./game_deltas/swrObjHang_delta.h"
+#include "./game_deltas/sithRender_delta.h"
 #include "./game_deltas/swrRace_delta.h"
 
 #include <glad/glad.h>
@@ -72,6 +73,7 @@ extern "C" {
 #include <main.h>
 #include <Main/swrControl.h>
 #include <Swr/swrAssetBuffer.h>
+#include <Engine/sithRender.h>
 #include <Platform/std3D.h>
 #include <Platform/stdControl.h>
 #include <Primitives/rdMatrix.h>
@@ -1806,6 +1808,10 @@ extern "C" int stdDisplay_Update_Hook() {
         applied_vsync = imgui_state.vsync;
     }
 
+    // Screenshot read-back (issue #289), before imgui_Update so the debug overlay stays out of the
+    // shot. The scene is already resolved into framebuffer 0 by swrViewport_Render_Hook.
+    sithRender_CapturePendingScreenshot();
+
     begin_texture_replacement();
     imgui_Update();// Added
     end_texture_replacement();
@@ -2041,6 +2047,11 @@ extern "C" void init_renderer_hooks() {
     // (Window_PlayCinematic, which also carries the cutscene audio scaling, is registered below with
     // the Smush skip hook.)
     hook_replace(swrSound_Startup, swrSound_Startup_delta);
+
+    // F12 screenshot (issue #289): the original writes the DirectDraw back buffer, which the GL
+    // takeover never fills, so it faults inside stdColor_ColorConvertOneRow. sithRender_MakeScreenShot
+    // is reverse-hooked (registered in hook_generated) -> replace it.
+    hook_replace(sithRender_MakeScreenShot, sithRender_MakeScreenShot_delta);
 
     // Free-camera spike (Phase 1): render-only takeover of the scene camera at the
     // rdCamera_Update seam. Toggle in-race with F9; WASD + Space/Ctrl to move, arrows or RMB-drag to
