@@ -1,5 +1,6 @@
 #include "debug_ui.h"
 #include "imgui_utils.h"
+#include "config.h"
 #include "mod_version.h"
 #include "update_check.h"
 
@@ -13,7 +14,7 @@
 
 #include "build_id.h"// SWR_BUILD_* (generated at build time)
 
-// show_imgui (the F5 overlay toggle) and settings_ini_path() come from imgui_utils.h.
+// show_imgui (the F5 overlay toggle) comes from imgui_utils.h.
 
 bool debug_ui_show_dev_panels = false;
 
@@ -23,30 +24,18 @@ void debug_ui_register(DebugPanel *panel) {
     g_panels.push_back(panel);
 }
 
-// Panel names and ini keys are ASCII literals we control, so a byte-wise widen
-// is enough to feed the wide GetPrivateProfile* API (matches the ini path type).
-static std::wstring widen(const char *s) {
-    std::wstring w;
-    for (; *s; s++)
-        w.push_back((wchar_t) (unsigned char) *s);
-    return w;
-}
-
 void debug_ui_load_settings() {
-    const wchar_t *ini = settings_ini_path();
     debug_ui_show_dev_panels =
-        GetPrivateProfileIntW(L"debug_ui", L"show_dev_panels", debug_ui_show_dev_panels, ini);
+        config::get_int("debug_ui", "show_dev_panels", debug_ui_show_dev_panels);
     for (DebugPanel *p: g_panels)
-        p->open = GetPrivateProfileIntW(L"debug_ui_panels", widen(p->name).c_str(), p->open, ini);
+        p->open = config::get_int("debug_ui_panels", p->name, p->open);
 }
 
 static void save_settings() {
-    const wchar_t *ini = settings_ini_path();
-    WritePrivateProfileStringW(L"debug_ui", L"show_dev_panels",
-                               debug_ui_show_dev_panels ? L"1" : L"0", ini);
+    config::set_bool("debug_ui", "show_dev_panels", debug_ui_show_dev_panels);
     for (DebugPanel *p: g_panels)
-        WritePrivateProfileStringW(L"debug_ui_panels", widen(p->name).c_str(),
-                                   p->open ? L"1" : L"0", ini);
+        config::set_bool("debug_ui_panels", p->name, p->open);
+    config::save();
 }
 
 // Persist open-state whenever it changes from any source -- a section toggle, an
@@ -276,13 +265,12 @@ void debug_ui_render() {
         // The check runs once at startup, so a change here takes effect next launch.
         static int check_updates = -1;
         if (check_updates < 0)
-            check_updates =
-                GetPrivateProfileIntW(L"settings", L"check_updates", 1, settings_ini_path());
+            check_updates = config::get_int("settings", "check_updates", 1);
         bool check_updates_on = check_updates != 0;
         if (ImGui::Checkbox("Check for updates on launch", &check_updates_on)) {
             check_updates = check_updates_on;
-            WritePrivateProfileStringW(L"settings", L"check_updates",
-                                       check_updates_on ? L"1" : L"0", settings_ini_path());
+            config::set_bool("settings", "check_updates", check_updates_on);
+            config::save();
         }
         ImGui::SameLine();
         help_marker("Once at launch, checks GitHub for a newer release and shows a banner up top.\n"

@@ -1,3 +1,4 @@
+#include "config.h"
 #include "update_check.h"
 #include "mod_version.h"
 
@@ -13,7 +14,6 @@
 
 // Forward-declared rather than included: those headers pull heavy transitive includes.
 extern "C" FILE *hook_log;
-const wchar_t *settings_ini_path();
 
 namespace {
 
@@ -167,7 +167,7 @@ void worker_main() {
 extern "C" void update_check_start(void) {
     if (g_started.exchange(true))
         return;// already kicked off
-    if (!GetPrivateProfileIntW(L"settings", L"check_updates", 1, settings_ini_path()))
+    if (!config::get_int("settings", "check_updates", 1))
         return;// player opted out
     g_worker = std::thread(worker_main);
 }
