@@ -1,8 +1,10 @@
 #include "imgui_utils.h"
 #include "debug_ui.h"
 #include "n64_shader.h"
+#include "config.h"
 #include "localization.h"
 #include "camera/camera.h"
+#include "camera/player_camera.h"
 
 #include <string>
 #include <set>
@@ -103,12 +105,6 @@ ImGuiState imgui_state = {
     .collect_textures_skip_pod_textures = true,
 };
 
-static std::wstring ini_path = [] {
-    wchar_t buff[1024];
-    GetModuleFileNameW(nullptr, std::data(buff), std::size(buff));
-    return (std::filesystem::path(buff).parent_path() / "SW_RACER_RE.ini").wstring();
-}();
-
 // Whether the game's config/save directories are writable. The engine writes audio.cfg and the
 // profile (tgfd.dat) relative to the working directory (.\data\config, .\data\player), so an install
 // under Program Files / OneDrive without write access silently fails to persist any settings or
@@ -140,7 +136,7 @@ static void check_game_dir_writable() {
 }
 
 bool read_hd_font_setting() {
-    imgui_state.hd_font = GetPrivateProfileIntW(L"settings", L"hd_font", 1, ini_path.c_str());
+    imgui_state.hd_font = config::get_int("settings", "hd_font", 1);
     return imgui_state.hd_font;
 }
 
@@ -199,37 +195,34 @@ static bool texture_replacement_assets_available() {
 }
 
 // Multiplayer player-set pod upgrades. Seven categories in swrRace_CalculateUpgradedStat order
-// (0..6); the labels drive the slider UI, the keys persist each level to SW_RACER_RE.ini.
+// (0..6); the labels drive the slider UI, the keys persist each level via the config layer.
 static const char *const mp_upgrade_labels[7] = {
     "Traction", "Turning", "Acceleration", "Top Speed", "Air Brake", "Cooling", "Repair"};
-static const wchar_t *const mp_upgrade_ini_keys[7] = {
-    L"mp_upg_traction", L"mp_upg_turning", L"mp_upg_accel", L"mp_upg_topspeed",
-    L"mp_upg_airbrake", L"mp_upg_cooling", L"mp_upg_repair"};
+static const char *const mp_upgrade_ini_keys[7] = {
+    "mp_upg_traction", "mp_upg_turning", "mp_upg_accel", "mp_upg_topspeed",
+    "mp_upg_airbrake", "mp_upg_cooling", "mp_upg_repair"};
 
 void read_settings_ini() {
-    const UINT msaa_samples =
-        GetPrivateProfileIntW(L"settings", L"msaa_samples", 0, ini_path.c_str());
+    config::reload();// pick up on-disk edits before reading
+
+    const int msaa_samples = config::get_int("settings", "msaa_samples", 0);
     if (msaa_samples != 0) {
         imgui_state.msaa_samples = msaa_samples;
     }
 
-    const UINT anisotropy = GetPrivateProfileIntW(L"settings", L"anisotropy", 0, ini_path.c_str());
+    const int anisotropy = config::get_int("settings", "anisotropy", 0);
     if (anisotropy != 0) {
         imgui_state.anisotropy = anisotropy;
     }
 
-    imgui_state.tex_mag_filter =
-        GetPrivateProfileIntW(L"settings", L"tex_mag_filter", TEX_MAG_FAITHFUL, ini_path.c_str());
+    imgui_state.tex_mag_filter = config::get_int("settings", "tex_mag_filter", TEX_MAG_FAITHFUL);
     if (imgui_state.tex_mag_filter < TEX_MAG_FAITHFUL || imgui_state.tex_mag_filter > TEX_MAG_LINEAR)
         imgui_state.tex_mag_filter = TEX_MAG_FAITHFUL;
 
-    wchar_t alpha_cutoff_buf[32] = {0};
-    GetPrivateProfileStringW(L"settings", L"alpha_cutoff", L"0.5", alpha_cutoff_buf, 32,
-                             ini_path.c_str());
-    float alpha_cutoff = (float) wcstod(alpha_cutoff_buf, nullptr);
+    const float alpha_cutoff = config::get_float("settings", "alpha_cutoff", 0.5f);
     imgui_state.alpha_cutoff = (alpha_cutoff >= 0.0f && alpha_cutoff <= 1.0f) ? alpha_cutoff : 0.5f;
 
-    imgui_state.target_fps = GetPrivateProfileIntW(L"settings", L"target_fps", 0, ini_path.c_str());
+    imgui_state.target_fps = config::get_int("settings", "target_fps", 0);
     if (imgui_state.target_fps != 0) {
         if (imgui_state.target_fps < 10) {
             imgui_state.target_fps = 10;
@@ -238,37 +231,44 @@ void read_settings_ini() {
         }
     }
 
-    imgui_state.show_fps_overlay =
-        GetPrivateProfileIntW(L"settings", L"show_fps_overlay", 0, ini_path.c_str());
+    imgui_state.show_fps_overlay = config::get_int("settings", "show_fps_overlay", 0);
+    imgui_state.show_fps_graph = config::get_int("settings", "show_fps_graph", 0);
 
-    imgui_state.show_fps_graph =
-        GetPrivateProfileIntW(L"settings", L"show_fps_graph", 0, ini_path.c_str());
+    imgui_state.enable_fog = config::get_int("settings", "enable_fog", 1);
+    imgui_state.enable_gamepad_nav = config::get_int("settings", "enable_gamepad_nav", 1);
 
-    imgui_state.enable_fog = GetPrivateProfileIntW(L"settings", L"enable_fog", 1, ini_path.c_str());
-    imgui_state.enable_gamepad_nav =
-        GetPrivateProfileIntW(L"settings", L"enable_gamepad_nav", 1, ini_path.c_str());
-
+    // Millisecond precision on every displayed time (default on). Lives in the times delta.
+    g_time_show_millis = config::get_int("settings", "time_show_millis", 1) != 0;
     imgui_state.enable_weather =
-        GetPrivateProfileIntW(L"settings", L"enable_weather", 1, ini_path.c_str());
+        config::get_int("settings", "enable_weather", 1);
 
     imgui_state.ui_resolution_independent =
-        GetPrivateProfileIntW(L"settings", L"ui_resolution_independent", 1, ini_path.c_str()) != 0;
-    wchar_t ui_scale_buf[32] = {0};
-    GetPrivateProfileStringW(L"settings", L"ui_scale", L"1.0", ui_scale_buf, 32, ini_path.c_str());
-    float ui_scale = (float) wcstod(ui_scale_buf, nullptr);
+        config::get_int("settings", "ui_resolution_independent", 1) != 0;
+    const float ui_scale = config::get_float("settings", "ui_scale", 1.0f);
     imgui_state.ui_scale = (ui_scale >= 0.5f && ui_scale <= 2.0f) ? ui_scale : 1.0f;
 
-    imgui_state.mp_disable_collision =
-        GetPrivateProfileIntW(L"settings", L"mp_disable_collision", 1, ini_path.c_str());
+    imgui_state.mp_disable_collision = config::get_int("settings", "mp_disable_collision", 1);
 
-    imgui_state.cache_meshes =
-        GetPrivateProfileIntW(L"settings", L"cache_meshes", 1, ini_path.c_str());
-    imgui_state.cull_meshes =
-        GetPrivateProfileIntW(L"settings", L"cull_meshes", 1, ini_path.c_str());
-    imgui_state.stream_dynamic_meshes =
-        GetPrivateProfileIntW(L"settings", L"stream_dynamic_meshes", 1, ini_path.c_str());
-    imgui_state.hd_scene_captures =
-        GetPrivateProfileIntW(L"settings", L"hd_scene_captures", 0, ini_path.c_str());
+    imgui_state.cache_meshes = config::get_int("settings", "cache_meshes", 1);
+    imgui_state.reflection_texgen = config::get_int("settings", "reflection_texgen", 1);
+    const float texgen_scale = config::get_float("settings", "reflection_texgen_scale", 2.0f);
+    imgui_state.reflection_texgen_scale =
+        (texgen_scale >= 0.5f && texgen_scale <= 3.0f) ? texgen_scale : 2.0f;
+    const float texgen_rot = config::get_float("settings", "reflection_texgen_rotation", 0.0f);
+    imgui_state.reflection_texgen_rotation =
+        (texgen_rot >= 0.0f && texgen_rot <= 360.0f) ? texgen_rot : 0.0f;
+    {
+        const std::string offset =
+            config::get_string("settings", "reflection_texgen_offset", "0.5 0.5");
+        float ou = 0.5f, ov = 0.5f;
+        if (sscanf(offset.c_str(), "%f %f", &ou, &ov) == 2) {
+            imgui_state.reflection_texgen_offset[0] = (ou >= -1.0f && ou <= 1.0f) ? ou : 0.5f;
+            imgui_state.reflection_texgen_offset[1] = (ov >= -1.0f && ov <= 1.0f) ? ov : 0.5f;
+        }
+    }
+    imgui_state.cull_meshes = config::get_int("settings", "cull_meshes", 1);
+    imgui_state.stream_dynamic_meshes = config::get_int("settings", "stream_dynamic_meshes", 1);
+    imgui_state.hd_scene_captures = config::get_int("settings", "hd_scene_captures", 0);
 
     read_hd_font_setting();
     if (!hd_font_assets_available()) {
@@ -278,88 +278,77 @@ void read_settings_ini() {
         enable_texture_replacement = false;// assets/replacement_textures missing -> nothing to load
     }
 
-    imgui_state.vsync = GetPrivateProfileIntW(L"settings", L"vsync", 1, ini_path.c_str());
+    imgui_state.vsync = config::get_int("settings", "vsync", 1);
 
-    imgui_state.ai_full_lod =
-        GetPrivateProfileIntW(L"settings", L"ai_full_lod", 1, ini_path.c_str());
+    imgui_state.ai_full_lod = config::get_int("settings", "ai_full_lod", 1);
     set_ai_full_lod(imgui_state.ai_full_lod);
 
-    imgui_state.HD_replacement =
-        GetPrivateProfileIntW(L"settings", L"hd_replacement", 1, ini_path.c_str());
+    imgui_state.HD_replacement = config::get_int("settings", "hd_replacement", 1);
     if (!hd_model_assets_available()) {
         imgui_state.HD_replacement = false;// assets/gltf missing -> nothing to replace
     }
 
     // Default to the build's compiled-in visibility (debug shows, release hides).
-    show_imgui =
-        (char) GetPrivateProfileIntW(L"settings", L"show_imgui", show_imgui, ini_path.c_str());
+    show_imgui = (char) config::get_int("settings", "show_imgui", show_imgui);
 
-    wchar_t fov_scale_buf[32] = {0};
-    GetPrivateProfileStringW(L"settings", L"fov_scale", L"1.0", fov_scale_buf, 32,
-                             ini_path.c_str());
-    float fov_scale = (float) wcstod(fov_scale_buf, nullptr);
+    const float fov_scale = config::get_float("settings", "fov_scale", 1.0f);
     imgui_state.fov_scale = (fov_scale >= 0.5f && fov_scale <= 2.0f) ? fov_scale : 1.0f;
 
-    imgui_state.console_far_clip =
-        GetPrivateProfileIntW(L"settings", L"console_far_clip", 0, ini_path.c_str());
-    wchar_t far_scale_buf[32] = {0};
-    GetPrivateProfileStringW(L"settings", L"console_far_scale", L"1.0", far_scale_buf, 32,
-                             ini_path.c_str());
-    float console_far_scale = (float) wcstod(far_scale_buf, nullptr);
+    imgui_state.console_far_clip = config::get_int("settings", "console_far_clip", 0);
+    const float console_far_scale = config::get_float("settings", "console_far_scale", 1.0f);
     imgui_state.console_far_scale =
         (console_far_scale >= 0.05f && console_far_scale <= 1.0f) ? console_far_scale : 1.0f;
 
-    wchar_t vol_buf[32] = {0};
-    GetPrivateProfileStringW(L"settings", L"master_volume", L"1.0", vol_buf, 32, ini_path.c_str());
-    float master_volume = (float) wcstod(vol_buf, nullptr);
+    const float master_volume = config::get_float("settings", "master_volume", 1.0f);
     imgui_state.master_volume =
         (master_volume >= 0.0f && master_volume <= 1.0f) ? master_volume : 1.0f;
-    GetPrivateProfileStringW(L"settings", L"cutscene_volume", L"0.7", vol_buf, 32,
-                             ini_path.c_str());
-    float cutscene_volume = (float) wcstod(vol_buf, nullptr);
+    const float cutscene_volume = config::get_float("settings", "cutscene_volume", 0.7f);
     imgui_state.cutscene_volume =
         (cutscene_volume >= 0.0f && cutscene_volume <= 1.0f) ? cutscene_volume : 0.7f;
 
-    imgui_state.show_pod_names =
-        GetPrivateProfileIntW(L"settings", L"show_pod_names", 1, ini_path.c_str());
+    imgui_state.show_pod_names = config::get_int("settings", "show_pod_names", 1);
 
+    imgui_state.show_collision = config::get_int("settings", "show_collision", 0);
+    imgui_state.show_triggers = config::get_int("settings", "show_triggers", 0);
+    imgui_state.show_hitbox = config::get_int("settings", "show_hitbox", 0);
+    imgui_state.collision_wireframe = config::get_int("settings", "collision_wireframe", 0);
+    const float collision_opacity = config::get_float("settings", "collision_opacity", 0.35f);
+    imgui_state.collision_opacity =
+        (collision_opacity >= 0.0f && collision_opacity <= 1.0f) ? collision_opacity : 0.35f;
     imgui_state.skip_intro_fmv =
-        GetPrivateProfileIntW(L"settings", L"skip_intro_fmv", 0, ini_path.c_str());
+        config::get_int("settings", "skip_intro_fmv", 0);
     imgui_state.skip_cantina_intro =
-        GetPrivateProfileIntW(L"settings", L"skip_cantina_intro", 0, ini_path.c_str());
+        config::get_int("settings", "skip_cantina_intro", 0);
     imgui_state.skip_taunt =
-        GetPrivateProfileIntW(L"settings", L"skip_taunt", 0, ini_path.c_str());
+        config::get_int("settings", "skip_taunt", 0);
     imgui_state.skip_prerace_cinematic =
-        GetPrivateProfileIntW(L"settings", L"skip_prerace_cinematic", 0, ini_path.c_str());
+        config::get_int("settings", "skip_prerace_cinematic", 0);
     imgui_state.skip_prerace_camera =
-        GetPrivateProfileIntW(L"settings", L"skip_prerace_camera", 0, ini_path.c_str());
+        config::get_int("settings", "skip_prerace_camera", 0);
     imgui_state.skip_results =
-        GetPrivateProfileIntW(L"settings", L"skip_results", 0, ini_path.c_str());
+        config::get_int("settings", "skip_results", 0);
     imgui_state.skip_circuit_winner =
-        GetPrivateProfileIntW(L"settings", L"skip_circuit_winner", 0, ini_path.c_str());
+        config::get_int("settings", "skip_circuit_winner", 0);
     imgui_state.skip_credits =
-        GetPrivateProfileIntW(L"settings", L"skip_credits", 0, ini_path.c_str());
+        config::get_int("settings", "skip_credits", 0);
     imgui_state.restore_prerace_track_sweep =
-        GetPrivateProfileIntW(L"settings", L"restore_prerace_track_sweep", 1, ini_path.c_str());
+        config::get_int("settings", "restore_prerace_track_sweep", 1);
     imgui_state.restore_screen_fades =
-        GetPrivateProfileIntW(L"settings", L"restore_screen_fades", 1, ini_path.c_str());
+        config::get_int("settings", "restore_screen_fades", 1);
     imgui_state.cinematic_letterbox =
-        GetPrivateProfileIntW(L"settings", L"cinematic_letterbox", 1, ini_path.c_str());
+        config::get_int("settings", "cinematic_letterbox", 1);
     imgui_state.cursor_use_game_sprite =
-        GetPrivateProfileIntW(L"settings", L"cursor_use_game_sprite", 0, ini_path.c_str()) != 0;
+        config::get_int("settings", "cursor_use_game_sprite", 0) != 0;
 
-    imgui_state.fast_restart =
-        GetPrivateProfileIntW(L"settings", L"fast_restart", 1, ini_path.c_str());
+    imgui_state.fast_restart = config::get_int("settings", "fast_restart", 1);
 
-    imgui_state.mp_allow_upgrades =
-        GetPrivateProfileIntW(L"settings", L"mp_allow_upgrades", 0, ini_path.c_str());
+    imgui_state.mp_allow_upgrades = config::get_int("settings", "mp_allow_upgrades", 0);
     for (int i = 0; i < 7; i++) {
-        int level = GetPrivateProfileIntW(L"settings", mp_upgrade_ini_keys[i], 0, ini_path.c_str());
+        int level = config::get_int("settings", mp_upgrade_ini_keys[i], 0);
         imgui_state.mp_upgrade_levels[i] = (level < 0) ? 0 : (level > 5) ? 5 : level;
     }
 
-    g_window_mode =
-        GetPrivateProfileIntW(L"settings", L"window_mode", WINDOW_MODE_WINDOWED, ini_path.c_str());
+    g_window_mode = config::get_int("settings", "window_mode", WINDOW_MODE_WINDOWED);
     if (g_window_mode < WINDOW_MODE_WINDOWED || g_window_mode > WINDOW_MODE_FULLSCREEN)
         g_window_mode = WINDOW_MODE_WINDOWED;
     // The window starts as a maximized windowed window, so only apply non-windowed modes here.
@@ -370,124 +359,67 @@ void read_settings_ini() {
 }
 
 void save_settings_ini() {
-    WritePrivateProfileStringW(L"settings", L"msaa_samples",
-                               std::to_wstring(imgui_state.msaa_samples).c_str(), ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"anisotropy",
-                               std::to_wstring(imgui_state.anisotropy).c_str(), ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"tex_mag_filter",
-                               std::to_wstring(imgui_state.tex_mag_filter).c_str(), ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"alpha_cutoff",
-                               std::to_wstring(imgui_state.alpha_cutoff).c_str(), ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"target_fps",
-                               std::to_wstring(imgui_state.target_fps).c_str(), ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"show_fps_overlay",
-                               imgui_state.show_fps_overlay ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"show_fps_graph",
-                               imgui_state.show_fps_graph ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"enable_fog", imgui_state.enable_fog ? L"1" : L"0",
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"enable_gamepad_nav",
-                               imgui_state.enable_gamepad_nav ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"enable_weather",
-                               imgui_state.enable_weather ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"ui_resolution_independent",
-                               imgui_state.ui_resolution_independent ? L"1" : L"0",
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"ui_scale",
-                               std::to_wstring(imgui_state.ui_scale).c_str(), ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"mp_disable_collision",
-                               imgui_state.mp_disable_collision ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"cache_meshes", imgui_state.cache_meshes ? L"1" : L"0",
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"cull_meshes", imgui_state.cull_meshes ? L"1" : L"0",
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"stream_dynamic_meshes",
-                               imgui_state.stream_dynamic_meshes ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"hd_scene_captures",
-                               imgui_state.hd_scene_captures ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"hd_font", imgui_state.hd_font ? L"1" : L"0",
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"vsync", imgui_state.vsync ? L"1" : L"0",
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"ai_full_lod", imgui_state.ai_full_lod ? L"1" : L"0",
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"fov_scale",
-                               std::to_wstring(imgui_state.fov_scale).c_str(), ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"language",
-                               std::to_wstring(imgui_state.language).c_str(), ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"console_far_clip",
-                               imgui_state.console_far_clip ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"console_far_scale",
-                               std::to_wstring(imgui_state.console_far_scale).c_str(),
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"master_volume",
-                               std::to_wstring(imgui_state.master_volume).c_str(),
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"cutscene_volume",
-                               std::to_wstring(imgui_state.cutscene_volume).c_str(),
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"hd_replacement",
-                               imgui_state.HD_replacement ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"show_imgui", show_imgui ? L"1" : L"0",
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"show_pod_names",
-                               imgui_state.show_pod_names ? L"1" : L"0", ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"skip_intro_fmv",
-                               imgui_state.skip_intro_fmv ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_cantina_intro",
-                               imgui_state.skip_cantina_intro ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_taunt",
-                               imgui_state.skip_taunt ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_prerace_cinematic",
-                               imgui_state.skip_prerace_cinematic ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_prerace_camera",
-                               imgui_state.skip_prerace_camera ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_results",
-                               imgui_state.skip_results ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_circuit_winner",
-                               imgui_state.skip_circuit_winner ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"skip_credits",
-                               imgui_state.skip_credits ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"restore_prerace_track_sweep",
-                               imgui_state.restore_prerace_track_sweep ? L"1" : L"0",
-                               ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"restore_screen_fades",
-                               imgui_state.restore_screen_fades ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"cinematic_letterbox",
-                               imgui_state.cinematic_letterbox ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"cursor_use_game_sprite",
-                               imgui_state.cursor_use_game_sprite ? L"1" : L"0", ini_path.c_str());
-    WritePrivateProfileStringW(L"settings", L"fast_restart", imgui_state.fast_restart ? L"1" : L"0",
-                               ini_path.c_str());
-
-    WritePrivateProfileStringW(L"settings", L"mp_allow_upgrades",
-                               imgui_state.mp_allow_upgrades ? L"1" : L"0", ini_path.c_str());
+    config::set_int("settings", "msaa_samples", imgui_state.msaa_samples);
+    config::set_int("settings", "anisotropy", imgui_state.anisotropy);
+    config::set_int("settings", "tex_mag_filter", imgui_state.tex_mag_filter);
+    config::set_float("settings", "alpha_cutoff", imgui_state.alpha_cutoff);
+    config::set_int("settings", "target_fps", imgui_state.target_fps);
+    config::set_bool("settings", "show_fps_overlay", imgui_state.show_fps_overlay);
+    config::set_bool("settings", "show_fps_graph", imgui_state.show_fps_graph);
+    config::set_bool("settings", "enable_fog", imgui_state.enable_fog);
+    config::set_bool("settings", "enable_gamepad_nav", imgui_state.enable_gamepad_nav);
+    config::set_bool("settings", "time_show_millis", g_time_show_millis);
+    config::set_bool("settings", "ui_resolution_independent", imgui_state.ui_resolution_independent);
+    config::set_float("settings", "ui_scale", imgui_state.ui_scale);
+    config::set_bool("settings", "mp_disable_collision", imgui_state.mp_disable_collision);
+    config::set_bool("settings", "cache_meshes", imgui_state.cache_meshes);
+    config::set_bool("settings", "reflection_texgen", imgui_state.reflection_texgen);
+    config::set_float("settings", "reflection_texgen_scale", imgui_state.reflection_texgen_scale);
+    config::set_float("settings", "reflection_texgen_rotation",
+                      imgui_state.reflection_texgen_rotation);
+    config::set_string("settings", "reflection_texgen_offset",
+                       std::to_string(imgui_state.reflection_texgen_offset[0]) + " " +
+                           std::to_string(imgui_state.reflection_texgen_offset[1]));
+    config::set_bool("settings", "cull_meshes", imgui_state.cull_meshes);
+    config::set_bool("settings", "stream_dynamic_meshes", imgui_state.stream_dynamic_meshes);
+    config::set_bool("settings", "hd_scene_captures", imgui_state.hd_scene_captures);
+    config::set_bool("settings", "hd_font", imgui_state.hd_font);
+    config::set_bool("settings", "vsync", imgui_state.vsync);
+    config::set_bool("settings", "ai_full_lod", imgui_state.ai_full_lod);
+    config::set_float("settings", "fov_scale", imgui_state.fov_scale);
+    config::set_bool("settings", "console_far_clip", imgui_state.console_far_clip);
+    config::set_float("settings", "console_far_scale", imgui_state.console_far_scale);
+    config::set_float("settings", "master_volume", imgui_state.master_volume);
+    config::set_float("settings", "cutscene_volume", imgui_state.cutscene_volume);
+    config::set_bool("settings", "hd_replacement", imgui_state.HD_replacement);
+    config::set_bool("settings", "show_imgui", show_imgui);
+    config::set_bool("settings", "show_pod_names", imgui_state.show_pod_names);
+    config::set_bool("settings", "show_collision", imgui_state.show_collision);
+    config::set_bool("settings", "show_triggers", imgui_state.show_triggers);
+    config::set_bool("settings", "show_hitbox", imgui_state.show_hitbox);
+    config::set_bool("settings", "collision_wireframe", imgui_state.collision_wireframe);
+    config::set_float("settings", "collision_opacity", imgui_state.collision_opacity);
+    config::set_bool("settings", "cursor_use_game_sprite", imgui_state.cursor_use_game_sprite);
+    config::set_bool("settings", "fast_restart", imgui_state.fast_restart);
+    config::set_bool("settings", "mp_allow_upgrades", imgui_state.mp_allow_upgrades);
+    config::set_int("settings", "enable_weather", imgui_state.enable_weather);
+    config::set_int("settings", "skip_intro_fmv", imgui_state.skip_intro_fmv);
+    config::set_int("settings", "skip_cantina_intro", imgui_state.skip_cantina_intro);
+    config::set_int("settings", "skip_taunt", imgui_state.skip_taunt);
+    config::set_int("settings", "skip_prerace_cinematic", imgui_state.skip_prerace_cinematic);
+    config::set_int("settings", "skip_prerace_camera", imgui_state.skip_prerace_camera);
+    config::set_int("settings", "skip_results", imgui_state.skip_results);
+    config::set_int("settings", "skip_circuit_winner", imgui_state.skip_circuit_winner);
+    config::set_int("settings", "skip_credits", imgui_state.skip_credits);
+    config::set_int("settings", "restore_prerace_track_sweep", imgui_state.restore_prerace_track_sweep);
+    config::set_int("settings", "restore_screen_fades", imgui_state.restore_screen_fades);
+    config::set_int("settings", "cinematic_letterbox", imgui_state.cinematic_letterbox);
+    config::set_int("settings", "language", imgui_state.language);
     for (int i = 0; i < 7; i++) {
-        WritePrivateProfileStringW(L"settings", mp_upgrade_ini_keys[i],
-                                   std::to_wstring(imgui_state.mp_upgrade_levels[i]).c_str(),
-                                   ini_path.c_str());
+        config::set_int("settings", mp_upgrade_ini_keys[i], imgui_state.mp_upgrade_levels[i]);
     }
-
-    WritePrivateProfileStringW(L"settings", L"window_mode", std::to_wstring(g_window_mode).c_str(),
-                               ini_path.c_str());
+    config::set_int("settings", "window_mode", g_window_mode);
+    config::save();
 }
 
 // C-callable persistence for the window key callbacks (window-mode changes and
@@ -506,10 +438,6 @@ extern "C" int cutscene_should_skip_prerace_cinematic(void) {
     return imgui_state.skip_prerace_cinematic ? 1 : 0;
 }
 
-
-const wchar_t *settings_ini_path() {
-    return ini_path.c_str();
-}
 
 const char *swrModel_NodeTypeStr(uint32_t nodeType) {
     switch (nodeType) {
@@ -749,6 +677,7 @@ void imgui_Update() {
         read_settings_ini();
         register_builtin_debug_panels();
         freecam_RegisterPanel();// camera system (dinput_hook/camera)
+        playercam_RegisterPanel();
         debug_ui_register_builtin_shell_panels();
         debug_ui_load_settings();
     }
@@ -1188,6 +1117,33 @@ static void panel_graphics_settings() {
     if (ImGui::Checkbox("Enable fog", &imgui_state.enable_fog)) {
         save_settings_ini();
     }
+    // N64 pseudo-reflection texgen on meshes sampling chrome01 (issue #206).
+    if (ImGui::Checkbox("N64 reflective texgen", &imgui_state.reflection_texgen)) {
+        save_settings_ini();
+    }
+    // An HD-replaced model is drawn by the glTF path and returns before the N64 material code, so
+    // this never reaches it -- including the pods, which is where the chrome is most visible. Say so
+    // rather than letting the toggle look broken.
+    if (imgui_state.reflection_texgen && imgui_state.HD_replacement) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                           "HD model replacement is on: replaced models (pods included) draw "
+                           "through the glTF renderer and never reach this. Turn HD replacement "
+                           "off to see it on pod chrome.");
+    }
+    if (imgui_state.reflection_texgen) {
+        if (ImGui::SliderFloat("Reflection detail", &imgui_state.reflection_texgen_scale, 0.5f, 3.0f,
+                               "%.2f")) {
+            save_settings_ini();
+        }
+        if (ImGui::SliderFloat("Reflection rotation", &imgui_state.reflection_texgen_rotation, 0.0f,
+                               360.0f, "%.0f deg")) {
+            save_settings_ini();
+        }
+        if (ImGui::SliderFloat2("Reflection offset", imgui_state.reflection_texgen_offset, -1.0f,
+                                1.0f, "%.2f")) {
+            save_settings_ini();
+        }
+    }
 
     // Applied in stdDisplay_Update_Hook when changed. Turn off to tell vsync judder apart from
     // real render-time variance: under vsync a missed vblank halves the framerate (60<->30
@@ -1456,6 +1412,32 @@ static void panel_render_debug() {
     ImGui::Checkbox("debug ggx lut", &imgui_state.debug_ggxLut);
 }
 
+// Track collision-mesh overlay: the geometry the pod actually collides against, color-coded by
+// surface reaction. In-race only.
+static void panel_collision() {
+    if (ImGui::Checkbox("Show collision mesh", &imgui_state.show_collision)) {
+        save_settings_ini();
+    }
+    if (ImGui::Checkbox("Show triggers + racer markers", &imgui_state.show_triggers)) {
+        save_settings_ini();
+    }
+    if (ImGui::Checkbox("Show pod hitbox", &imgui_state.show_hitbox)) {
+        save_settings_ini();
+    }
+    if (imgui_state.show_hitbox) {
+        ImGui::Indent();
+        ImGui::TextDisabled("green: pod body radius (walls, per-pod)");
+        ImGui::TextDisabled("cyan: pod-vs-pod radius (r=5)");
+        ImGui::Unindent();
+    }
+    if (ImGui::Checkbox("Wireframe only", &imgui_state.collision_wireframe)) {
+        save_settings_ini();
+    }
+    if (ImGui::SliderFloat("Fill opacity", &imgui_state.collision_opacity, 0.0f, 1.0f, "%.2f")) {
+        save_settings_ini();
+    }
+}
+
 // Dev: scene graph + (debug-build only) per-frame node/material property tallies.
 static void panel_scene_inspector() {
 #ifndef NDEBUG
@@ -1549,6 +1531,37 @@ static void panel_textures() {
                          ImVec2(50, 50));
             ImGui::SameLine();
             ImGui::Text("#%d", *imgui_state.picked_texture_id);
+        }
+        // #206 discovery aid: force texgen onto the hovered surface and read its material
+        // signature, to find which combiner/render-mode value marks the reflective materials.
+        ImGui::Checkbox("Force reflection texgen on hovered",
+                        &imgui_state.debug_texgen_on_picked);
+        const auto &pm = imgui_state.picked_mesh_material;
+        if (pm.valid) {
+            ImGui::SeparatorText("Hovered mesh material");
+            ImGui::Text("reflective=%d  normals=%d  texgen_applied=%d", pm.is_reflective,
+                        pm.has_normals, pm.texgen_applied);
+            ImGui::Text("type          %08X", pm.type);
+            ImGui::Text("unk1          %08X", pm.mat_unk1);
+            ImGui::Text("unk2          %08X", pm.mat_unk2);
+            ImGui::Text("unk5          %08X", pm.mat_unk5);
+            ImGui::Text("unk8          %08X", pm.mat_unk8);
+            ImGui::Text("render_mode_1 %08X", pm.render_mode_1);
+            ImGui::Text("render_mode_2 %08X", pm.render_mode_2);
+            // Decode the combiners to (A-B)*C+D form.
+            ImGui::Text("cc_cycle1 %08X %s", pm.cc_cycle1,
+                        CombineMode(pm.cc_cycle1, false).to_string().c_str());
+            ImGui::Text("ac_cycle1 %08X %s", pm.ac_cycle1,
+                        CombineMode(pm.ac_cycle1, true).to_string().c_str());
+            ImGui::Text("cc_cycle2 %08X %s", pm.cc_cycle2,
+                        CombineMode(pm.cc_cycle2, false).to_string().c_str());
+            ImGui::Text("ac_cycle2 %08X %s", pm.ac_cycle2,
+                        CombineMode(pm.ac_cycle2, true).to_string().c_str());
+            ImGui::Text("tex.unk0      %08X", pm.tex_unk0);
+            ImGui::Text("tex.type      %08X", pm.tex_type);
+            ImGui::Text("tex.unk6      %08X", pm.tex_unk6);
+            ImGui::Text("tex.unk7      %08X", pm.tex_unk7);
+            ImGui::Text("tex.spec0flag %08X", pm.tex_spec0_flags);
         }
     }
 
@@ -1793,6 +1806,12 @@ static void panel_race() {
                         &imgui_state.fast_restart))
         persist_settings_ini();
     ImGui::TextDisabled("Single-player only. Press Enter during a race to restart instantly.");
+
+    // Millisecond precision on all displayed times (lap popup, per-lap rows, totals, records).
+    ImGui::Separator();
+    if (ImGui::Checkbox("Show milliseconds in times", &g_time_show_millis))
+        persist_settings_ini();
+    ImGui::TextDisabled("Thousandths of a second on every time readout. Off = stock hundredths.");
 }
 
 // Player: audio controls. Master volume drives the A3D device output gain (the
@@ -2513,6 +2532,8 @@ static DebugPanel g_panel_cheats = {
     .category = "Cheats", .name = "Cheats", .draw = panel_cheats, .dev_only = false};
 static DebugPanel g_panel_render_debug = {
     .category = "Debug", .name = "Render Debug", .draw = panel_render_debug, .dev_only = true};
+static DebugPanel g_panel_collision = {
+    .category = "Inspect", .name = "Collision", .draw = panel_collision, .dev_only = false};
 static DebugPanel g_panel_scene_inspector = {
     .category = "Inspect", .name = "Scene", .draw = panel_scene_inspector, .dev_only = true};
 static DebugPanel g_panel_textures = {
@@ -2535,6 +2556,7 @@ static void register_builtin_debug_panels() {
     debug_ui_register(&g_panel_input_diag);
     debug_ui_register(&g_panel_cheats);
     debug_ui_register(&g_panel_render_debug);
+    debug_ui_register(&g_panel_collision);
     debug_ui_register(&g_panel_scene_inspector);
     debug_ui_register(&g_panel_textures);
     debug_ui_register(&g_panel_pod_transforms);

@@ -2,9 +2,11 @@
 // Free camera (Phase 1) -- see camera.h.
 //
 #include "camera.h"
+#include "player_camera.h"
 #include "../hook_helper.h"
 #include "../debug_ui.h"
 #include "../imgui_utils.h"
+#include "../config.h"
 
 #include <imgui.h>
 
@@ -179,10 +181,6 @@ void set_active(bool on) {
     g_seeded = false;
     if (on) {
         g_saved_fov_scale = imgui_state.fov_scale;
-        // Fresh hide-HUD keep-set for this session. It accumulates across the frames we fly (a sky
-        // sprite made visible on any frame stays kept), so a sprite that isn't re-asserted every
-        // frame isn't wrongly dropped -- and it's never cleared per-frame while off (no wasted work).
-        std::memset(g_keep_sprite, 0, sizeof(g_keep_sprite));
     } else {
         imgui_state.fov_scale = g_saved_fov_scale;
         g_have_cam = false;
@@ -353,39 +351,26 @@ float frame_dt() {
 }
 
 // --- config persistence ([camera] in SW_RACER_RE.ini) ----------------------
-float ini_get_float(const wchar_t *ini, const wchar_t *key, float def) {
-    wchar_t got[48], defbuf[48];
-    swprintf(defbuf, 48, L"%.4f", def);
-    GetPrivateProfileStringW(L"camera", key, defbuf, got, 48, ini);
-    return (float) wcstod(got, nullptr);
-}
-void ini_set_float(const wchar_t *ini, const wchar_t *key, float v) {
-    wchar_t buf[48];
-    swprintf(buf, 48, L"%.4f", v);
-    WritePrivateProfileStringW(L"camera", key, buf, ini);
-}
-
 void load_config() {
-    const wchar_t *ini = settings_ini_path();
-    g_cfg.move_speed = ini_get_float(ini, L"move_speed", g_cfg.move_speed);
-    g_cfg.boost_mult = ini_get_float(ini, L"boost_mult", g_cfg.boost_mult);
-    g_cfg.slow_mult = ini_get_float(ini, L"slow_mult", g_cfg.slow_mult);
-    g_cfg.mouse_sens = ini_get_float(ini, L"mouse_sens", g_cfg.mouse_sens);
-    g_cfg.pad_look_rate = ini_get_float(ini, L"pad_look_rate", g_cfg.pad_look_rate);
-    g_cfg.smoothing = ini_get_float(ini, L"smoothing", g_cfg.smoothing);
-    g_cfg.fov_scale = ini_get_float(ini, L"fov_scale", g_cfg.fov_scale);
-    g_cfg.invert_y = GetPrivateProfileIntW(L"camera", L"invert_y", g_cfg.invert_y, ini) != 0;
+    g_cfg.move_speed = config::get_float("camera", "move_speed", g_cfg.move_speed);
+    g_cfg.boost_mult = config::get_float("camera", "boost_mult", g_cfg.boost_mult);
+    g_cfg.slow_mult = config::get_float("camera", "slow_mult", g_cfg.slow_mult);
+    g_cfg.mouse_sens = config::get_float("camera", "mouse_sens", g_cfg.mouse_sens);
+    g_cfg.pad_look_rate = config::get_float("camera", "pad_look_rate", g_cfg.pad_look_rate);
+    g_cfg.smoothing = config::get_float("camera", "smoothing", g_cfg.smoothing);
+    g_cfg.fov_scale = config::get_float("camera", "fov_scale", g_cfg.fov_scale);
+    g_cfg.invert_y = config::get_int("camera", "invert_y", g_cfg.invert_y) != 0;
 }
 void save_config() {
-    const wchar_t *ini = settings_ini_path();
-    ini_set_float(ini, L"move_speed", g_cfg.move_speed);
-    ini_set_float(ini, L"boost_mult", g_cfg.boost_mult);
-    ini_set_float(ini, L"slow_mult", g_cfg.slow_mult);
-    ini_set_float(ini, L"mouse_sens", g_cfg.mouse_sens);
-    ini_set_float(ini, L"pad_look_rate", g_cfg.pad_look_rate);
-    ini_set_float(ini, L"smoothing", g_cfg.smoothing);
-    ini_set_float(ini, L"fov_scale", g_cfg.fov_scale);
-    WritePrivateProfileStringW(L"camera", L"invert_y", g_cfg.invert_y ? L"1" : L"0", ini);
+    config::set_float("camera", "move_speed", g_cfg.move_speed);
+    config::set_float("camera", "boost_mult", g_cfg.boost_mult);
+    config::set_float("camera", "slow_mult", g_cfg.slow_mult);
+    config::set_float("camera", "mouse_sens", g_cfg.mouse_sens);
+    config::set_float("camera", "pad_look_rate", g_cfg.pad_look_rate);
+    config::set_float("camera", "smoothing", g_cfg.smoothing);
+    config::set_float("camera", "fov_scale", g_cfg.fov_scale);
+    config::set_bool("camera", "invert_y", g_cfg.invert_y);
+    config::save();
 }
 
 void panel_camera() {
@@ -549,13 +534,18 @@ extern "C" void __cdecl freecam_ProcessInputs_delta(void) {
 // dropped via the DrawTextEntries hooks. (swrSprite_Draw2 / SetPosF are already delta-owned, so the
 // Draw2 filter is applied inside swrSprite_Draw2_delta via freecam_HudSpriteHidden.)
 static bool hud_hidden() {
-    return g_active;
+    return g_active || playercam_HudHidden();
 }
 
 // Wrap the world-sprite render so swrSprite_SetVisible records the sky sprites into the keep-set.
 typedef void(__cdecl *swrPlayerHUD_RenderViewport_t)(void *, bool);
 extern "C" void __cdecl swrPlayerHUD_RenderViewport_delta(void *viewport, bool secondaryPass) {
     const bool rec = hud_hidden();
+    // Keep-set restarts when hiding starts and accumulates while hidden.
+    static bool was_hiding = false;
+    if (rec && !was_hiding)
+        std::memset(g_keep_sprite, 0, sizeof(g_keep_sprite));
+    was_hiding = rec;
     if (rec)
         g_world_recording = true;
     hook_call_original((swrPlayerHUD_RenderViewport_t) swrPlayerHUD_RenderViewport_ADDR, viewport,
@@ -563,6 +553,8 @@ extern "C" void __cdecl swrPlayerHUD_RenderViewport_delta(void *viewport, bool s
     g_world_recording = false;
 }
 extern "C" void __cdecl swrSprite_SetVisible_delta(short id, int visible) {
+    if (visible && playercam_SuppressSpriteVisibility())
+        visible = 0;
     hook_call_original(swrSprite_SetVisible, id, visible);
     if (g_world_recording && visible && id >= 0 && id < 251)
         g_keep_sprite[id] = true;

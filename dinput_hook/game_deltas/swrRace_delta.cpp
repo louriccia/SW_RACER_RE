@@ -328,7 +328,7 @@ void swrRace_ClearCableBends() {
 void __cdecl swrRace_ResultsMenu_delta(swrObjHang* hang) {
     const bool skip = imgui_state.skip_results;
     if (skip)
-        swrRace_resultsMilestones |= 8;
+        swrRace_resultsStateFlags |= swrRace_RESULTSFLAG_PILOT_UNLOCK_SHOWN;
     hook_call_original(swrRace_ResultsMenu, hang);
 
     // Circuit Winner Scene (state 16) clean-skip. Advancing from the tournament results with a top-3
@@ -342,7 +342,7 @@ void __cdecl swrRace_ResultsMenu_delta(swrObjHang* hang) {
         swrObjHang_state2 = swrObjHang_STATE_SELECT_PLANET;
 
     if (skip && hang->num_local_players == 1 && hang->isTournamentMode != 0 &&
-        hang->num_players > 3 && swrRace_localPlayerPlace == 1) {
+        hang->num_players > 3 && swrRace_resultsPlaceP1 == 1) {
         char fav = g_aTrackInfos[hang->track_index].FavoritePilot;
         if (fav == 2 && hang->track_index != 1)
             fav = 0;

@@ -1,3 +1,4 @@
+#include "config.h"
 #include "localization.h"
 
 #include <windows.h>
@@ -8,7 +9,7 @@
 
 #include <detours.h>// Window_PlayCinematic detour (cutscene overlay)
 
-#include "imgui_utils.h"// imgui_state (selected index), settings_ini_path()
+#include "imgui_utils.h"// imgui_state (selected index)
 
 extern "C" {
 #include <globals.h>// swrText_racerTab_buffer / _array / _nbLinesRacerTab
@@ -77,7 +78,7 @@ static int detect_os_language() {
 
 // Persisted index; -1 (unset) -> auto-detect from the OS once. Clamped to a valid language.
 static int resolve_language() {
-    int idx = GetPrivateProfileIntW(L"settings", L"language", -1, settings_ini_path());
+    int idx = config::get_int("settings", "language", -1);
     if (idx < 0)
         idx = detect_os_language();
     if (idx < 0 || idx >= g_language_count)

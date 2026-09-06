@@ -12,6 +12,12 @@
 #define DAALLOC_ARENA_COUNT (0x421)      // number of daAlloc_struct arena slots (1057)
 #define DAALLOC_SMALL_ALLOC_MAX (0x1000) // requests larger than this bypass the arena (daSmallAlloc)
 
+// Save / profile persistence (elfSaveLoad, swrRace.c).
+#define ELFSAVE_VERSION_MAGIC (0x10003) // 4-byte magic prefixed to tgfd.dat and .sav profile exports
+#define ELFSAVE_NB_TRACKS (25) // tracks in the record tables (x2 slots each: normal + mirror)
+#define ELFSAVE_RECORD_TIME_EMPTY (3599.99f) // record-slot default; at/above this the UI shows "--:--.---"
+#define ELFSAVE_DEFAULT_PILOTS (0x22e01) // pilot-unlock bitfield of a fresh profile
+#define ELFSAVE_DEFAULT_TRUGUTS (400) // starting currency of a fresh profile
 // swrRace human-input -> pod-control tuning (swrRace_UpdatePlayerControl @0x46bec0 /
 // swrRace_CalcTargetTurnRate). Values read from the retail .rdata constant pool
 // (0x004ad7xx..0x004ad9xx). Doubles are loaded as qword compares; floats as dword.
@@ -50,5 +56,14 @@
 #define SWR_CTL_SCRIPT5_LAP_MAX (0.072f)
 #define SWR_CTL_SCRIPT6_LAP_MIN (0.093f)       // ai_track_script==6 scripted-zone lapComp bounds
 #define SWR_CTL_SCRIPT6_LAP_MAX (0.108f)
+
+// Asset buffer (swrScene_InitWorld @0x00449040): one allocation, held for the process, that every
+// track model, spline and texture is read into. Retail's 8 MiB can be filled by a custom track
+// alone, leaving no room for the pods; overrunning it spins forever in
+// swrAssetBuffer_CheckOverflow. Sized from settings.ini ([settings] asset_buffer_mb), bounded
+// below by retail because a smaller buffer would overflow where stock does not.
+#define SWR_ASSET_BUFFER_SIZE_RETAIL (0x800000U) // 8 MiB, the size retail mallocs
+#define SWR_ASSET_BUFFER_MB_DEFAULT (16) // used when settings.ini says nothing
+#define SWR_ASSET_BUFFER_MB_MAX (256) // ceiling, so a typo can't request the unbackable
 
 #endif // ENGINE_CONFIG_H
