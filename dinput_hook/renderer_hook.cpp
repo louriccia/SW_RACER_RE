@@ -32,6 +32,7 @@ extern "C" {
 #include "./game_deltas/swrControl_delta.h"
 #include "./game_deltas/swrModel_delta.h"
 #include "./game_deltas/swrSpline_delta.h"
+#include "./game_deltas/swrAssetBuffer_delta.h"
 #include "./game_deltas/swrObjJdge_delta.h"
 #include "./game_deltas/swrGamepadNav_delta.h"
 #include "./game_deltas/swrMultiplayer_delta.h"
@@ -2452,6 +2453,10 @@ extern "C" void init_renderer_hooks() {
     // hangar menu cap was also raised to 100 in tracks_delta.c.
     swrObjJdge_PatchLapTimeOverflow();
 
+    // Must land before swrScene_Startup, which allocates the asset buffer once and keeps it for
+    // the process.
+    swrAssetBuffer_PatchSize();
+
     // Weather: the game's 80-particle, fixed-box, sprite-based system (whose motion-blur streak draw
     // was stubbed out) is replaced with our own particle simulation drawn in the GL layer --
     // swrWeather_RenderParticles_delta runs the tick + draw instead of the original. Enable/Disable
@@ -2532,6 +2537,10 @@ extern "C" void init_renderer_hooks() {
     hook_function("swrSpline_LoadSplineById", (uint32_t) swrSpline_LoadSplineById,
                   (uint8_t *) swrSpline_LoadSplineById_ADDR);
     hook_replace(swrSpline_LoadSplineById, swrSpline_LoadSplineById_delta);
+
+    hook_function("swrSpline_EvaluateToMatrix", (uint32_t) swrSpline_EvaluateToMatrix,
+                  (uint8_t *) swrSpline_EvaluateToMatrix_ADDR);
+    hook_replace(swrSpline_EvaluateToMatrix, swrSpline_EvaluateToMatrix_delta);
 
     fprintf(hook_log, "Done\n");
     fflush(hook_log);

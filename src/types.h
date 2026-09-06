@@ -778,8 +778,11 @@ extern "C"
         int hud_mode; // 0x124. annodue: _hud_mode
         int event;
         char unk128[4];
-        void* camSweepState; // 0x12c. post-race camera-sweep state; while non-null F2 walks unk134_mat and F0 gates the finish -> results transition on it
-        rdMatrix44 unk134_mat; // 0x134. post-race fly-by transform, driven by swrSpline_EvaluateToMatrix only while camSweepState != NULL
+        void* camSweepState; // 0x130 (the field order puts it here, not 0x12c). camera-sweep gate; while non-null F2 walks unk134_mat and F0 gates the finish -> results transition on it
+        // 0x134. NOT a matrix: swrObjJdge_F2+0x32 passes it to swrSpline_EvaluateToMatrix as the
+        // fly-by CURSOR (swrSplineCursor, 0x30) and takes the output matrix at +0x30 (0x164), so
+        // vA.x is cursor.spline and vC.x is cursor.endFlag. Retyping it is a follow-up.
+        rdMatrix44 unk134_mat;
         float unk174[11];
         float unk1a0; // 0x1a0. reset to 1.0 at 'Load'; purpose not yet identified (no reader found in the judge functions)
         void* cam_spline;
