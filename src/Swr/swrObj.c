@@ -773,7 +773,7 @@ void swrObjJdge_F0(swrObjJdge* jdge)
         if (jdge->camSweepState == NULL) {
             advance = true;
         } else {
-            if (jdge->postRaceCursor.endFlag == 0)
+            if (jdge->camSweepCursor.endFlag == 0)
                 jdge->raceTimer_ms -= (float)swrRace_deltaTimeSecs;
             else if ((flags & 0x80) != 0)
                 jdge->raceTimer_ms += (float)swrRace_deltaTimeSecs;
@@ -782,7 +782,7 @@ void swrObjJdge_F0(swrObjJdge* jdge)
                 jdge->flag = flags | 0x80;
             }
             // fly-by camera reached the end of its path: linger half a second, then results
-            if (jdge->postRaceCursor.endFlag != 0 && 0.5f < jdge->raceTimer_ms)
+            if (jdge->camSweepCursor.endFlag != 0 && 0.5f < jdge->raceTimer_ms)
                 advance = true;
         }
         if (advance) {
@@ -880,7 +880,7 @@ void swrObjJdge_F2(swrObjJdge* jdge)
     int i;
 
     if ((jdge->flag & 0xf) == 4 && jdge->camSweepState != NULL)
-        swrSpline_EvaluateToMatrix(&jdge->postRaceCursor, &jdge->postRaceMat);
+        swrSpline_EvaluateToMatrix(&jdge->camSweepCursor, &jdge->camSweepTransform);
 
     if ((jdge->flag & 0xf) == 1) {
         swrSpline_EvaluateToMatrix(&jdge->cursor, &jdge->camBaseMat);
@@ -1783,22 +1783,23 @@ int swrObjJdge_F4(swrObjJdge* jdge, int* subEvents, int p3)
         jdge->unk1d8 = 0;
         jdge->unk1dc = 0;
         jdge->camSweepState = NULL;
-        jdge->postRaceMat.vA.x = 1.0f;
-        jdge->postRaceMat.vA.y = 0.0f;
-        jdge->postRaceMat.vA.z = 0.0f;
-        jdge->postRaceMat.vA.w = 0.0f;
-        jdge->postRaceMat.vB.x = 0.0f;
-        jdge->postRaceMat.vB.y = 1.0f;
-        jdge->postRaceMat.vB.z = 0.0f;
-        jdge->postRaceMat.vB.w = 0.0f;
-        jdge->postRaceMat.vC.x = 0.0f;
-        jdge->postRaceMat.vC.y = 0.0f;
-        jdge->postRaceMat.vC.z = 1.0f;
-        jdge->postRaceMat.vC.w = 0.0f;
-        jdge->postRaceMat.vD.x = 0.0f;
-        jdge->postRaceMat.vD.y = 0.0f;
-        jdge->postRaceMat.vD.z = 0.0f;
-        jdge->postRaceMat.vD.w = 1.0f;
+        // camSweepTransform = identity, written field by field as the original does
+        jdge->camSweepTransform.vA.x = 1.0f;
+        jdge->camSweepTransform.vA.y = 0.0f;
+        jdge->camSweepTransform.vA.z = 0.0f;
+        jdge->camSweepTransform.vA.w = 0.0f;
+        jdge->camSweepTransform.vB.x = 0.0f;
+        jdge->camSweepTransform.vB.y = 1.0f;
+        jdge->camSweepTransform.vB.z = 0.0f;
+        jdge->camSweepTransform.vB.w = 0.0f;
+        jdge->camSweepTransform.vC.x = 0.0f;
+        jdge->camSweepTransform.vC.y = 0.0f;
+        jdge->camSweepTransform.vC.z = 1.0f;
+        jdge->camSweepTransform.vC.w = 0.0f;
+        jdge->camSweepTransform.vD.x = 0.0f;
+        jdge->camSweepTransform.vD.y = 0.0f;
+        jdge->camSweepTransform.vD.z = 0.0f;
+        jdge->camSweepTransform.vD.w = 1.0f;
         jdge->cam_spline = NULL;
         jdge->unk1a8 = 0;
         jdge->unk1e0 = 0;
@@ -2032,29 +2033,274 @@ float swrObjHang_StepTransition(float rate)
     return swrRace_Transition;
 }
 
+// 0x00469e70
+void swrObjSmok_Free(swrObj* obj)
+{
+    swrObjSmok* smok = (swrObjSmok*)obj;
+
+    for (int i = 0; i < smok->particleCount; i++) {
+        if (smok->particleNodes[i] != NULL)
+            swrModel_NodeModifyFlags(smok->particleNodes[i], 2, -4, 0x10, 3);
+    }
+    if (smok->ownerHandle != NULL)
+        *(void**)smok->ownerHandle = NULL;
+    swrObj_Free(obj);
+}
+
 // 0x00469ed0
 void swrObjSmok_F0(swrObjSmok* smok)
 {
-    HANG("TODO");
+    if (smok->lifetime <= 0.0f) {
+        smok->lifetime = 0.0f;
+        if ((smok->flags & swrObjSmok_FLAG_OWNER_MANAGED) == 0) {
+            for (int i = 0; i < 5; i++) {
+                if (smok->particleNodes[i] != NULL)
+                    swrModel_NodeModifyFlags(smok->particleNodes[i], 2, -4, 0x10, 3);
+            }
+            swrObjSmok_Free(&smok->obj);
+        }
+        return;
+    }
+
+    int advanceFront = smok->alphaWindowFront < 1.0f;
+    smok->lifetime = smok->lifetime - (float)swrRace_deltaTimeSecs;
+    if (advanceFront)
+        smok->alphaWindowFront = smok->alphaWindowFront - (swrRace_deltaTimeSecs * -4.0) / smok->totalLifetime;
+    if (smok->lifetime < smok->totalLifetime)
+        smok->alphaWindowTail = smok->alphaWindowTail - (swrRace_deltaTimeSecs * -4.0) / smok->totalLifetime;
 }
 
 // 0x00469fb0
 void swrObjSmok_F3(swrObjSmok* smok)
 {
-    HANG("TODO");
+    for (int i = 0; i < smok->particleCount; i++) {
+        swrModel_Node* node = smok->particleNodes[i];
+        if (node == NULL)
+            continue;
+
+        float phase = (float)i / (float)smok->particleCount + smok->lifetime / smok->totalLifetime;
+        // Wrap into [0,1): subtracting almost-one biases the truncation below toward -inf.
+        if (phase < 0.0f)
+            phase -= 0.99999899f;
+        float t = 1.0f - (phase - (float)(int)phase);
+        if (t < 0.0f)
+            t = 0.0f;
+        if (t > 1.0f)
+            t = 1.0f;
+
+        // Billboard basis: Z runs along the drift velocity, X/Y span the quad.
+        rdVector3 forward = smok->velocity;
+        rdVector_Normalize3Acc(&forward);
+        float absZ = forward.z < 0.0f ? -forward.z : forward.z;
+        rdVector3 up;
+        up.x = 0.0f;
+        if (absZ <= 0.9) { // double compare, as in the original
+            up.y = 0.0f;
+            up.z = 1.0f;
+        } else {
+            up.y = 1.0f;
+            up.z = 0.0f;
+        }
+        rdVector3 right;
+        rdVector_Cross3(&right, &up, &forward);
+        rdVector_Cross3(&up, &forward, &right);
+        rdVector_Normalize3Acc(&up);
+        rdVector_Normalize3Acc(&right);
+
+        rdMatrix44 transform;
+        rdMatrix_SetIdentity44(&transform);
+        float width = (smok->widthStart + (smok->widthEnd - smok->widthStart) * t * t) * 0.01f;
+        rdVector_Scale3((rdVector3*)&transform.vA, width, &right);
+        rdVector_Scale3((rdVector3*)&transform.vB, width, &up);
+        rdVector_Scale3((rdVector3*)&transform.vC, ((smok->lengthEnd - smok->lengthStart) * t * t + smok->lengthStart) * 0.01f, &forward);
+
+        float spin = ((smok->spinRateEnd - smok->spinRateStart) * t + smok->spinRateStart) * (float)swrRace_deltaTimeSecs + smok->particleSpin[i];
+        smok->particleSpin[i] = spin;
+        rdMatrix_AddRotationFromVectorAngle44Before(&transform, spin, 0.0f, 0.0f, 1.0f, &transform);
+        rdVector_Scale3Add3((rdVector3*)&transform.vD, (rdVector3*)&smok->transform.vD, t, &smok->velocity);
+
+        int r = (int)(((smok->colorEnd.x - smok->colorStart.x) * t + smok->colorStart.x) * 255.0f);
+        int g = (int)(((smok->colorEnd.y - smok->colorStart.y) * t + smok->colorStart.y) * 255.0f);
+        int b = (int)(((smok->colorEnd.z - smok->colorStart.z) * t + smok->colorStart.z) * 255.0f);
+        int a = (int)(((smok->colorEnd.w - smok->colorStart.w) * t + smok->colorStart.w) * 255.0f);
+
+        if (t < smok->fadeInEnd && smok->fadeInEnd > 0.0f)
+            a = (int)((float)a * (t / smok->fadeInEnd));
+        if (t > smok->fadeOutStart && smok->fadeOutStart < 1.0f)
+            a = (int)((float)a + (float)-a * ((t - smok->fadeOutStart) / (1.0 - smok->fadeOutStart)));
+        if (t > smok->alphaWindowFront)
+            a = (int)((float)a * (1.0f - (t - smok->alphaWindowFront) * 4.0f));
+        if (t < smok->alphaWindowFront)
+            a = (int)((float)a * (1.0f - (smok->alphaWindowTail - t) * 4.0f));
+
+        if (r < 0)
+            r = 0;
+        if (r > 255)
+            r = 255;
+        if (g < 0)
+            g = 0;
+        if (g > 255)
+            g = 255;
+        if (b < 0)
+            b = 0;
+        if (b > 255)
+            b = 255;
+        if (a < 0)
+            a = 0;
+        if (a > 255)
+            a = 255;
+
+        swrModel_NodeSetTransform((swrModel_NodeTransformed*)node, &transform);
+        swrModel_NodeModifyFlags(node, 2, 3, 0x10, 2);
+        if (a < 2)
+            swrModel_NodeModifyFlags(node, 2, -4, 0x10, 3);
+
+        swrModel_MeshMaterial* material = swrModel_NodeFindFirstMeshMaterial(node);
+        if (material != NULL) {
+            swrModel_MeshMaterialSetColors(material, 0, 0, r, g, b, a);
+            swrModel_MeshMaterialSetTextureUVOffset(material, 0.0f, ((smok->uvScrollEnd - smok->uvScrollStart) * t + smok->uvScrollStart) * (float)swrRace_deltaTimeSecs);
+        }
+    }
 }
 
 // 0x0046a500
 int swrObjSmok_F4(swrObjSmok* smok, int* subEvents)
 {
-    HANG("TODO");
-    return 0;
+    switch (*subEvents) {
+    case 0x416c6f63: // 'Aloc'
+        smok->type = 0;
+        smok->flags = 0;
+        smok->lifetime = 0.0f;
+        smok->ownerHandle = NULL;
+        for (int i = 0; i < 5; i++) {
+            swrModel_Node* node = fireballChildNodesPtr[i + smok->obj.id * 5];
+            smok->particleNodes[i] = node;
+            if (node != NULL)
+                swrModel_NodeModifyFlags(node, 2, -4, 0x10, 3);
+            smok->particleSpin[i] = 0.0f;
+        }
+        return 1;
+    case 0x46726565: // 'Free'
+        for (int i = 0; i < 5; i++)
+            smok->particleNodes[i] = NULL;
+        return 1;
+    case 0x4c6f6164: // 'Load'
+    case 0x52536574: // 'RSet'
+        swrObj_Free(&smok->obj);
+        smok->ownerHandle = NULL;
+        return 1;
+    default:
+        return 0;
+    }
 }
 
 // 0x0046A5E0
 void swrObjSmok_SetFireballChildNodesPtr(swrModel_Node** nodes)
 {
-    HANG("TODO");
+    fireballChildNodesPtr = nodes;
+}
+
+// 0x0046a5f0
+swrObjSmok* swrObjSmok_Spawn(int type, int flags, float lifetime, rdVector3* pos, float scale)
+{
+    swrObjSmok* smok = (swrObjSmok*)swrEvent_AllocObj(0x536d6f6b); // 'Smok'
+    if (smok == NULL)
+        return NULL;
+
+    smok->flags = flags;
+    smok->type = type;
+    smok->lifetime = lifetime;
+    rdMatrix_SetDiagonal44(&smok->transform, scale, scale, scale);
+    rdVector_Copy3((rdVector3*)&smok->transform.vD, pos);
+
+    switch (type) {
+    case swrObjSmok_TYPE_FIRE:
+    case swrObjSmok_TYPE_EXPLOSION:
+        smok->particleCount = 5;
+        rdVector_Set3(&smok->velocity, 0.0f, 0.0f, scale * 10.0f);
+        smok->widthEnd = scale * 5.0f;
+        smok->widthStart = scale;
+        smok->spinRateStart = 360.0f;
+        smok->spinRateEnd = -9.0f;
+        smok->lengthStart = scale * 10.0f;
+        smok->uvScrollStart = 1.4f;
+        smok->uvScrollEnd = 0.0f;
+        smok->lengthEnd = scale * 5.0f;
+        smok->totalLifetime = 3.0f;
+        smok->unkac = 1.0f;
+        smok->unkb0 = 0.5f;
+        rdVector_Set4(&smok->colorStart, 1.0f, 1.0f, 1.0f, 1.0f);
+        break;
+    case swrObjSmok_TYPE_ENGINE_SMOKE:
+        smok->particleCount = 5;
+        rdVector_Set3(&smok->velocity, 0.0f, scale * -10.0f, 0.0f);
+        smok->widthEnd = scale * 3.0f;
+        smok->widthStart = scale;
+        smok->spinRateStart = 360.0f;
+        smok->spinRateEnd = -9.0f;
+        smok->lengthStart = scale * 10.0f;
+        smok->uvScrollStart = 1.4f;
+        smok->uvScrollEnd = 0.0f;
+        smok->totalLifetime = 3.0f;
+        smok->unkac = 1.0f;
+        smok->unkb0 = 0.5f;
+        smok->lengthEnd = scale * 5.0f;
+        rdVector_Set4(&smok->colorStart, 1.0f, 1.0f, 1.0f, 1.0f);
+        break;
+    case swrObjSmok_TYPE_FLAME_ATTACK:
+        smok->particleCount = 5;
+        rdVector_Set3(&smok->velocity, 0.0f, scale * -10.0f, 0.0f);
+        smok->widthEnd = scale * 3.0f;
+        smok->widthStart = scale;
+        smok->spinRateStart = 360.0f;
+        smok->spinRateEnd = -9.0f;
+        smok->lengthStart = scale * 10.0f;
+        smok->uvScrollStart = 2.4f;
+        smok->uvScrollEnd = 0.5f;
+        smok->totalLifetime = 3.0f;
+        smok->unkac = 1.0f;
+        smok->unkb0 = 0.5f;
+        smok->lengthEnd = scale * 5.0f;
+        rdVector_Set4(&smok->colorStart, 1.0f, 1.0f, 1.0f, 1.0f);
+        break;
+    default:
+        return smok;
+    }
+
+    rdVector_Set4(&smok->colorEnd, 0.0f, 0.0f, 0.0f, 1.0f);
+    smok->fadeInEnd = 0.1f;
+    smok->fadeOutStart = 0.5f;
+    smok->alphaWindowTail = 0.0f;
+    smok->alphaWindowFront = 0.0f;
+    return smok;
+}
+
+// 0x0046a920
+void swrObjSmok_SetPosition(swrObjSmok* smok, rdVector3* pos)
+{
+    if (smok != NULL)
+        rdVector_Copy3((rdVector3*)&smok->transform.vD, pos);
+}
+
+// 0x0046a940
+void swrObjSmok_SetVelocity(swrObjSmok* smok, rdVector3* vel)
+{
+    if (smok != NULL)
+        rdVector_Copy3(&smok->velocity, vel);
+}
+
+// 0x0046a960
+void swrObjSmok_SetLifetime(swrObjSmok* smok, float lifetime)
+{
+    if (smok != NULL)
+        smok->lifetime = lifetime;
+}
+
+// 0x0046a970
+void swrObjSmok_SetOwnerHandle(swrObjSmok* smok, void* ownerHandle)
+{
+    if (smok != NULL)
+        smok->ownerHandle = ownerHandle;
 }
 
 // 0x0046d170
@@ -2823,4 +3069,435 @@ void swrCam_CamState_InitMainMat4(uint16_t index, uint16_t val1, rdMatrix44* mat
     unkCameraArray[entry].sourceType = val2;
     unkCameraArray[entry].behaviorType = val1;
     unkCameraArray[entry].matrixSource = mat;
+}
+
+// Cosine ease driving the front-end camera moves: 0 at t == 0, `period` at t == period.
+// 0x0045a420
+float swrObjHang_EaseSine_Maybe(float t, float period) {
+    float sine;
+    // The original passes its own `t` slot as the cosine out-param and reads it back.
+    stdMath_SinCos((t / period) * 180.0f, &sine, &t);
+    return (1.0f - t) * 0.5f * period;
+}
+
+// 0x00440b50
+int swrObjHang_IsCameraMoving(swrObjHang* hang)
+{
+    const swrUICameraPlacement* place = &maybeUICameraPlacements[hang->cameraState];
+
+    if (rdVector_AreSame3((rdVector3*)&place->position2, (rdVector3*)&swrObjHang_holoCameraMatrix.vD) && rdVector_AreSame3((rdVector3*)&place->position2, (rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD) && rdVector_AreSame3((rdVector3*)&place->position1, (rdVector3*)&swrObjHang_cameraMatrixTarget.vD)) {
+        return 0;
+    }
+    return 1;
+}
+
+// Point the camera-facing billboard rotation at the current look-at, keeping the eye position.
+// 0x0043e210
+void swrObjHang_UpdateHoloBillboardMatrix(void)
+{
+    float yaw;
+    float pitch;
+    rdVector3 dir;
+    rdVector3 eye;
+
+    rdVector_Copy3(&eye, (rdVector3*)&swrObjHang_cameraMatrix.vD);
+    rdVector_Sub3(&dir, (rdVector3*)&swrObjHang_holoCameraMatrix.vD, (rdVector3*)&swrObjHang_cameraMatrix.vD);
+    rdVector_Normalize3Acc(&dir);
+    yaw = stdMath_ArcTan2(-dir.x, dir.y);
+    pitch = stdMath_ArcSin(dir.z);
+    // Wrap yaw into [0, 360] and pitch into [-90, 90]; this family works in degrees.
+    if (yaw < 0.0f)
+        yaw = yaw + 360.0f;
+    if (360.0f < yaw)
+        yaw = yaw - 360.0f;
+    if (pitch < -90.0f)
+        pitch = pitch + 180.0f;
+    if (90.0f < pitch)
+        pitch = pitch - 180.0f;
+    rdMatrix_SetRotation44(&swrObjHang_cameraMatrix, yaw, pitch, 0.0f);
+    rdVector_Copy3((rdVector3*)&swrObjHang_cameraMatrix.vD, &eye);
+}
+
+// 0x0045c010
+void swrObjHang_SetHoloCameraTarget(rdVector3* pos, rdVector3* lookAt, short mode, int keepEyeOffset, int reset)
+{
+    rdVector3 eyeToLookAt;
+
+    if (reset == 0) {
+        rdMatrix_Copy44(&swrObjHang_holoCameraMatrixStart, &swrObjHang_holoCameraMatrix);
+        rdMatrix_Copy44(&swrObjHang_cameraMatrixStart, &swrObjHang_cameraMatrix);
+    }
+    rdVector_Copy3((rdVector3*)&swrObjHang_cameraMatrixTarget.vD, pos);
+    rdVector_Copy3((rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD, lookAt);
+    swrObjHang_cameraMoveMode = mode;
+    if (mode == 3 && keepEyeOffset != 0) {
+        // Put the target eye the same offset from the target look-at as it is from the current one.
+        rdVector_Sub3(&eyeToLookAt, (rdVector3*)&swrObjHang_cameraMatrix.vD, (rdVector3*)&swrObjHang_holoCameraMatrix.vD);
+        rdVector_Add3((rdVector3*)&swrObjHang_cameraMatrixTarget.vD, (rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD, &eyeToLookAt);
+    }
+}
+
+// 0x0045c9d0
+void swrObjHang_BeginCameraMove(swrObjHang* hang, int mode)
+{
+    rdVector3 lookAtToEye;
+    rdVector3 delta;
+    float jitterScale;
+
+    if (mode == 0) {
+        rdVector_Copy3((rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD, (rdVector3*)&maybeUICameraPlacements[hang->cameraState].position2);
+        rdVector_Copy3((rdVector3*)&swrObjHang_cameraMatrixTarget.vD, (rdVector3*)&maybeUICameraPlacements[hang->cameraState].position1);
+    } else {
+        if (swrObjHang_state2 != (swrObjHang_STATE)~swrObjHang_STATE_LEGAL) {
+            rdVector_Sub3(&lookAtToEye, (rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD, (rdVector3*)&swrObjHang_cameraMatrixTarget.vD);
+            rdVector_Scale3Add3((rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD, (rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD, 10.0f, &lookAtToEye);
+        }
+        rdVector_Scale3Add3_both((rdVector3*)&swrObjHang_cameraMatrixTarget.vD, 0.3333f, (rdVector3*)&swrObjHang_cameraMatrixTarget.vD, 0.6667f, (rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD);
+        if (hang->cameraState == HangCameraState_CounterBuyParts) {
+            // The buy-parts counter is framed from a jittered eye so the shot differs each visit.
+            // swrUtils_Rand returns a positive 31-bit value; 1/2^31 maps it to [0, 1).
+            rdVector_Copy3((rdVector3*)&swrObjHang_cameraMatrixTarget.vD, &swrObjHang_wattoCounterEyePos);
+            jitterScale = swrUtils_RandFloat();
+            swrObjHang_cameraMatrixTarget.vD.x = ((float)swrUtils_Rand() * (1.0f / 2147483648.0f) * 10.0f + 180.0f) * jitterScale + swrObjHang_cameraMatrixTarget.vD.x;
+            swrObjHang_cameraMatrixTarget.vD.y = ((float)swrUtils_Rand() * (1.0f / 2147483648.0f) * 125.0f - 375.0f) + swrObjHang_cameraMatrixTarget.vD.y;
+            swrObjHang_cameraMatrixTarget.vD.z = (float)swrUtils_Rand() * (1.0f / 2147483648.0f) * 30.0f + 40.0f;
+            rdVector_Copy3((rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD, &swrObjHang_wattoCounterEyePos);
+            rdVector_Sub3(&delta, (rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD, (rdVector3*)&swrObjHang_cameraMatrixTarget.vD);
+            rdVector_Add3((rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD, (rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD, &delta);
+        }
+    }
+    swrObjHang_cameraMoveMode = 1;
+    swrObjHang_cameraMoveActive = 1;
+}
+
+// Resolve this frame's scene-camera eye, then override its height for the current room.
+// 0x0045cb80
+void swrObjHang_ComputeCameraEye(swrObjHang* hang, int mode)
+{
+    rdVector3 eye;
+    rdVector3 up;
+    rdVector3 side;
+    rdVector3 forward;
+    rdVector3 from;
+    rdVector3 to;
+    rdVector3* a;
+    rdVector3* b;
+    const rdVector3* eyeSrc;
+
+    up.x = 0.0f;
+    up.y = 0.0f;
+    up.z = 1.0f;
+    rdVector_Copy3(&from, (rdVector3*)&maybeUICameraPlacements[hang->cameraState].position1);
+    rdVector_Copy3(&to, (rdVector3*)&maybeUICameraPlacements[hang->cameraState].position2);
+
+    if (hang->cameraState == HangCameraState_CantinaHolotableFar) {
+        eyeSrc = (rdVector3*)&maybeUICameraPlacements[HangCameraState_CantinaHolotableFar].position1;
+    } else if (hang->menuScreen == swrObjHang_STATE_LOOK_AT_VEHICLE) {
+        eyeSrc = (rdVector3*)&maybeUICameraPlacements[HangCameraState_InspectCharacter].position2;
+    } else if (swrObjHang_cameraMoveParity == 0 || mode != 0 || hang->menuScreen != swrObjHang_STATE_WATTO || (swrObjHang_cameraMoveMode != 0 && swrObjHang_cameraMoveMode != 5)) {
+        // Offset the eye off the from->to line: 3 parts along it to 1 part sideways, scaled x60.
+        rdVector_Sub3(&forward, &to, &from);
+        if (mode == 0) {
+            b = &forward;
+            a = &up;
+        } else {
+            b = &up;
+            a = &forward;
+        }
+        rdVector_Cross3(&side, a, b);
+        rdVector_Normalize3Acc(&side);
+        rdVector_Normalize3Acc(&forward);
+        rdVector_Scale3(&forward, 3.0f, &forward);
+        rdVector_Add3(&eye, &forward, &side);
+        rdVector_Scale3(&eye, 60.0f, &eye);
+        rdVector_Add3(&eye, &from, &eye);
+        eyeSrc = &eye;
+    } else {
+        eyeSrc = &to;
+    }
+    rdVector_Copy3(&swrObjHang_sceneCameraEye, eyeSrc);
+
+    switch (hang->room) {
+    case Shop:
+    case Cantina:
+        swrObjHang_sceneCameraEye.z = -60.0f;
+        break;
+    case Junkyard:
+        swrObjHang_sceneCameraEye.z = -145.0f;
+        break;
+    case Hangar:
+        swrObjHang_sceneCameraEye.z = -157.0f;
+        break;
+    default:
+        break;
+    }
+}
+
+// Duration-based camera move: eases the eye and look-at from their move-start snapshots to their
+// targets over swrObjHang_cameraMoveDuration seconds.
+// 0x0045c0b0
+void swrObjHang_LerpHoloCamera(swrObjHang* hang)
+{
+    float t;
+    rdVector3 lookAt;
+    rdVector3 eye;
+
+    rdVector_Copy3(&eye, (rdVector3*)&swrObjHang_cameraMatrix.vD);
+    rdVector_Copy3(&lookAt, (rdVector3*)&swrObjHang_holoCameraMatrix.vD);
+    if (swrObjHang_cameraLerpNeedsInit != 0) {
+        swrObjHang_cameraMoveLookAtDeltaX = swrObjHang_holoCameraMatrixTarget.vD.x - swrObjHang_holoCameraMatrixStart.vD.x;
+        swrObjHang_cameraMoveLookAtDeltaY = swrObjHang_holoCameraMatrixTarget.vD.y - swrObjHang_holoCameraMatrixStart.vD.y;
+        swrObjHang_cameraMoveLookAtDeltaZ = swrObjHang_holoCameraMatrixTarget.vD.z - swrObjHang_holoCameraMatrixStart.vD.z;
+        swrObjHang_cameraMoveEyeDeltaX = swrObjHang_cameraMatrixTarget.vD.x - swrObjHang_cameraMatrixStart.vD.x;
+        swrObjHang_cameraMoveEyeDeltaY = swrObjHang_cameraMatrixTarget.vD.y - swrObjHang_cameraMatrixStart.vD.y;
+        swrObjHang_cameraMoveEyeDeltaZ = swrObjHang_cameraMatrixTarget.vD.z - swrObjHang_cameraMatrixStart.vD.z;
+        swrObjHang_cameraMoveElapsed = 0.0f;
+        swrObjHang_cameraMoveDuration = 0.5f;
+        // A short hop across the junkyard counter gets a quicker move.
+        if (swrObjHang_cameraMoveLookAtDeltaX < 500.0f && -500.0f < swrObjHang_cameraMoveLookAtDeltaX && swrObjHang_cameraMoveLookAtDeltaY < 500.0f && -500.0f < swrObjHang_cameraMoveLookAtDeltaY && hang->room == Junkyard) {
+            swrObjHang_cameraMoveDuration = 0.3f;
+        }
+        swrObjHang_cameraLerpNeedsInit = 0;
+    }
+    if (swrObjHang_cameraMoveDuration <= swrObjHang_cameraMoveElapsed) {
+        swrObjHang_cameraMoveMode = 5;
+        if (hang->menuScreen == swrObjHang_STATE_LOOK_AT_VEHICLE) {
+            swrObjHang_cameraMoveMode = 0;
+        }
+        swrObjHang_cameraLerpNeedsInit = 1;
+        if (swrObjHang_cameraMoveActive != 0) {
+            swrObjHang_cameraMoveActive = 0;
+            swrObjHang_cameraMoveParity = swrObjHang_cameraMoveParity == 0;
+            if (hang->room == Junkyard && hang->cameraState != HangCameraState__unk_3 && swrObjHang_cameraMoveParity != 0) {
+                swrObjHang_screenTransitionDir = 1;
+            }
+        }
+        rdMatrix_Copy44(&swrObjHang_holoCameraMatrixStart, &swrObjHang_holoCameraMatrix);
+        rdMatrix_Copy44(&swrObjHang_cameraMatrixStart, &swrObjHang_cameraMatrix);
+        if (swrObjHang_state2 != (swrObjHang_STATE)~swrObjHang_STATE_LEGAL && swrObjHang_screenTransitionDir == 0) {
+            swrObjHang_cameraMoveParity = 0;
+            return;
+        }
+    } else {
+        swrObjHang_cameraMoveElapsed = swrObjHang_cameraMoveElapsed + swrRace_fdeltaTimeSecs;
+        if (swrObjHang_cameraMoveDuration < swrObjHang_cameraMoveElapsed) {
+            swrObjHang_cameraMoveElapsed = swrObjHang_cameraMoveDuration;
+        }
+        t = swrObjHang_cameraMoveElapsed / swrObjHang_cameraMoveDuration;
+        swrObjHang_holoCameraMatrix.vD.x = (swrObjHang_holoCameraMatrixTarget.vD.x - swrObjHang_holoCameraMatrixStart.vD.x) * t + swrObjHang_holoCameraMatrixStart.vD.x;
+        swrObjHang_holoCameraMatrix.vD.y = (swrObjHang_holoCameraMatrixTarget.vD.y - swrObjHang_holoCameraMatrixStart.vD.y) * t + swrObjHang_holoCameraMatrixStart.vD.y;
+        swrObjHang_holoCameraMatrix.vD.z = (swrObjHang_holoCameraMatrixTarget.vD.z - swrObjHang_holoCameraMatrixStart.vD.z) * t + swrObjHang_holoCameraMatrixStart.vD.z;
+        // Mode 3 moves the look-at only and leaves the eye where it is.
+        if (swrObjHang_cameraMoveMode != 3) {
+            swrObjHang_cameraMatrix.vD.x = (swrObjHang_cameraMatrixTarget.vD.x - swrObjHang_cameraMatrixStart.vD.x) * t + swrObjHang_cameraMatrixStart.vD.x;
+            swrObjHang_cameraMatrix.vD.y = (swrObjHang_cameraMatrixTarget.vD.y - swrObjHang_cameraMatrixStart.vD.y) * t + swrObjHang_cameraMatrixStart.vD.y;
+            swrObjHang_cameraMatrix.vD.z = (swrObjHang_cameraMatrixTarget.vD.z - swrObjHang_cameraMatrixStart.vD.z) * t + swrObjHang_cameraMatrixStart.vD.z;
+        }
+    }
+}
+
+// Speed-based camera move: steps the eye and look-at toward their targets, and applies the pending
+// menu state once both arrive.
+// 0x0045c3c0
+void swrObjHang_UpdateHoloCamera(swrObjHang* hang)
+{
+    int lookAtArrived;
+    int eyeArrived;
+    float dist;
+    rdVector3 toTarget;
+
+    if (!rdVector_AreSame3(&swrObjHang_cameraLookAtTargetCached, (rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD)) {
+        rdVector_Copy3(&swrObjHang_cameraLookAtTargetCached, (rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD);
+        // On a retarget, pull a far-away look-at in to 500 units so the step does not crawl.
+        rdVector_Sub3(&toTarget, (rdVector3*)&swrObjHang_holoCameraMatrix.vD, (rdVector3*)&swrObjHang_cameraMatrix.vD);
+        dist = rdVector_Len3(&toTarget);
+        if (500.0f < dist) {
+            rdVector_Normalize3Acc(&toTarget);
+            rdVector_Scale3Add3((rdVector3*)&swrObjHang_holoCameraMatrix.vD, (rdVector3*)&swrObjHang_cameraMatrix.vD, 500.0f, &toTarget);
+        }
+    }
+    lookAtArrived = swrObjHang_StepCameraToward(hang, &swrObjHang_cameraStepLookAtSpeed, (rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD, (rdVector3*)&swrObjHang_holoCameraMatrix.vD, (rdVector3*)&swrObjHang_holoCameraMatrixStart.vD, 1.5f);
+    eyeArrived = swrObjHang_StepCameraToward(hang, &swrObjHang_cameraStepEyeSpeed, (rdVector3*)&swrObjHang_cameraMatrixTarget.vD, (rdVector3*)&swrObjHang_cameraMatrix.vD, (rdVector3*)&swrObjHang_cameraMatrixStart.vD, 1.0f);
+    if (eyeArrived != 0 && lookAtArrived != 0) {
+        swrObjHang_cameraMoveMode = 5;
+        swrObjHang_cameraMoveSettled = 1;
+        if (hang->menuScreen == swrObjHang_STATE_LOOK_AT_VEHICLE) {
+            swrObjHang_cameraMoveMode = 0;
+        }
+        if (swrObjHang_cameraMoveActive != 0) {
+            swrObjHang_cameraMoveParity = swrObjHang_cameraMoveParity == 0;
+            swrObjHang_cameraMoveActive = 0;
+            if (hang->room == Junkyard && hang->cameraState != HangCameraState__unk_3 && swrObjHang_cameraMoveParity != 0) {
+                swrObjHang_screenTransitionDir = 1;
+            }
+        }
+        rdMatrix_Copy44(&swrObjHang_holoCameraMatrixStart, &swrObjHang_holoCameraMatrix);
+        rdMatrix_Copy44(&swrObjHang_cameraMatrixStart, &swrObjHang_cameraMatrix);
+        if (swrObjHang_state2 != (swrObjHang_STATE)~swrObjHang_STATE_LEGAL && swrObjHang_screenTransitionDir == 0) {
+            swrObjHang_cameraMoveParity = 0;
+            if (swrObjHang_fadeState == 0) {
+                swrObjHang_SetMenuState(hang, swrObjHang_state2);
+            }
+        }
+    }
+}
+
+// Advance `from` toward `target` this frame, ramping the carried speed down over the last stretch so
+// the camera eases in. Returns nonzero once it has arrived.
+// 0x0045c560
+int swrObjHang_StepCameraToward(swrObjHang* hang, float* progress, rdVector3* target, rdVector3* from, rdVector3* to, float speed)
+{
+    swrObjHang_STATE screen;
+    float dot;
+    float step;
+    float rate;
+    float halfSpan;
+    float arriveRadius;
+    float distToTarget;
+    float carriedSpeed;
+    float decelSpan;
+    rdVector3 targetToFrom;
+    rdVector3 fromToTo;
+    rdVector3 targetToTo;
+    rdVector3 remaining;
+    rdVector3 start;
+
+    screen = hang->menuScreen;
+    carriedSpeed = *progress;
+    decelSpan = 1600.0f;
+    if (screen == swrObjHang_STATE_RESULTS_INTRO || screen == swrObjHang_STATE_VEHICLE_SELECT_INTRO || (screen == swrObjHang_STATE_LOOK_AT_VEHICLE && 5.0f <= swrObjHang_inspectCameraTimer) || (screen == swrObjHang_STATE_MAIN_MENU && swrObjHang_fadeState == 0)) {
+        decelSpan = 320.0f;
+        rate = 0.2f;
+    } else if (screen == swrObjHang_STATE_PLANET_SELECT_INTRO) {
+        decelSpan = 80.0f;
+        rate = 0.05f;
+    } else {
+        rate = 1.0f;
+    }
+    step = swrRace_fdeltaTimeSecs * 60000.0f * rate;
+
+    rdVector_Copy3(&start, from);
+    swrObjHang_cameraStepScratch = 0;
+    step = step * speed;
+    rdVector_Sub3(&targetToTo, target, to);
+    halfSpan = rdVector_Len3(&targetToTo) * 0.5f;
+    rdVector_Sub3(&fromToTo, to, from);
+    rdVector_Len3(&fromToTo);
+    rdVector_Sub3(&remaining, target, from);
+    distToTarget = rdVector_Len3(&remaining);
+    arriveRadius = step * 6.0f;
+    if (halfSpan < arriveRadius) {
+        arriveRadius = halfSpan;
+    }
+    if (distToTarget < arriveRadius || step <= carriedSpeed) {
+        if ((distToTarget < arriveRadius || carriedSpeed < step) && distToTarget < arriveRadius && 1.0f < distToTarget) {
+            if (swrObjHang_state2 != (swrObjHang_STATE)~swrObjHang_STATE_LEGAL && hang->menuScreen != swrObjHang_STATE_VEHICLE_SELECT_INTRO) {
+                return 1;
+            }
+            carriedSpeed = stdMath_Sqrt(distToTarget / (decelSpan * speed)) * decelSpan * speed;
+        }
+    } else {
+        carriedSpeed = carriedSpeed - speed * swrRace_fdeltaTimeSecs * -2000.0f;
+        if (step < carriedSpeed) {
+            carriedSpeed = step;
+        }
+    }
+    if (1.0f < distToTarget) {
+        rdVector_Normalize3Acc(&remaining);
+        rdVector_Scale3Add3(from, from, carriedSpeed * swrRace_fdeltaTimeSecs, &remaining);
+        rdVector_Sub3(&targetToFrom, target, from);
+        dot = rdVector_Dot3(&remaining, &targetToFrom);
+        // Overshot the target this frame if the direction flipped.
+        if (0.0f <= dot) {
+            *progress = carriedSpeed;
+            return 0;
+        }
+    }
+    rdVector_Copy3(from, target);
+    *progress = 0.0f;
+    return 1;
+}
+
+// Point the camera at a scene element: resolve the element position, then either retarget the camera
+// or slide the whole rig so the eye keeps its offset.
+// 0x0043fbc0
+void swrObjHang_UpdateHoloCameraTarget(swrObjHang* hang, int itemIndex)
+{
+    rdVector3 eyeToLookAt;
+    rdVector3 elementPos;
+
+    if (0x19 < itemIndex) {
+        if (itemIndex < 0x1e) {
+            // Pod engine/part nodes live at swr_sceneModels[itemIndex + 26].
+            swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[itemIndex + 26], &elementPos);
+            if (elementPos.z == -157.0f) {
+                elementPos.z = elementPos.z - -60.0f;
+            } else {
+                elementPos.z = elementPos.z - -30.0f;
+            }
+        } else {
+            if (itemIndex != 0x1e) {
+                return;
+            }
+            swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[28], &elementPos);
+            elementPos.z = swrRacer_PodData[hang->vehiclePlayer].float20 * 0.0331514f - 0.0f;
+        }
+        if (swrObjHang_cameraMoveMode == 1) {
+            swrObjHang_SetHoloCameraTarget((rdVector3*)&swrObjHang_cameraMatrixTarget.vD, &elementPos, 1, 0, 1);
+            return;
+        }
+        if (swrObjHang_cameraMoveMode == 3) {
+            swrObjHang_SetHoloCameraTarget((rdVector3*)&swrObjHang_cameraMatrix.vD, &elementPos, 3, 1, 1);
+            return;
+        }
+        // No transition: move the look-at and carry the eye with it.
+        rdVector_Sub3(&eyeToLookAt, (rdVector3*)&swrObjHang_cameraMatrix.vD, (rdVector3*)&swrObjHang_holoCameraMatrix.vD);
+        rdVector_Copy3((rdVector3*)&swrObjHang_holoCameraMatrix.vD, &elementPos);
+        rdVector_Add3((rdVector3*)&swrObjHang_cameraMatrix.vD, (rdVector3*)&swrObjHang_holoCameraMatrix.vD, &eyeToLookAt);
+    }
+}
+
+// Idle sway: once the camera has settled, drift the eye back and forth along the rig's right axis so
+// the front end is never completely still.
+// 0x0045c810
+void swrObjHang_UpdateIdleCamera(swrObjHang* hang)
+{
+    int r;
+    float cosine;
+    float sine;
+    rdVector3 eye;
+    rdVector3 settledEye;
+
+    if (swrObjHang_partDetailActive != 0) {
+        swrObjHang_cameraMoveMode = 0;
+        rdVector_Set3(&swrObjHang_idleCameraEyeBase, 0.0f, 0.0f, 0.0f);
+        return;
+    }
+    if (hang->menuScreen == swrObjHang_STATE_LOOK_AT_VEHICLE) {
+        swrObjHang_cameraMoveMode = 0;
+        return;
+    }
+    rdVector_Copy3(&settledEye, (rdVector3*)&swrObjHang_cameraMatrix.vD);
+    swrObjHang_idleCameraAngle = swrObjHang_idleCameraAngle - swrRace_fdeltaTimeSecs * -40.0f;
+    if (360.0f < swrObjHang_idleCameraAngle) {
+        swrObjHang_idleCameraAngle = swrObjHang_idleCameraAngle - 360.0f;
+    }
+    // Re-seed whenever the camera has just settled somewhere new.
+    if (swrObjHang_cameraMoveSettled != 0 || swrObjHang_idleCameraSeeded != 5 || !rdVector_AreSame3(&swrObjHang_idleCameraEyeBase, (rdVector3*)&swrObjHang_cameraMatrixTarget.vD) || !rdVector_AreSame3(&swrObjHang_idleCameraLookAtBase, (rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD)) {
+        swrObjHang_cameraMoveSettled = 0;
+        swrObjHang_UpdateHoloBillboardMatrix();
+        rdMatrix_Copy44(&swrObjHang_cameraMatrixTarget, &swrObjHang_cameraMatrix);
+        rdMatrix_Copy44(&swrObjHang_holoCameraMatrixTarget, &swrObjHang_holoCameraMatrix);
+        rdVector_Copy3(&swrObjHang_idleCameraEyeBase, (rdVector3*)&swrObjHang_cameraMatrixTarget.vD);
+        rdVector_Copy3(&swrObjHang_idleCameraLookAtBase, (rdVector3*)&swrObjHang_holoCameraMatrixTarget.vD);
+        swrObjHang_idleCameraSeeded = 5;
+        // Start half the time at the opposite end of the sway. The original draws ONE random
+        // value and doubles it, so this truncates to 0 or 1 -> 0 or 180 degrees.
+        r = swrUtils_Rand();
+        swrObjHang_idleCameraAngle = (float)(int)((float)r * (1.0f / 2147483648.0f) + (float)r * (1.0f / 2147483648.0f)) * 180.0f;
+    }
+    stdMath_SinCos(swrObjHang_idleCameraAngle, &sine, &cosine);
+    rdVector_Copy3(&eye, &swrObjHang_idleCameraEyeBase);
+    rdVector_Scale3Add3(&eye, &eye, sine * 8.0f, (rdVector3*)&swrObjHang_cameraMatrixTarget.vA);
+    rdVector_Copy3((rdVector3*)&swrObjHang_cameraMatrix.vD, &eye);
 }

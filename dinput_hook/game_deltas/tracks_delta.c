@@ -118,7 +118,7 @@ void swrRace_MainMenu_delta(swrObjHang *hang) {
             hang->mainMenuSelection = 0;
         }
 
-        rdVector_Sub3(&local_6c, (rdVector3 *) &rdMatrix44_unk4.vD, &DAT_00e2af90);
+        rdVector_Sub3(&local_6c, (rdVector3 *) &swrObjHang_cameraMatrix.vD, (rdVector3*) &swrObjHang_holoCameraMatrix.vD);
         fVar9 = rdVector_Len3(&local_6c);
         DAT_0050c11c = (float) fVar9;
         rdVector_Normalize3Acc(&local_6c);
@@ -247,7 +247,7 @@ void swrRace_MainMenu_delta(swrObjHang *hang) {
             stdControl_ReadKey(42, 0) != 0 || stdControl_ReadKey(54, 0) != 0) {
             fVar2 = DAT_0050c11c;
             bVar1 = false;
-            DAT_0050c930 = 0;
+            swrObjHang_cameraMoveMode = 0;
             if (DAT_00e98ea0[i] > 0.1f || DAT_00e98ea0[i] < -0.1) {
                 bVar1 = true;
                 gamma_unk = gamma_unk - DAT_00e98ea0[iVar6] * swrRace_fdeltaTimeSecs * 105.0;
@@ -264,14 +264,14 @@ void swrRace_MainMenu_delta(swrObjHang *hang) {
             }
             if (bVar1) {
                 rdMatrix_SetRotation44(&local_40, gamma_unk, alpha_unk, 0);
-                rdVector_Scale3Add3((rdVector3 *) &DAT_00e2af90, (rdVector3 *) &rdMatrix44_unk4.vD,
+                rdVector_Scale3Add3((rdVector3*) &swrObjHang_holoCameraMatrix.vD, (rdVector3 *) &swrObjHang_cameraMatrix.vD,
                                     -DAT_0050c11c, (rdVector3 *) &local_40.vB);
                 if (DAT_0050c11c != fVar2) {
-                    fVar9 = rdVector_Dist3((rdVector3 *) &rdMatrix44_unk4.vD,
-                                           (rdVector3 *) &DAT_00e2af90);
+                    fVar9 = rdVector_Dist3((rdVector3 *) &swrObjHang_cameraMatrix.vD,
+                                           (rdVector3*) &swrObjHang_holoCameraMatrix.vD);
                     DAT_0050c11c = (float) fVar9;
                 }
-                rdMatrix_Copy44(&rdMatrix44_unk3, &rdMatrix44_unk4);
+                rdMatrix_Copy44(&swrObjHang_cameraMatrixStart, &swrObjHang_cameraMatrix);
             }
         }
         if (swrControl_cancelPressedEdge != 0) {
@@ -377,27 +377,42 @@ void HandleCircuits_delta(swrObjHang *hang) {
         if (g_aBeatTracksGlobal[3] == '\0') {
             g_CircuitIdxMax = 2;
         }
-        for (uint8_t i = 0; i < g_aTracksInCircuits[circuitId]; i++) {
-            if ((g_aBeatTracksGlobal[circuitId] & (1 << i)) != 0) {
-                swrRace_MenuMaxSelection += 1;
-            }
-        }
-    } else {
         // DELTA
-        // if (swrRace_UnlockDataBase[4] == '\0') {
-        //     g_CircuitIdxMax = 2;
-        // }
-        g_CircuitIdxMax = GetCircuitCount(true) - 1;
-        // END DELTA
-        // DELTA if (cond) { original_game } else { body }
-        if (circuitId < 4) {
+        // Custom tracks occupy the pages past the four vanilla circuits, in free play only --
+        // the mode swrObjHang_InitTrackSprites_delta allocates their sprites for, and whose
+        // circuitId < DEFAULT_NB_CIRCUIT_PER_TRACK assert bars tournament. Without raising the
+        // limit here the pages exist but page-right stops at Invitational.
+        if (trackCount > DEFAULT_NB_TRACKS) {
+            g_CircuitIdxMax = GetCircuitCount(true) - 1;
+        }
+        // DELTA if (cond) { body } else { original_game }
+        if (circuitId >= DEFAULT_NB_CIRCUIT_PER_TRACK) {
+            swrRace_MenuMaxSelection = GetTrackCount(circuitId);
+        } else {
+            // END DELTA
             for (uint8_t i = 0; i < g_aTracksInCircuits[circuitId]; i++) {
-                if ((swrRace_UnlockDataBase[circuitId + 1] & (char) (1 << ((char) i))) != 0) {
+                if ((g_aBeatTracksGlobal[circuitId] & (1 << i)) != 0) {
                     swrRace_MenuMaxSelection += 1;
                 }
             }
-        } else {
-            swrRace_MenuMaxSelection = GetTrackCount(circuitId);
+        }
+    } else {
+        if (swrRace_UnlockDataBase[4] == '\0') {
+            g_CircuitIdxMax = 2;
+        }
+        // DELTA
+        // circuitIdx lives on the hangar state, so returning from a free-play custom page into
+        // tournament can leave it past this mode's last circuit and index g_aTracksInCircuits
+        // (4 entries) out of bounds below.
+        if (circuitId > g_CircuitIdxMax) {
+            circuitId = g_CircuitIdxMax;
+            hang->circuitIdx = (char) circuitId;
+        }
+        // END DELTA
+        for (uint8_t i = 0; i < g_aTracksInCircuits[circuitId]; i++) {
+            if ((swrRace_UnlockDataBase[circuitId + 1] & (char) (1 << ((char) i))) != 0) {
+                swrRace_MenuMaxSelection += 1;
+            }
         }
     }
     if (multiplayer_enabled && (circuitId < '\x03')) {

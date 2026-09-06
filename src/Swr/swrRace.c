@@ -1988,9 +1988,9 @@ void swrRace_InRaceTimer(swrScore* score, swrObjJdge* jdge)
     pod = score->obj_test_ptr;
     isPlayer2 = (score == secondLocalPlayer) ? 1 : 0;
     if (GetPauseState() == 0) {
-        pod->unk2b8_timer -= (float)swrRace_deltaTimeSecs;
-        if (pod->unk2b8_timer < 0.0f)
-            pod->unk2b8_timer = 0.0f;
+        pod->unk2b8 -= (float)swrRace_deltaTimeSecs;
+        if (pod->unk2b8 < 0.0f)
+            pod->unk2b8 = 0.0f;
     }
     swrObjJdge_LayoutHudFrameSprites_Maybe(jdge->hud_mode == swrObjJdge_HUDMODE_PROGRESS_RING ? 5 : (jdge->hud_mode == swrObjJdge_HUDMODE_GAP_ARROWS ? 2 : 0));
 
