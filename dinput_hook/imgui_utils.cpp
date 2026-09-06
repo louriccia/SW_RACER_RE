@@ -280,6 +280,30 @@ void read_settings_ini() {
 
     imgui_state.cache_meshes =
         GetPrivateProfileIntW(L"settings", L"cache_meshes", 1, ini_path.c_str());
+    imgui_state.reflection_texgen =
+        GetPrivateProfileIntW(L"settings", L"reflection_texgen", 1, ini_path.c_str());
+    wchar_t texgen_scale_buf[32] = {0};
+    GetPrivateProfileStringW(L"settings", L"reflection_texgen_scale", L"2.0", texgen_scale_buf, 32,
+                             ini_path.c_str());
+    float texgen_scale = (float) wcstod(texgen_scale_buf, nullptr);
+    imgui_state.reflection_texgen_scale =
+        (texgen_scale >= 0.5f && texgen_scale <= 3.0f) ? texgen_scale : 2.0f;
+    wchar_t texgen_rot_buf[32] = {0};
+    GetPrivateProfileStringW(L"settings", L"reflection_texgen_rotation", L"0.0", texgen_rot_buf, 32,
+                             ini_path.c_str());
+    float texgen_rot = (float) wcstod(texgen_rot_buf, nullptr);
+    imgui_state.reflection_texgen_rotation =
+        (texgen_rot >= 0.0f && texgen_rot <= 360.0f) ? texgen_rot : 0.0f;
+    wchar_t texgen_off_buf[64] = {0};
+    GetPrivateProfileStringW(L"settings", L"reflection_texgen_offset", L"0.5 0.5", texgen_off_buf,
+                             64, ini_path.c_str());
+    {
+        float ou = 0.5f, ov = 0.5f;
+        if (swscanf(texgen_off_buf, L"%f %f", &ou, &ov) == 2) {
+            imgui_state.reflection_texgen_offset[0] = (ou >= -1.0f && ou <= 1.0f) ? ou : 0.5f;
+            imgui_state.reflection_texgen_offset[1] = (ov >= -1.0f && ov <= 1.0f) ? ov : 0.5f;
+        }
+    }
     imgui_state.cull_meshes =
         GetPrivateProfileIntW(L"settings", L"cull_meshes", 1, ini_path.c_str());
     imgui_state.stream_dynamic_meshes =
@@ -340,6 +364,20 @@ void read_settings_ini() {
     imgui_state.show_pod_names =
         GetPrivateProfileIntW(L"settings", L"show_pod_names", 1, ini_path.c_str());
 
+    imgui_state.show_collision =
+        GetPrivateProfileIntW(L"settings", L"show_collision", 0, ini_path.c_str());
+    imgui_state.show_triggers =
+        GetPrivateProfileIntW(L"settings", L"show_triggers", 0, ini_path.c_str());
+    imgui_state.show_hitbox =
+        GetPrivateProfileIntW(L"settings", L"show_hitbox", 0, ini_path.c_str());
+    imgui_state.collision_wireframe =
+        GetPrivateProfileIntW(L"settings", L"collision_wireframe", 0, ini_path.c_str());
+    wchar_t collision_opacity_buf[32] = {0};
+    GetPrivateProfileStringW(L"settings", L"collision_opacity", L"0.35", collision_opacity_buf, 32,
+                             ini_path.c_str());
+    float collision_opacity = (float) wcstod(collision_opacity_buf, nullptr);
+    imgui_state.collision_opacity =
+        (collision_opacity >= 0.0f && collision_opacity <= 1.0f) ? collision_opacity : 0.35f;
     imgui_state.skip_intro_fmv =
         GetPrivateProfileIntW(L"settings", L"skip_intro_fmv", 0, ini_path.c_str());
     imgui_state.skip_cantina_intro =
@@ -425,6 +463,20 @@ void save_settings_ini() {
 
     WritePrivateProfileStringW(L"settings", L"cache_meshes", imgui_state.cache_meshes ? L"1" : L"0",
                                ini_path.c_str());
+    WritePrivateProfileStringW(L"settings", L"reflection_texgen",
+                               imgui_state.reflection_texgen ? L"1" : L"0", ini_path.c_str());
+    WritePrivateProfileStringW(L"settings", L"reflection_texgen_scale",
+                               std::to_wstring(imgui_state.reflection_texgen_scale).c_str(),
+                               ini_path.c_str());
+    WritePrivateProfileStringW(L"settings", L"reflection_texgen_rotation",
+                               std::to_wstring(imgui_state.reflection_texgen_rotation).c_str(),
+                               ini_path.c_str());
+    WritePrivateProfileStringW(
+        L"settings", L"reflection_texgen_offset",
+        (std::to_wstring(imgui_state.reflection_texgen_offset[0]) + L" " +
+         std::to_wstring(imgui_state.reflection_texgen_offset[1]))
+            .c_str(),
+        ini_path.c_str());
 
     WritePrivateProfileStringW(L"settings", L"cull_meshes", imgui_state.cull_meshes ? L"1" : L"0",
                                ini_path.c_str());
@@ -467,6 +519,17 @@ void save_settings_ini() {
     WritePrivateProfileStringW(L"settings", L"show_pod_names",
                                imgui_state.show_pod_names ? L"1" : L"0", ini_path.c_str());
 
+    WritePrivateProfileStringW(L"settings", L"show_collision",
+                               imgui_state.show_collision ? L"1" : L"0", ini_path.c_str());
+    WritePrivateProfileStringW(L"settings", L"show_triggers",
+                               imgui_state.show_triggers ? L"1" : L"0", ini_path.c_str());
+    WritePrivateProfileStringW(L"settings", L"show_hitbox", imgui_state.show_hitbox ? L"1" : L"0",
+                               ini_path.c_str());
+    WritePrivateProfileStringW(L"settings", L"collision_wireframe",
+                               imgui_state.collision_wireframe ? L"1" : L"0", ini_path.c_str());
+    WritePrivateProfileStringW(L"settings", L"collision_opacity",
+                               std::to_wstring(imgui_state.collision_opacity).c_str(),
+                               ini_path.c_str());
     WritePrivateProfileStringW(L"settings", L"skip_intro_fmv",
                                imgui_state.skip_intro_fmv ? L"1" : L"0", ini_path.c_str());
     WritePrivateProfileStringW(L"settings", L"skip_cantina_intro",
@@ -1285,6 +1348,33 @@ static void panel_graphics_settings() {
     if (ImGui::Checkbox("Enable fog", &imgui_state.enable_fog)) {
         save_settings_ini();
     }
+    // N64 pseudo-reflection texgen on meshes sampling chrome01 (issue #206).
+    if (ImGui::Checkbox("N64 reflective texgen", &imgui_state.reflection_texgen)) {
+        save_settings_ini();
+    }
+    // An HD-replaced model is drawn by the glTF path and returns before the N64 material code, so
+    // this never reaches it -- including the pods, which is where the chrome is most visible. Say so
+    // rather than letting the toggle look broken.
+    if (imgui_state.reflection_texgen && imgui_state.HD_replacement) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                           "HD model replacement is on: replaced models (pods included) draw "
+                           "through the glTF renderer and never reach this. Turn HD replacement "
+                           "off to see it on pod chrome.");
+    }
+    if (imgui_state.reflection_texgen) {
+        if (ImGui::SliderFloat("Reflection detail", &imgui_state.reflection_texgen_scale, 0.5f, 3.0f,
+                               "%.2f")) {
+            save_settings_ini();
+        }
+        if (ImGui::SliderFloat("Reflection rotation", &imgui_state.reflection_texgen_rotation, 0.0f,
+                               360.0f, "%.0f deg")) {
+            save_settings_ini();
+        }
+        if (ImGui::SliderFloat2("Reflection offset", imgui_state.reflection_texgen_offset, -1.0f,
+                                1.0f, "%.2f")) {
+            save_settings_ini();
+        }
+    }
 
     // Applied in stdDisplay_Update_Hook when changed. Turn off to tell vsync judder apart from
     // real render-time variance: under vsync a missed vblank halves the framerate (60<->30
@@ -1529,6 +1619,32 @@ static void panel_render_debug() {
     ImGui::Checkbox("debug ggx lut", &imgui_state.debug_ggxLut);
 }
 
+// Track collision-mesh overlay: the geometry the pod actually collides against, color-coded by
+// surface reaction. In-race only.
+static void panel_collision() {
+    if (ImGui::Checkbox("Show collision mesh", &imgui_state.show_collision)) {
+        save_settings_ini();
+    }
+    if (ImGui::Checkbox("Show triggers + racer markers", &imgui_state.show_triggers)) {
+        save_settings_ini();
+    }
+    if (ImGui::Checkbox("Show pod hitbox", &imgui_state.show_hitbox)) {
+        save_settings_ini();
+    }
+    if (imgui_state.show_hitbox) {
+        ImGui::Indent();
+        ImGui::TextDisabled("green: pod body radius (walls, per-pod)");
+        ImGui::TextDisabled("cyan: pod-vs-pod radius (r=5)");
+        ImGui::Unindent();
+    }
+    if (ImGui::Checkbox("Wireframe only", &imgui_state.collision_wireframe)) {
+        save_settings_ini();
+    }
+    if (ImGui::SliderFloat("Fill opacity", &imgui_state.collision_opacity, 0.0f, 1.0f, "%.2f")) {
+        save_settings_ini();
+    }
+}
+
 // Dev: scene graph + (debug-build only) per-frame node/material property tallies.
 static void panel_scene_inspector() {
 #ifndef NDEBUG
@@ -1622,6 +1738,37 @@ static void panel_textures() {
                          ImVec2(50, 50));
             ImGui::SameLine();
             ImGui::Text("#%d", *imgui_state.picked_texture_id);
+        }
+        // #206 discovery aid: force texgen onto the hovered surface and read its material
+        // signature, to find which combiner/render-mode value marks the reflective materials.
+        ImGui::Checkbox("Force reflection texgen on hovered",
+                        &imgui_state.debug_texgen_on_picked);
+        const auto &pm = imgui_state.picked_mesh_material;
+        if (pm.valid) {
+            ImGui::SeparatorText("Hovered mesh material");
+            ImGui::Text("reflective=%d  normals=%d  texgen_applied=%d", pm.is_reflective,
+                        pm.has_normals, pm.texgen_applied);
+            ImGui::Text("type          %08X", pm.type);
+            ImGui::Text("unk1          %08X", pm.mat_unk1);
+            ImGui::Text("unk2          %08X", pm.mat_unk2);
+            ImGui::Text("unk5          %08X", pm.mat_unk5);
+            ImGui::Text("unk8          %08X", pm.mat_unk8);
+            ImGui::Text("render_mode_1 %08X", pm.render_mode_1);
+            ImGui::Text("render_mode_2 %08X", pm.render_mode_2);
+            // Decode the combiners to (A-B)*C+D form.
+            ImGui::Text("cc_cycle1 %08X %s", pm.cc_cycle1,
+                        CombineMode(pm.cc_cycle1, false).to_string().c_str());
+            ImGui::Text("ac_cycle1 %08X %s", pm.ac_cycle1,
+                        CombineMode(pm.ac_cycle1, true).to_string().c_str());
+            ImGui::Text("cc_cycle2 %08X %s", pm.cc_cycle2,
+                        CombineMode(pm.cc_cycle2, false).to_string().c_str());
+            ImGui::Text("ac_cycle2 %08X %s", pm.ac_cycle2,
+                        CombineMode(pm.ac_cycle2, true).to_string().c_str());
+            ImGui::Text("tex.unk0      %08X", pm.tex_unk0);
+            ImGui::Text("tex.type      %08X", pm.tex_type);
+            ImGui::Text("tex.unk6      %08X", pm.tex_unk6);
+            ImGui::Text("tex.unk7      %08X", pm.tex_unk7);
+            ImGui::Text("tex.spec0flag %08X", pm.tex_spec0_flags);
         }
     }
 
@@ -2618,6 +2765,10 @@ static DebugPanel g_panel_render_debug = {
     .category = "Debug", .name = "Render Debug",
     .keywords = "test scene meshes renderlist render list lambertian ggx cubemap env lut debug pbr",
     .draw = panel_render_debug, .dev_only = true};
+static DebugPanel g_panel_collision = {
+    .category = "Inspect", .name = "Collision",
+    .keywords = "collision triggers hitbox mesh overlay wireframe",
+    .draw = panel_collision, .dev_only = false};
 static DebugPanel g_panel_scene_inspector = {
     .category = "Inspect", .name = "Scene",
     .keywords = "scene graph node props material render modes blend sprite flags root inspector",
@@ -2648,6 +2799,7 @@ static void register_builtin_debug_panels() {
     debug_ui_register(&g_panel_input_diag);
     debug_ui_register(&g_panel_cheats);
     debug_ui_register(&g_panel_render_debug);
+    debug_ui_register(&g_panel_collision);
     debug_ui_register(&g_panel_scene_inspector);
     debug_ui_register(&g_panel_textures);
     debug_ui_register(&g_panel_pod_transforms);
