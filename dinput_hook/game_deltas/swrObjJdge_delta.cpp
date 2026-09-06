@@ -1161,7 +1161,7 @@ void swrObjJdge_F0_delta(swrObjJdge *jdge) {
 
     // Restore the dormant pre-race track fly-by. swrObjJdge_SetupTrackEnvironment already loads a
     // per-track cinematic camera spline (SPLINEID_*_track*came) into jdge->cam_spline, seeds the
-    // fly-by cursor at jdge->unk134_mat, and registers its output as camera index 5 -- it just ends
+    // fly-by cursor at jdge->camSweepCursor, and registers its output as camera index 5 -- it just ends
     // by zeroing jdge->camSweepState (so F0/F2 never walk the cursor) and never points the viewport
     // at camera 5. Re-enabling both during the pre-race state (nibble 4) plays the sweep: F2 walks
     // the cam-spline, F0 holds state 4 until the spline ends, then advances to the pod orbit. We
@@ -1172,13 +1172,12 @@ void swrObjJdge_F0_delta(swrObjJdge *jdge) {
     // Suppressed while a fast restart is skipping the intro -- the two have opposite intents (play
     // the sweep vs skip straight to the countdown), and the restart wins.
     if (imgui_state.restore_prerace_track_sweep && !fast_restart_skip) {
-        // unk134_mat is really the fly-by SPLINE CURSOR, not a matrix: swrObjJdge_F2+0x32 does
-        //   if ((flag & 0xf) == 4 && camSweepState) EvaluateToMatrix(&unk134_mat, &unk134_mat.vD);
-        // so its first field is the spline pointer. swrObjJdge_SetupTrackEnvironment leaves that
-        // unseeded on a custom track, and opening the gate then makes F2 evaluate a null spline --
-        // a black sweep that never ends, or a fault before the evaluator was guarded.
-        const void *sweepSpline = *(void *const *) &jdge->unk134_mat;
-        if (state == 4 && prevState != 4 && jdge->cam_spline != NULL && sweepSpline != NULL) {
+        // swrObjJdge_F2 (+0x32) evaluates camSweepCursor while camSweepState != NULL, and
+        // swrObjJdge_SetupTrackEnvironment leaves that cursor's spline NULL on a track with no
+        // camera path. Opening the gate then gives a black sweep that never ends (or, before
+        // swrSpline_EvaluateToMatrix_delta guarded it, a fault).
+        if (state == 4 && prevState != 4 && jdge->cam_spline != NULL &&
+            jdge->camSweepCursor.spline != NULL) {
             savedCamera = (short) unkCameraArrayIndex;
             jdge->camSweepState = jdge->cam_spline;// non-null gate (F0/F2 only test != 0)
             ((swrViewport_SetActiveCameraFn) swrViewport_SetActiveCamera_ADDR)(5);
