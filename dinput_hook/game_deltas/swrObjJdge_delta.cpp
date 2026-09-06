@@ -10,6 +10,7 @@ extern "C" {
 #include <Swr/swrText.h>
 #include <Swr/swrSprite.h>
 #include <Swr/swrViewport.h> // swrViewport_SetActiveCamera_ADDR (pre-race track fly-by restore)
+#include <Swr/swrAssetBuffer.h>// swrAssetBuffer_RemainingSize (track footprint log)
 #include <Swr/swrEvent.h>
 #include <Swr/swrMultiplayer.h>
 #include <Swr/swrSound.h>
@@ -23,6 +24,8 @@ extern FILE* hook_log;
 
 #include "../hook_helper.h"
 #include "../patch.h"
+#include "../crash_logger.h"
+#include "../ui_transform.h"
 #include "../imgui_utils.h"// imgui_state cutscene-skip toggles + fast_restart (debug-menu toggles)
 
 extern "C" void hook_function(const char *function_name, uint32_t original_address,
@@ -88,9 +91,17 @@ int fixup_invalid_node_ptrs(swrModel_Node *&node) {
 static void reset_lap_tracking(swrScore *scores); // 100-lap support, defined below
 
 unsigned int swrObjJdge_InitTrack_delta(swrObjJdge *judge, swrScore *scores) {
+    // Breadcrumb the race so a crash report names the track. The judge's model/spline ids are
+    // only valid after the original has run; before it they hold the previous track's.
+    crash_logger_stage("race: init track");
     // Drop cable nodes from the previous track so freed pointers aren't matched against new meshes.
     swrRace_ClearCableBends();
     const unsigned int x = hook_call_original(swrObjJdge_InitTrack, judge, scores);
+    // Asset buffer left with the track resident: what to compare when the grid is cut short.
+    crash_logger_stagef("race: running track model %d spline %d on planet %d, %d bytes of asset "
+                        "buffer left",
+                        judge->unk1b0_modelId, judge->unk1b4_splineId, judge->planetId,
+                        swrAssetBuffer_RemainingSize());
     reset_lap_tracking(scores);
     capture_scene_animation_state();// record fresh animation state for a later fast restart
     g_countdown_ms = judge->countdownTimer_ms;// fresh countdown duration ('Begn' latched it above)
@@ -451,7 +462,7 @@ void swrRace_Init_capture(swrRace *player, float a2_spline, int a3_podModel, voi
 static void reset_score_for_restart(swrScore *score) {
     score->unk58 = 0;
     score->unk5a = 0;
-    score->results_P1_Lap = 0.0f;
+    score->results_P1_Lap = 0;
     *(short *) &score->results_P1_Position = -1;
     score->results_P1_total_time = 0.0f;
     score->results_P1_Lap1 = 0.0f;// SpawnRacer sets Lap1 to -1 then 0 -> 0
@@ -755,7 +766,7 @@ static void format_time_str(float t, int frac_scale, int frac_digits, char *out,
     else if (m > 0)
         snprintf(out, out_size, "%d:%02d.%0*d", m, s, frac_digits, frac);
     else
-        snprintf(out, out_size, "%02d.%0*d", s, frac_digits, frac);
+        snprintf(out, out_size, "%d.%0*d", s, frac_digits, frac); // sub-minute: no leading-zero second
 }
 
 static void format_time_with_hours(int x, int y, int time_bits, int r, int g, int b, int a,
@@ -769,9 +780,24 @@ static void format_time_with_hours(int x, int y, int time_bits, int r, int g, in
     swrText_CreateTextEntry1(x, y, r, g, b, a, body);
 }
 
+// Default on: show thousandths for every displayed time. See swrObjJdge_delta.h.
+bool g_time_show_millis = true;
+
+// One digit glyph in the front-end/results font, in the 320x240 design space the time entries are
+// positioned in. From the reimpl's own per-digit x-tier step (swrRace_InRaceEndStatistics, ~0xa).
+#define TIME_MS_DIGIT_WIDTH 0xa
+
 void swrText_CreateTimeEntry_delta(int x, int y, int unused, int r, int g, int b, int a,
                                    char *screenText) {
-    format_time_with_hours(x, y, unused, r, g, b, a, screenText, 100, 2); // centiseconds
+    if (!g_time_show_millis) {
+        format_time_with_hours(x, y, unused, r, g, b, a, screenText, 100, 2); // stock centiseconds
+        return;
+    }
+    // Right-aligned entries ("~r") gain the extra digit on the LEFT, so the anchor moves right by
+    // one digit to hold the stock left edge. Left-aligned entries grow rightward and need no nudge.
+    if (screenText && std::strstr(screenText, "~r"))
+        x += TIME_MS_DIGIT_WIDTH;
+    format_time_with_hours(x, y, unused, r, g, b, a, screenText, 1000, 3); // milliseconds
 }
 
 void swrText_CreateTimeEntryPrecise_delta(int x, int y, int unused, int r, int g, int b, int a,
@@ -892,7 +918,7 @@ void swrObjJdge_F2_delta(swrObjJdge *jdge) {
 // summary in the same left-label / time-column style.
 void swrRace_InRaceEndStatistics_delta(void *jdge, void *score) {
     if (!g_lapScores) {
-        hook_call_original(swrRace_InRaceEndStatistics, jdge, score);
+        hook_call_original(swrRace_InRaceEndStatistics, (swrObjJdge *) jdge, (swrScore *) score);
         return;
     }
 
@@ -904,7 +930,7 @@ void swrRace_InRaceEndStatistics_delta(void *jdge, void *score) {
             for (int i = 0; i < numLaps && i < VANILLA_RESULTS_LAPS; i++)
                 *(float *) ((char *) score + SCORE_LAP1 + i * 4) = g_lapTimes[r][i];
         }
-        hook_call_original(swrRace_InRaceEndStatistics, jdge, score);
+        hook_call_original(swrRace_InRaceEndStatistics, (swrObjJdge *) jdge, (swrScore *) score);
         return;
     }
 
@@ -1016,6 +1042,58 @@ void swrObjJdge_UpdateStandings_delta(swrObjJdge *jdge) {
         }
         *(short *) &a->results_P1_Position = (short) place;
     }
+}
+
+// Manual in-race HUD-mode cycle. Vanilla advances jdge->hud_mode on Caps Lock (swrObjJdge_CycleHudMode,
+// which changes the minimap/speedometer layout), but Caps Lock does not emulate over remote desktop,
+// so expose the same cycle to a debug-overlay button. The button sets g_request_hud_mode_cycle; here --
+// called every frame from swrObjJdge_F0 with the live jdge -- we consume it and advance hud_mode with
+// the vanilla wrap (0..4 single-player, 4..7 splitscreen). The original runs first so Caps Lock still
+// works for local players. g_current_hud_mode is published for the overlay to display.
+bool g_request_hud_mode_cycle = false;
+int g_current_hud_mode = -1;
+
+typedef void swrObjJdge_CycleHudMode_t(swrObjJdge *jdge);
+
+// 0x0045f230 -- swrObjJdge_DrawRaceHUD draws the per-racer POSITION MARKERS (sprites 0x2b-0x34 + their
+// number text), which live in a different layout each hud_mode. Publish the mode into ui_hud_marker_mode
+// for the duration of the draw so the sprite + text sinks can remap the markers by mode (right strip in
+// mode 0, full-width ring in mode 1) instead of the plain centering. Cleared to -1 afterward so no other
+// HUD text/sprite is affected.
+typedef void swrObjJdge_DrawRaceHUD_t(swrObjJdge *jdge);
+
+void swrObjJdge_DrawRaceHUD_delta(swrObjJdge *jdge) {
+    ui_hud_marker_mode = jdge->hud_mode;
+    hook_call_original((swrObjJdge_DrawRaceHUD_t *) swrObjJdge_DrawRaceHUD_ADDR, jdge);
+    ui_hud_marker_mode = -1;
+}
+
+// 0x00462b20 -- swrObjJdge_UpdatePlayerHUD draws the per-player HUD (header bar, speedometer, engine
+// readout + their text). Scope it so the id-based HUD edge-anchoring only fires here: those sprite ids
+// and text columns are reused by other screens (the race-settings pilot portrait / track favorite),
+// which would otherwise get stretched/offset. Cleared afterward. Reentrant-safe as a counter (two local
+// players call it in turn, never nested, but a counter is harmless if that ever changes).
+typedef void swrObjJdge_UpdatePlayerHUD_t(swrObjJdge *jdge, swrScore *score);
+
+void swrObjJdge_UpdatePlayerHUD_delta(swrObjJdge *jdge, swrScore *score) {
+    ui_in_race_hud++;
+    hook_call_original((swrObjJdge_UpdatePlayerHUD_t *) swrObjJdge_UpdatePlayerHUD_ADDR, jdge, score);
+    ui_in_race_hud--;
+}
+
+void swrObjJdge_CycleHudMode_delta(swrObjJdge *jdge) {
+    hook_call_original((swrObjJdge_CycleHudMode_t *) swrObjJdge_CycleHudMode_ADDR, jdge);
+    if (g_request_hud_mode_cycle) {
+        g_request_hud_mode_cycle = false;
+        jdge->hud_mode = (swrObjJdge_HUDMODE) (jdge->hud_mode + 1);
+        if (numLocalPlayers < 2) {
+            if (jdge->hud_mode > swrObjJdge_HUDMODE_OFF)
+                jdge->hud_mode = swrObjJdge_HUDMODE_GAP_ARROWS;
+        } else if (jdge->hud_mode > swrObjJdge_HUDMODE_SPLIT_COLUMN_TIME) {
+            jdge->hud_mode = swrObjJdge_HUDMODE_OFF;
+        }
+    }
+    g_current_hud_mode = jdge->hud_mode;
 }
 
 // Cutscene auto-skip ("Game" settings panel): fast-forward the end credits. ScrollCredits ends a
@@ -1136,7 +1214,7 @@ void swrObjJdge_F0_delta(swrObjJdge *jdge) {
 
     // Restore the dormant pre-race track fly-by. swrObjJdge_SetupTrackEnvironment already loads a
     // per-track cinematic camera spline (SPLINEID_*_track*came) into jdge->cam_spline, seeds the
-    // fly-by cursor at jdge->unk134_mat, and registers its output as camera index 5 -- it just ends
+    // fly-by cursor at jdge->camSweepCursor, and registers its output as camera index 5 -- it just ends
     // by zeroing jdge->camSweepState (so F0/F2 never walk the cursor) and never points the viewport
     // at camera 5. Re-enabling both during the pre-race state (nibble 4) plays the sweep: F2 walks
     // the cam-spline, F0 holds state 4 until the spline ends, then advances to the pod orbit. We
@@ -1147,10 +1225,21 @@ void swrObjJdge_F0_delta(swrObjJdge *jdge) {
     // Suppressed while a fast restart is skipping the intro -- the two have opposite intents (play
     // the sweep vs skip straight to the countdown), and the restart wins.
     if (imgui_state.restore_prerace_track_sweep && !fast_restart_skip) {
-        if (state == 4 && prevState != 4 && jdge->cam_spline != NULL) {
+        // swrObjJdge_F2 (+0x32) evaluates camSweepCursor while camSweepState != NULL, and
+        // swrObjJdge_SetupTrackEnvironment leaves that cursor's spline NULL on a track with no
+        // camera path. Opening the gate then gives a black sweep that never ends (or, before
+        // swrSpline_EvaluateToMatrix_delta guarded it, a fault).
+        if (state == 4 && prevState != 4 && jdge->cam_spline != NULL &&
+            jdge->camSweepCursor.spline != NULL) {
             savedCamera = (short) unkCameraArrayIndex;
             jdge->camSweepState = jdge->cam_spline;// non-null gate (F0/F2 only test != 0)
             ((swrViewport_SetActiveCameraFn) swrViewport_SetActiveCamera_ADDR)(5);
+        } else if (state == 4 && prevState != 4) {
+            fprintf(hook_log,
+                    "[prerace_sweep] no fly-by cursor for track model %d (cam_spline=%p); leaving "
+                    "the sweep dormant\n",
+                    jdge->unk1b0_modelId, (void *) jdge->cam_spline);
+            fflush(hook_log);
         } else if (state != 4 && prevState == 4 && savedCamera != 5) {
             jdge->camSweepState = NULL;
             ((swrViewport_SetActiveCameraFn) swrViewport_SetActiveCamera_ADDR)(savedCamera);
