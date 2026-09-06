@@ -759,7 +759,7 @@ void swrObjJdge_F0(swrObjJdge* jdge)
         if (jdge->camSweepState == NULL) {
             advance = true;
         } else {
-            if (jdge->unk134_mat.vC.x == 0.0f)
+            if (jdge->camSweepCursor.endFlag == 0)
                 jdge->raceTimer_ms -= (float)swrRace_deltaTimeSecs;
             else if ((flags & 0x80) != 0)
                 jdge->raceTimer_ms += (float)swrRace_deltaTimeSecs;
@@ -767,7 +767,7 @@ void swrObjJdge_F0(swrObjJdge* jdge)
                 jdge->raceTimer_ms = 0.0f;
                 jdge->flag = flags | 0x80;
             }
-            if (jdge->unk134_mat.vC.x != 0.0f && 0.5f < jdge->raceTimer_ms)
+            if (jdge->camSweepCursor.endFlag != 0 && 0.5f < jdge->raceTimer_ms)
                 advance = true;
         }
         if (advance) {
@@ -1592,22 +1592,23 @@ int swrObjJdge_F4(swrObjJdge* jdge, int* subEvents, int p3)
         jdge->unk1d8 = 0;
         jdge->unk1dc = 0;
         jdge->camSweepState = NULL;
-        jdge->unk134_mat.vD.x = 1.0f;
-        jdge->unk134_mat.vD.y = 0.0f;
-        jdge->unk134_mat.vD.z = 0.0f;
-        jdge->unk134_mat.vD.w = 0.0f;
-        jdge->unk174[0] = 0.0f;
-        jdge->unk174[1] = 1.0f;
-        jdge->unk174[2] = 0.0f;
-        jdge->unk174[3] = 0.0f;
-        jdge->unk174[4] = 0.0f;
-        jdge->unk174[5] = 0.0f;
-        jdge->unk174[6] = 1.0f;
-        jdge->unk174[7] = 0.0f;
-        jdge->unk174[8] = 0.0f;
-        jdge->unk174[9] = 0.0f;
-        jdge->unk174[10] = 0.0f;
-        jdge->unk1a0 = 1.0f;
+        // camSweepTransform = identity, written field by field as the original does
+        jdge->camSweepTransform.vA.x = 1.0f;
+        jdge->camSweepTransform.vA.y = 0.0f;
+        jdge->camSweepTransform.vA.z = 0.0f;
+        jdge->camSweepTransform.vA.w = 0.0f;
+        jdge->camSweepTransform.vB.x = 0.0f;
+        jdge->camSweepTransform.vB.y = 1.0f;
+        jdge->camSweepTransform.vB.z = 0.0f;
+        jdge->camSweepTransform.vB.w = 0.0f;
+        jdge->camSweepTransform.vC.x = 0.0f;
+        jdge->camSweepTransform.vC.y = 0.0f;
+        jdge->camSweepTransform.vC.z = 1.0f;
+        jdge->camSweepTransform.vC.w = 0.0f;
+        jdge->camSweepTransform.vD.x = 0.0f;
+        jdge->camSweepTransform.vD.y = 0.0f;
+        jdge->camSweepTransform.vD.z = 0.0f;
+        jdge->camSweepTransform.vD.w = 1.0f;
         jdge->cam_spline = NULL;
         jdge->unk1a8 = 0;
         jdge->unk1e0 = 0;

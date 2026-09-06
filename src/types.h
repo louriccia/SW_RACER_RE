@@ -4,9 +4,18 @@
 // Ghidra: File -> Parse C Source -> Add types.h -> Parse to Program -> Use open archive
 
 #include <windows.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
+
+// Layout assertion usable from both the C reimpls and the C++ delta layer. Ghidra's C parser
+// skips it along with the rest of the preprocessor.
+#ifdef __cplusplus
+#define SWR_ASSERT_LAYOUT(cond, msg) static_assert(cond, msg)
+#else
+#define SWR_ASSERT_LAYOUT(cond, msg) _Static_assert(cond, msg)
+#endif
 
 #include "types_a3d.h"
 #include "types_directx.h"
@@ -778,13 +787,9 @@ extern "C"
         int hud_mode; // 0x124. annodue: _hud_mode
         int event;
         char unk128[4];
-        void* camSweepState; // 0x130 (the field order puts it here, not 0x12c). camera-sweep gate; while non-null F2 walks unk134_mat and F0 gates the finish -> results transition on it
-        // 0x134. NOT a matrix: swrObjJdge_F2+0x32 passes it to swrSpline_EvaluateToMatrix as the
-        // fly-by CURSOR (swrSplineCursor, 0x30) and takes the output matrix at +0x30 (0x164), so
-        // vA.x is cursor.spline and vC.x is cursor.endFlag. Retyping it is a follow-up.
-        rdMatrix44 unk134_mat;
-        float unk174[11];
-        float unk1a0; // 0x1a0. reset to 1.0 at 'Load'; purpose not yet identified (no reader found in the judge functions)
+        void* camSweepState; // 0x130. camera-sweep gate; while non-null F2 walks camSweepCursor and F0 gates the finish -> results transition on it
+        swrSplineCursor camSweepCursor; // 0x134. cinematic camera path walker. swrObjJdge_F2 (+0x32) evaluates it into camSweepTransform while camSweepState != NULL; seeded by swrObjJdge_SetupTrackEnvironment, and left with a NULL spline on a track that has no camera path
+        rdMatrix44 camSweepTransform; // 0x164. swrSpline_EvaluateToMatrix output for the sweep; reset to identity at 'Load'/'RSet'
         void* cam_spline;
         int unk1a8;
         int planetId;
@@ -803,6 +808,12 @@ extern "C"
         int unk1e0;
         float unk1e4;
     } swrObjJdge; // sizeof(0x1e8)
+    // camSweepCursor/camSweepTransform replaced a single rdMatrix44 plus two float runs covering
+    // the same 0x70 bytes; pin the layout so a future edit cannot shift the fields after them.
+    SWR_ASSERT_LAYOUT(sizeof(swrObjJdge) == 0x1e8, "swrObjJdge size changed");
+    SWR_ASSERT_LAYOUT(offsetof(swrObjJdge, camSweepCursor) == 0x134, "camSweepCursor moved");
+    SWR_ASSERT_LAYOUT(offsetof(swrObjJdge, camSweepTransform) == 0x164, "camSweepTransform moved");
+    SWR_ASSERT_LAYOUT(offsetof(swrObjJdge, cam_spline) == 0x1a4, "cam_spline moved");
 
     typedef struct swrObjScen
     {
