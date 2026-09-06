@@ -1469,7 +1469,7 @@ void swrViewport_Render_Hook(int x) {
     const bool mirrored = (GameSettingFlags & 0x4000) != 0;
 
     const rdClipFrustum *frustum = rdCamera_pCurCamera->pClipFrustum;
-    const float n = frustum->zNear;
+    const float n = frustum->zNear * playercam_NearClipScale();
     const float t = 1.0f / tan(0.5 * rdCamera_pCurCamera->fov / 180.0 * 3.14159);
     // The game's fov is the HORIZONTAL fov, calibrated for 4:3. Hold the 4:3 VERTICAL fov constant
     // across aspect ratios (Hor+) so widescreen reveals more horizontally instead of cropping the

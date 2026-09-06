@@ -37,23 +37,38 @@ enum CamMode {
     CAM_MODE_FIRST_PERSON_WIDE = 5,// first person at the 120-degree FOV
 };
 
-// Panel choices -> forced mode (0 = the game's own).
-constexpr int VIEW_MODES[] = {0, CAM_MODE_CHASE_NEAR, CAM_MODE_CHASE_FAR, CAM_MODE_FIRST_PERSON,
-                              CAM_MODE_FIRST_PERSON_WIDE};
-const char *const VIEW_NAMES[] = {"Game default", "Chase (near)", "Chase (far)", "First person",
-                                  "First person (wide)"};
+// The camera-button cycle, with the true cockpit inserted after the wide first person:
+// near -> first person -> first person wide -> true cockpit -> far -> near. The true cockpit is
+// camera-man mode 4 on the camera-man recorded in g_cockpit_cman.
+enum PreferredView {
+    VIEW_GAME_DEFAULT = 0,
+    VIEW_CHASE_NEAR,
+    VIEW_FIRST_PERSON,
+    VIEW_FIRST_PERSON_WIDE,
+    VIEW_TRUE_COCKPIT,
+    VIEW_CHASE_FAR,
+    VIEW_COUNT
+};
+constexpr int VIEW_MODES[VIEW_COUNT] = {0, CAM_MODE_CHASE_NEAR, CAM_MODE_FIRST_PERSON,
+                                        CAM_MODE_FIRST_PERSON_WIDE, CAM_MODE_FIRST_PERSON,
+                                        CAM_MODE_CHASE_FAR};
+const char *const VIEW_NAMES[VIEW_COUNT] = {"Game default", "Chase (near)", "First person",
+                                            "First person (wide)", "True cockpit", "Chase (far)"};
+
+constexpr int EVENT_CAMERA_BUTTON = 0x43427574;// 'CBut': the in-race camera key, handled by swrObjcMan_F4
 
 constexpr int NUM_PILOTS = 23;// swrRacer_PodVisualData[23]
 
 struct PlayerCameraConfig {
-    int view = 0;               // index into VIEW_MODES
+    int view = 0;               // PreferredView, applied once per race; updated by the camera key
     float trail_scale = 1.0f;   // chase-camera distance multiplier
     float height_scale = 1.0f;  // chase-camera height multiplier
     float fov_offset = 0.0f;    // degrees added to the game's camera FOV
     float dynamic_fov = 0.0f;   // extra degrees at top speed (0 = off), eased in with speed^2
-    bool disable_roll = false;  // level the horizon (drop the chase cam's banking)
-    float cockpit_right = 0.0f; // first-person camera offset, pod-local axes (units)
-    float cockpit_forward = 0.0f;
+    float roll_influence = 1.0f;// 1 = the game's camera roll, 0 = level horizon
+    float cockpit_near_scale = 0.25f;// near-plane scale while the true cockpit is active
+    float cockpit_right = 0.0f; // first-person camera offset (units): pod axes, or cockpit axes in
+    float cockpit_forward = 0.0f;// the true cockpit (added to the per-pilot table)
     float cockpit_up = 0.0f;
     bool show_pod_first_person = false;// keep the pod visible in the first-person views
     bool hide_own_pod = false;
@@ -70,10 +85,11 @@ struct PlayerCameraConfig {
 };
 PlayerCameraConfig g_cfg;
 
-// Mode the player had before the override, restored when it is switched back off.
-bool g_view_forced = false;
-int g_view_saved = 0;
-int g_view_forced_mode = 0;
+swrObjcMan *g_cockpit_cman = nullptr;// camera-man whose mode 4 is the true cockpit (several exist)
+bool cockpit_active(const swrObjcMan *cman) {
+    return g_cockpit_cman == cman;
+}
+bool g_view_applied = false;  // preferred view applied for the current race
 
 enum SpriteGroup { GROUP_NONE, GROUP_SUN, GROUP_LIGHT_STREAKS };
 SpriteGroup g_sprite_group = GROUP_NONE;
@@ -101,49 +117,122 @@ swrRace *local_followed_racer(swrObjcMan *cman) {
     return racer;
 }
 
-void apply_view_override(swrObjcMan *cman) {
-    const int want = VIEW_MODES[std::clamp(g_cfg.view, 0, 4)];
-    if (want != 0 && local_followed_racer(cman) != nullptr && is_player_view(cman->mode_type)) {
-        if (!g_view_forced) {
-            g_view_saved = cman->mode_type;
-            g_view_forced = true;
-        }
-        cman->mode_type = want;
-        g_view_forced_mode = want;
+typedef void(__cdecl *swrObjcMan_CommitStagedCameraFn)(swrObjcMan *, int);
+
+// Switch the camera-man the way the 'CBut' handler does: chase modes through CommitStagedCamera,
+// first-person modes by writing mode_type; mode_respawn follows so a respawn keeps the view.
+void set_view(swrObjcMan *cman, int view) {
+    const int mode = VIEW_MODES[view];
+    if (mode == 0)
         return;
-    }
-    if (g_view_forced && want == 0) {
-        if (cman->mode_type == g_view_forced_mode)
-            cman->mode_type = g_view_saved;
-        g_view_forced = false;
+    if (view == VIEW_TRUE_COCKPIT)
+        g_cockpit_cman = cman;
+    else if (g_cockpit_cman == cman)
+        g_cockpit_cman = nullptr;
+    if (mode == CAM_MODE_CHASE_NEAR || mode == CAM_MODE_CHASE_FAR)
+        ((swrObjcMan_CommitStagedCameraFn) swrObjcMan_CommitStagedCamera_ADDR)(cman, mode);
+    else
+        cman->mode_type = mode;
+    cman->mode_respawn = mode;
+}
+
+int view_from_cman(const swrObjcMan *cman) {
+    switch (cman->mode_type) {
+        case CAM_MODE_CHASE_NEAR:
+            return VIEW_CHASE_NEAR;
+        case CAM_MODE_CHASE_FAR:
+            return VIEW_CHASE_FAR;
+        case CAM_MODE_FIRST_PERSON:
+            return cockpit_active(cman) ? VIEW_TRUE_COCKPIT : VIEW_FIRST_PERSON;
+        case CAM_MODE_FIRST_PERSON_WIDE:
+            return VIEW_FIRST_PERSON_WIDE;
+        default:
+            return VIEW_GAME_DEFAULT;
     }
 }
 
-// Offset camera and aim point together, in pod axes (vA right, vB forward, vC up).
-void apply_cockpit_offset(swrObjcMan *cman, swrRace *racer) {
-    if (g_cfg.cockpit_right == 0.0f && g_cfg.cockpit_forward == 0.0f && g_cfg.cockpit_up == 0.0f)
+void save_config();
+
+// Apply the persisted view once per race, the first frame the player's camera is in a drivable view
+// (after the pre-race sweep, or immediately when it is skipped). Leaving the race re-arms it.
+void apply_preferred_view(swrObjcMan *cman) {
+    if (cman->mode_type == 0 || cman->metaCamIndex_count < 0 ||
+        cman->mode_type == 7 /* pre-race sweep */) {
+        g_view_applied = false;
+        if (g_cockpit_cman == cman)
+            g_cockpit_cman = nullptr;
         return;
-    const rdMatrix44 &pod = racer->transform;
+    }
+    if (g_view_applied || local_followed_racer(cman) == nullptr || !is_player_view(cman->mode_type))
+        return;
+    g_view_applied = true;
+    if (g_cfg.view != VIEW_GAME_DEFAULT)
+        set_view(cman, std::clamp(g_cfg.view, 0, VIEW_COUNT - 1));
+}
+
+// Per-pilot eye offsets from the cockpit transform (forward, up), the CE mod's CockpitY / CockpitZ.
+constexpr float COCKPIT_EYE_FORWARD[NUM_PILOTS] = {
+    -0.25f, -0.45f, -0.85f, 0.3f,  1.0f,  -1.25f, -0.05f, 0.35f, -0.78f, -0.4f, 0.05f, -1.0f,
+    -0.5f,  0.85f,  1.9f,   -1.0f, -2.6f, -1.0f,  1.75f,  -0.55f, -0.5f,  1.5f, -0.1f};
+constexpr float COCKPIT_EYE_UP[NUM_PILOTS] = {
+    0.5f,  0.2f, 0.65f, 0.53f, 0.3f, 0.75f, 0.2f,  0.7f, 0.55f, 0.7f, 0.45f, 0.95f,
+    -0.3f, 0.6f, 0.6f,  0.6f,  0.8f, 0.95f, 0.5f, 1.2f, 1.0f,  0.8f, 0.1f};
+constexpr float COCKPIT_FOCUS_DISTANCE = 100.0f;
+
+int pilot_index(swrRace *racer) {
+    if (racer->score_ptr == nullptr || racer->score_ptr->pilotId == nullptr)
+        return -1;
+    const int pilot = *racer->score_ptr->pilotId;
+    return (pilot >= 0 && pilot < NUM_PILOTS) ? pilot : -1;
+}
+
+// Camera / aim point += right * x + forward * y + up * z of `basis`.
+void offset_camera(swrObjcMan *cman, const rdMatrix44 &basis, float x, float y, float z) {
+    if (x == 0.0f && y == 0.0f && z == 0.0f)
+        return;
     rdVector3 off;
-    off.x = pod.vA.x * g_cfg.cockpit_right + pod.vB.x * g_cfg.cockpit_forward +
-            pod.vC.x * g_cfg.cockpit_up;
-    off.y = pod.vA.y * g_cfg.cockpit_right + pod.vB.y * g_cfg.cockpit_forward +
-            pod.vC.y * g_cfg.cockpit_up;
-    off.z = pod.vA.z * g_cfg.cockpit_right + pod.vB.z * g_cfg.cockpit_forward +
-            pod.vC.z * g_cfg.cockpit_up;
+    off.x = basis.vA.x * x + basis.vB.x * y + basis.vC.x * z;
+    off.y = basis.vA.y * x + basis.vB.y * y + basis.vC.y * z;
+    off.z = basis.vA.z * x + basis.vB.z * y + basis.vC.z * z;
     rdVector3 *cam = (rdVector3 *) &cman->unk20_mat.vD;
     rdVector3 *focus = (rdVector3 *) &cman->focusTransform_mat.vD;
     rdVector_Scale3Add3(cam, cam, 1.0f, &off);
     rdVector_Scale3Add3(focus, focus, 1.0f, &off);
 }
 
-// Same look-at rebuild swrObjcMan_UpdateCamera ends with, roll forced to 0.
-void remove_roll(swrObjcMan *cman) {
-    rdMatrix44 level;
+// Replace the first-person camera with the pod's cockpit transform (world space, rewritten each
+// frame by swrRace_PoddAnimateEngines; may carry scale on the diagonal, hence the normalize), eye at
+// the per-pilot offset, aim straight ahead.
+void apply_true_cockpit(swrObjcMan *cman, swrRace *racer) {
+    rdMatrix44 cam = racer->cockpitXf;
+    rdVector_Normalize3Acc((rdVector3 *) &cam.vA);
+    rdVector_Normalize3Acc((rdVector3 *) &cam.vB);
+    rdVector_Normalize3Acc((rdVector3 *) &cam.vC);
+    cam.vA.w = cam.vB.w = cam.vC.w = 0.0f;
+    cam.vD.w = 1.0f;
+    cman->unk20_mat = cam;
+    rdVector_Scale3Add3((rdVector3 *) &cman->focusTransform_mat.vD, (rdVector3 *) &cam.vD,
+                        COCKPIT_FOCUS_DISTANCE, (rdVector3 *) &cam.vB);
+    const int pilot = pilot_index(racer);
+    if (pilot >= 0)
+        offset_camera(cman, cam, 0.0f, COCKPIT_EYE_FORWARD[pilot], COCKPIT_EYE_UP[pilot]);
+}
+
+// User offset in pod axes (vA right, vB forward, vC up), or cockpit axes in true-cockpit mode.
+void apply_cockpit_offset(swrObjcMan *cman, swrRace *racer) {
+    offset_camera(cman, cockpit_active(cman) ? cman->unk20_mat : racer->transform, g_cfg.cockpit_right,
+                  g_cfg.cockpit_forward, g_cfg.cockpit_up);
+}
+
+// Same look-at rebuild swrObjcMan_UpdateCamera ends with, roll scaled by the user influence.
+void scale_roll(swrObjcMan *cman, float influence) {
     swrTranslationRotation tr;
+    rdMatrix_ExtractTransform(&cman->unk20_mat, &tr);
+    const float roll = tr.yaw_roll_pitch.z * influence;// .z is what UpdateCamera passes as the roll
+    rdMatrix44 out;
     BuildLookAtTransform((rdVector3 *) &cman->unk20_mat.vD, (rdVector3 *) &cman->focusTransform_mat.vD,
-                         &level, &tr, 0.0f);
-    rdMatrix_Copy44(&cman->unk20_mat, &level);
+                         &out, &tr, roll);
+    rdMatrix_Copy44(&cman->unk20_mat, &out);
 }
 
 // Ken Perlin's improved noise, same permutation table as the CE mod.
@@ -266,12 +355,14 @@ void ini_set_bool(const wchar_t *ini, const wchar_t *key, bool v) {
 
 void load_config() {
     const wchar_t *ini = settings_ini_path();
-    g_cfg.view = std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"view", g_cfg.view, ini), 0, 4);
+    g_cfg.view = std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"view", g_cfg.view, ini), 0,
+                            VIEW_COUNT - 1);
     g_cfg.trail_scale = ini_get_float(ini, L"trail_scale", g_cfg.trail_scale);
     g_cfg.height_scale = ini_get_float(ini, L"height_scale", g_cfg.height_scale);
     g_cfg.fov_offset = ini_get_float(ini, L"fov_offset", g_cfg.fov_offset);
     g_cfg.dynamic_fov = ini_get_float(ini, L"dynamic_fov", g_cfg.dynamic_fov);
-    g_cfg.disable_roll = ini_get_bool(ini, L"disable_roll", g_cfg.disable_roll);
+    g_cfg.roll_influence = ini_get_float(ini, L"roll_influence", g_cfg.roll_influence);
+    g_cfg.cockpit_near_scale = ini_get_float(ini, L"cockpit_near_scale", g_cfg.cockpit_near_scale);
     g_cfg.cockpit_right = ini_get_float(ini, L"cockpit_right", g_cfg.cockpit_right);
     g_cfg.cockpit_forward = ini_get_float(ini, L"cockpit_forward", g_cfg.cockpit_forward);
     g_cfg.cockpit_up = ini_get_float(ini, L"cockpit_up", g_cfg.cockpit_up);
@@ -297,7 +388,8 @@ void save_config() {
     ini_set_float(ini, L"height_scale", g_cfg.height_scale);
     ini_set_float(ini, L"fov_offset", g_cfg.fov_offset);
     ini_set_float(ini, L"dynamic_fov", g_cfg.dynamic_fov);
-    ini_set_bool(ini, L"disable_roll", g_cfg.disable_roll);
+    ini_set_float(ini, L"roll_influence", g_cfg.roll_influence);
+    ini_set_float(ini, L"cockpit_near_scale", g_cfg.cockpit_near_scale);
     ini_set_float(ini, L"cockpit_right", g_cfg.cockpit_right);
     ini_set_float(ini, L"cockpit_forward", g_cfg.cockpit_forward);
     ini_set_float(ini, L"cockpit_up", g_cfg.cockpit_up);
@@ -318,10 +410,13 @@ void panel_player_camera() {
     bool dirty = false;
 
     ImGui::SeparatorText("View");
-    dirty |= ImGui::Combo("Camera view", &g_cfg.view, VIEW_NAMES, IM_ARRAYSIZE(VIEW_NAMES));
+    if (ImGui::Combo("Camera view", &g_cfg.view, VIEW_NAMES, IM_ARRAYSIZE(VIEW_NAMES))) {
+        dirty = true;
+        g_view_applied = false;// re-apply now; the camera key keeps updating it afterwards
+    }
     dirty |= ImGui::SliderFloat("Chase distance", &g_cfg.trail_scale, 0.25f, 4.0f, "x%.2f");
     dirty |= ImGui::SliderFloat("Chase height", &g_cfg.height_scale, 0.25f, 4.0f, "x%.2f");
-    dirty |= ImGui::Checkbox("Level horizon (no camera roll)", &g_cfg.disable_roll);
+    dirty |= ImGui::SliderFloat("Camera roll", &g_cfg.roll_influence, 0.0f, 1.5f, "x%.2f");
 
     ImGui::SeparatorText("Field of view");
     dirty |= ImGui::SliderFloat("FOV offset", &g_cfg.fov_offset, -40.0f, 40.0f, "%+.0f deg");
@@ -329,6 +424,7 @@ void panel_player_camera() {
                                 "+%.0f deg");
 
     ImGui::SeparatorText("First person / cockpit");
+    dirty |= ImGui::SliderFloat("Cockpit near clip", &g_cfg.cockpit_near_scale, 0.02f, 1.0f, "x%.2f");
     dirty |= ImGui::SliderFloat("Offset right", &g_cfg.cockpit_right, -3.0f, 3.0f, "%.2f");
     dirty |= ImGui::SliderFloat("Offset forward", &g_cfg.cockpit_forward, -6.0f, 6.0f, "%.2f");
     dirty |= ImGui::SliderFloat("Offset up", &g_cfg.cockpit_up, -3.0f, 3.0f, "%.2f");
@@ -361,7 +457,8 @@ void panel_player_camera() {
     }
 
     ImGui::Separator();
-    ImGui::TextDisabled("Applies to your own pod camera in a race. The free camera overrides it.");
+    ImGui::TextDisabled("The camera key cycles near / first person / wide / true cockpit / far;");
+    ImGui::TextDisabled("the view you land on is remembered across sessions.");
 
     static bool pending = false;
     if (dirty)
@@ -391,7 +488,11 @@ bool playercam_HideOwnPod() {
 }
 
 bool playercam_ShowPodInFirstPerson() {
-    return g_cfg.show_pod_first_person;
+    return g_cfg.show_pod_first_person || g_cockpit_cman != nullptr;
+}
+
+float playercam_NearClipScale() {
+    return g_cockpit_cman != nullptr ? std::clamp(g_cfg.cockpit_near_scale, 0.02f, 1.0f) : 1.0f;
 }
 
 void playercam_RegisterPanel() {
@@ -403,16 +504,23 @@ void playercam_RegisterPanel() {
 // quake pass in swrObjcMan_F3 and the viewport camera-state update consume them afterwards.
 typedef void(__cdecl *swrObjcMan_UpdateCameraFn)(swrObjcMan *);
 extern "C" void __cdecl swrObjcMan_UpdateCamera_delta(swrObjcMan *cman) {
-    apply_view_override(cman);
+    apply_preferred_view(cman);
+    // Any other drivable view ends the true cockpit (mode 4 alone keeps it, e.g. across a respawn).
+    if (g_cockpit_cman == cman && is_player_view(cman->mode_type) &&
+        cman->mode_type != CAM_MODE_FIRST_PERSON)
+        g_cockpit_cman = nullptr;
     hook_call_original((swrObjcMan_UpdateCameraFn) swrObjcMan_UpdateCamera_ADDR, cman);
 
     swrRace *racer = local_followed_racer(cman);
     if (racer == nullptr || !is_player_view(cman->mode_type))
         return;
-    if (is_first_person(cman->mode_type))
+    if (is_first_person(cman->mode_type)) {
+        if (cockpit_active(cman))
+            apply_true_cockpit(cman, racer);
         apply_cockpit_offset(cman, racer);
-    if (g_cfg.disable_roll)
-        remove_roll(cman);
+    }
+    if (g_cfg.roll_influence != 1.0f)
+        scale_roll(cman, g_cfg.roll_influence);
     apply_shake(cman, racer);
 }
 
@@ -420,11 +528,8 @@ extern "C" void __cdecl swrObjcMan_UpdateCamera_delta(swrObjcMan *cman) {
 typedef void(__cdecl *swrObjcMan_UpdateChaseCameraFn)(swrObjcMan *);
 extern "C" void __cdecl swrObjcMan_UpdateChaseCamera_delta(swrObjcMan *cman) {
     swrRace *racer = local_followed_racer(cman);
-    int pilot = -1;
-    if (racer != nullptr && racer->score_ptr != nullptr && racer->score_ptr->pilotId != nullptr)
-        pilot = *racer->score_ptr->pilotId;
-    const bool scale = pilot >= 0 && pilot < NUM_PILOTS &&
-                       (g_cfg.trail_scale != 1.0f || g_cfg.height_scale != 1.0f);
+    const int pilot = racer != nullptr ? pilot_index(racer) : -1;
+    const bool scale = pilot >= 0 && (g_cfg.trail_scale != 1.0f || g_cfg.height_scale != 1.0f);
     if (!scale) {
         hook_call_original((swrObjcMan_UpdateChaseCameraFn) swrObjcMan_UpdateChaseCamera_ADDR, cman);
         return;
@@ -489,7 +594,38 @@ extern "C" void __cdecl swrPlayerHUD_RenderWorldSprites_delta(swrViewport *vp) {
     g_sprite_group = GROUP_NONE;
 }
 
+// The camera key: insert the true cockpit between the wide first person and the far chase, and
+// remember the view the player lands on. Anything else passes through.
+typedef int(__cdecl *swrObjcMan_F4Fn)(swrObjcMan *, int *, int);
+extern "C" int __cdecl swrObjcMan_F4_delta(swrObjcMan *cman, int *subEvents, int p3) {
+    const bool camera_button = subEvents[0] == EVENT_CAMERA_BUTTON &&
+                               (swrRace *) subEvents[1] == cman->unkf4_objTest &&
+                               local_followed_racer(cman) != nullptr;
+    if (!camera_button)
+        return hook_call_original((swrObjcMan_F4Fn) swrObjcMan_F4_ADDR, cman, subEvents, p3);
+
+    const bool was_cockpit = cockpit_active(cman);
+    if (cman->mode_type == CAM_MODE_FIRST_PERSON_WIDE && !was_cockpit) {
+        cman->mode_type = CAM_MODE_FIRST_PERSON;
+        cman->mode_respawn = CAM_MODE_FIRST_PERSON;
+        g_cockpit_cman = cman;
+    } else {
+        if (cman->mode_type == CAM_MODE_FIRST_PERSON && was_cockpit) {
+            g_cockpit_cman = nullptr;
+            cman->mode_type = CAM_MODE_FIRST_PERSON_WIDE;// the original steps wide -> far
+        }
+        hook_call_original((swrObjcMan_F4Fn) swrObjcMan_F4_ADDR, cman, subEvents, p3);
+    }
+    const int view = view_from_cman(cman);
+    if (view != VIEW_GAME_DEFAULT && view != g_cfg.view) {
+        g_cfg.view = view;
+        save_config();
+    }
+    return 1;
+}
+
 void playercam_RegisterHooks() {
+    hook_function("swrObjcMan_F4", (uint32_t) swrObjcMan_F4_ADDR, (uint8_t *) swrObjcMan_F4_delta);
     // Raw-address detours, not hook_replace: keeps the reverse hooks intact (see camera.cpp).
     hook_function("swrObjcMan_UpdateCamera", (uint32_t) swrObjcMan_UpdateCamera_ADDR,
                   (uint8_t *) swrObjcMan_UpdateCamera_delta);
