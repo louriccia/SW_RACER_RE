@@ -9,6 +9,8 @@
 #include <windows.h>
 #include <imgui.h>
 
+#include "build_id.h"// SWR_BUILD_* (generated at build time)
+
 // show_imgui (the F5 overlay toggle) and settings_ini_path() come from imgui_utils.h.
 
 bool debug_ui_show_dev_panels = false;
@@ -127,6 +129,20 @@ void debug_ui_render() {
         help_marker("F5 shows / hides this overlay.\n"
                     "Turn on 'Developer mode' (bottom) for the dev-only sections.\n"
                     "Type in the filter to find a section by name.");
+
+        // Same build stamp the crash reports carry, so a player can read it off the screen and
+        // quote it without having to reproduce the crash first. Click to copy.
+        static const char *build_text =
+            SWR_BUILD_DIRTY ? (SWR_BUILD_BRANCH " @ " SWR_BUILD_COMMIT "-dirty")
+                            : (SWR_BUILD_BRANCH " @ " SWR_BUILD_COMMIT);
+        ImGui::TextDisabled("build: %s", build_text);
+        if (ImGui::IsItemClicked())
+            ImGui::SetClipboardText(build_text);
+        if (ImGui::BeginItemTooltip()) {
+            ImGui::TextUnformatted("The build this dinput.dll was compiled from -- the same stamp");
+            ImGui::TextUnformatted("written into crash reports. Click to copy.");
+            ImGui::EndTooltip();
+        }
 
         // Rolling FPS sparkline (auto-scaled), most recent sample on the right.
         static float fps_history[120] = {};
