@@ -48,7 +48,7 @@ static void randomizer_set_sebulba_guard_patched(bool patched) {
 // BEFORE any race, and the save image is only synced at save/race time -- so keying off it would
 // arm the previous profile after a switch.
 static const char *live_profile_name() {
-    return swrRace_workingProfileName;
+    return swrRace_aProfiles[0].name;
 }
 
 // Value envelope for randomized AI, matching the range the game itself uses across
@@ -233,7 +233,7 @@ void swrObjHang_ComputeUpgradedStats_delta(int podIndex, int upgradeSlot, char u
 
 // Working (live) profile, slot 0: what the menus/shop read and SaveCurrentProfile copies out.
 static const char *working_profile_name(void) {
-    return swrRace_workingProfileName;
+    return swrRace_aProfiles[0].name;
 }
 static uint32_t *working_pod_unlock_mask(void) {
     return &swrRace_favPilotUnlockMask;
