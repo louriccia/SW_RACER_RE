@@ -259,6 +259,22 @@ typedef enum swrObjTrig_FLAG
     swrObjTrig_FLAG_FX_SPAWNED = 0x4, // earthquake FX has been spawned (SpawnEarthquakeShake phase gate)
 } swrObjTrig_FLAG;
 
+// swrObjSmok.type -- picks the velocity / size / spin / UV-scroll preset applied by
+// swrObjSmok_Spawn. FIRE and EXPLOSION share one preset, ENGINE_SMOKE and FLAME_ATTACK
+// another (they differ only in UV scroll). Any other value spawns an unconfigured object.
+typedef enum swrObjSmok_TYPE
+{
+    swrObjSmok_TYPE_FIRE = 2, // burning track prop (swrRace_InitFireEffects)
+    swrObjSmok_TYPE_EXPLOSION = 3, // death / hard-landing burst (swrRace_Explode, HandleDeathExplosion, PlaceOnTrack)
+    swrObjSmok_TYPE_ENGINE_SMOKE = 6, // per-engine damage plume (swrRace_UpdateEngineDamageFX)
+    swrObjSmok_TYPE_FLAME_ATTACK = 8, // Sebulba's flame jet (swrRace_SpawnFlameAttack)
+} swrObjSmok_TYPE;
+
+typedef enum swrObjSmok_FLAG
+{
+    swrObjSmok_FLAG_OWNER_MANAGED = 0x1, // F0 will not self-free at end of life; the owner frees it
+} swrObjSmok_FLAG;
+
 // array of animations at 0x00e25e60
 typedef enum swrMAPANIM_INDEX
 {
@@ -1004,18 +1020,55 @@ typedef enum swrUISprite
 typedef enum swrUI_FLAG
 {
     swrUI_STATIC = 0x4, // non-interactive static element (set by swrUI_NewLabel); skipped by focus navigation
+    swrUI_HOVERED = 0x10, // element under the cursor (swrUI_SetUI4)
     swrUI_FOCUSED = 0x20, // element currently has keyboard focus (swrUI_SetFocusedElement)
     swrUI_VISIBLE = 0x40, // element is visible (swrUI_IsElementVisible walks the parent chain)
+    swrUI_RADIO_GROUP_UNK = 0x80, // radio-group marker; swrUI_ClearGroupChecked rewinds to a flagged element whose predecessor leaves the group
     swrUI_DISABLED = 0x100, // grayed-out / non-interactive (swrUI_DisableElement)
+    swrUI_CHECK_SPRITE_UNK = 0x400, // set on the auto-created check-sprite child element (swrUI_SetChecked)
     swrUI_SELECTED = 0x800,
     swrUI_VERTICAL = 0x10000,
     swrUI_LEFT_RIGHT_UNK = 0x20000, // LEFT_TO_RIGHT or RIGHT_TO_LEFT ?
+    swrUI_CHECKED = 0x20000, // same bit: checked state on checkable class-0xa items (swrUI_SetChecked)
+    swrUI_CHECK_CIRCLE_UNK = 0x40000, // draw the check as the axis_check_circ art (swrUI_SetChecked)
 } swrUI_FLAG;
 
 typedef enum swrUI_ITEM_FLAG
 {
     swrUI_ITEM_SELECTED = 0x80000, // list item is the current selection (swrUI_GetSelectedItem)
 } swrUI_ITEM_FLAG;
+
+typedef enum swrUI_SPRITE_SLOT_FLAG // swrUI_unk2.flag, applied by swrUI_RenderElementSprites
+{
+    swrUI_SPRITE_SLOT_IN_USE = 0x10000, // slot allocated (swrUI_AddSprite)
+    swrUI_SPRITE_SLOT_ENABLED_UNK = 0x20000, // toggled by swrUI_SetSpriteFlag
+    swrUI_SPRITE_SLOT_CENTER_H = 0x40000, // center horizontally in the element rect
+    swrUI_SPRITE_SLOT_CENTER_V = 0x80000, // center vertically in the element rect
+    swrUI_SPRITE_SLOT_CENTER_BOTH = 0x100000, // center on both axes
+    swrUI_SPRITE_SLOT_MIRROR_V = 0x200000, // -> swrSprite flag 0x8 (mirror vertically)
+    swrUI_SPRITE_SLOT_MIRROR_H = 0x400000, // -> swrSprite flag 0x4 (mirror horizontally)
+    swrUI_SPRITE_SLOT_FLAG_8000_UNK = 0x800000, // -> swrSprite flag 0x8000
+    swrUI_SPRITE_SLOT_ADDITIVE = 0x1000000, // -> swrSprite flag 0x800 (additive blending)
+} swrUI_SPRITE_SLOT_FLAG;
+
+typedef enum swrUI_CLASS // swrUI_unk.widget_class, set by each swrUI_New* ctor
+{
+    swrUI_CLASS_SCREEN_TEXT = 3, // swrUI_NewScreenText
+    swrUI_CLASS_LIST = 5, // swrUI_NewList
+    swrUI_CLASS_NUMBER_FIELD = 6, // swrUI_NewNumberField (slider + value)
+    swrUI_CLASS_SPRITE = 7, // swrUI_NewSpriteElement
+    swrUI_CLASS_PANEL = 8, // swrUI_NewPanel (9-slice framed panel)
+    swrUI_CLASS_TEXT_ENTRY = 9, // swrUI_NewTextEntry
+    swrUI_CLASS_FRAMED_TEXT = 10, // swrUI_NewFramedText (checkable/radio item)
+    swrUI_CLASS_3PATCH_BOX = 11, // swrUI_New3PatchBox
+    swrUI_CLASS_LIST_ITEM = 12, // swrUI_AddListItem
+} swrUI_CLASS;
+
+typedef enum swrUI_MSG // element proc / swrUI_RunCallbacks message codes (partial)
+{
+    swrUI_MSG_HOVER_CHANGED = 1, // fired by swrUI_SetUI4; param 0 = left, 1 = entered
+    swrUI_MSG_CHECKED_CHANGED = 5000, // fired to the parent by swrUI_SetChecked; param = new state
+} swrUI_MSG;
 
 typedef enum swrConfig_DEVICE
 {

@@ -244,6 +244,9 @@ static ColorCombineShader make_color_combine_shader(GLuint program) {
         .ambient_color_pos = glGetUniformLocation(program, "ambientColor"),
         .light_color_pos = glGetUniformLocation(program, "lightColor"),
         .light_dir_pos = glGetUniformLocation(program, "lightDir"),
+        .num_lights_pos = glGetUniformLocation(program, "numLights"),
+        .light_color2_pos = glGetUniformLocation(program, "lightColor2"),
+        .light_dir2_pos = glGetUniformLocation(program, "lightDir2"),
         .fog_enabled_pos = glGetUniformLocation(program, "fogEnabled"),
         .fog_start_pos = glGetUniformLocation(program, "fogStart"),
         .fog_end_pos = glGetUniformLocation(program, "fogEnd"),
@@ -266,12 +269,12 @@ uint32_t CombineMode::to_big_endian_u32() const {
     return (a << 24) | (b << 16) | (c << 8) | (d << 0);
 }
 
-ColorCombineShader
+ColorCombineShader &
 get_or_compile_color_combine_shader(ImGuiState &state,
                                     const std::array<CombineMode, 4> &combiners) {
     static std::map<std::array<CombineMode, 4>, ColorCombineShader> shader_map;
-    if (shader_map.contains(combiners))
-        return shader_map.at(combiners);
+    if (auto it = shader_map.find(combiners); it != shader_map.end())
+        return it->second;
 
     const std::string defines = std::format("#define COLOR_CYCLE_1 {}\n"
                                             "#define ALPHA_CYCLE_1 {}\n"
@@ -310,7 +313,7 @@ get_or_compile_color_combine_shader(ImGuiState &state,
         }
     }
 
-    const ColorCombineShader shader = make_color_combine_shader(program_opt.value());
-    shader_map.insert_or_assign(combiners, shader);
-    return shader;
+    return shader_map
+        .insert_or_assign(combiners, make_color_combine_shader(program_opt.value()))
+        .first->second;
 }

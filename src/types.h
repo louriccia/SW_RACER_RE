@@ -734,7 +734,9 @@ extern "C"
         char bMirror;
         char current_player_for_vehicle_selection; // 0: first local player selects vehicle, 1: second local player selects vehicle.
         char num_local_players;
-        char unk71;
+        // 0x71. networked player count, mirrored from sithPlayer_g_numPlayers by
+        // swrMultiplayer_NotifyHangarPlayerChange.
+        char num_network_players;
         char num_players; // counts local players and AI
         char vehiclePlayer;
         char vehicleOpponent[22];
@@ -880,43 +882,43 @@ extern "C"
         float unkbc;
     } swrObjElmo; // sizeof(0xc0)
 
+    // Generic particle entity ('Smok'): engine smoke, track fire, explosion bursts,
+    // Sebulba's flame attack. Up to 5 billboards, aged by F0 and drawn by F3. Every
+    // Start/End pair below is interpolated over the per-particle phase,
+    // (lifetime / totalLifetime) + i / particleCount wrapped into [0,1].
     typedef struct swrObjSmok
     {
         swrObj obj;
-        char unk8[32];
-        char unk28[32];
-        char unk48[24];
-        int unk60;
-        int unk64;
-        float unk68_ms;
+        char unk8[24];
+        rdMatrix44 transform; // 0x20. scale on the diagonal; row vD (0x50) holds the spawn position
+        int type; // 0x60. swrObjSmok_TYPE
+        int flags; // 0x64. swrObjSmok_FLAG
+        float lifetime; // 0x68. seconds remaining, counted down by F0
         char unk6c[4];
-        int unk70;
-        float unk74;
-        float unk78;
-        float unk7c;
-        char unk80[4];
-        float unk84;
-        float unk88;
-        float unk8c;
-        float unk90;
-        float unk94;
-        float unk98;
-        float unk9c;
-        float unka0;
-        float unka4;
-        float unka8_ms;
-        char unkac[28];
-        char unkc8[12];
-        float unkd4_ms;
-        float unkd8_ms;
-        char unkdc[12];
-        char unke8[8];
-        float unkf0;
-        struct swrModel_Node* unkf4_model;
-        float unkf8;
-        float unkfc;
-        float unk100;
-        float unk104;
+        int particleCount; // 0x70
+        rdVector3 velocity; // 0x74. particles drift along this, scaled by phase
+        float fadeInEnd; // 0x80. alpha ramps in over phase [0, fadeInEnd]
+        float fadeOutStart; // 0x84. alpha ramps out over phase [fadeOutStart, 1]
+        float widthStart; // 0x88. billboard half-extent across the velocity axis
+        float widthEnd; // 0x8c
+        float lengthStart; // 0x90. billboard extent along the velocity axis
+        float lengthEnd; // 0x94
+        float spinRateStart; // 0x98. degrees/sec about the velocity axis
+        float spinRateEnd; // 0x9c
+        float uvScrollStart; // 0xa0. texture V scroll rate
+        float uvScrollEnd; // 0xa4
+        float totalLifetime; // 0xa8. seconds; the phase denominator
+        float unkac;
+        float unkb0;
+        rdVector4 colorStart; // 0xb4
+        rdVector4 colorEnd; // 0xc4
+        // Phase-space alpha window. Both advance 4 / totalLifetime per second in F0 and
+        // gate alpha outside [tail, front], so the effect reveals itself outward from spawn.
+        float alphaWindowTail; // 0xd4
+        float alphaWindowFront; // 0xd8
+        float particleSpin[5]; // 0xdc. accumulated spin angle per particle
+        void* ownerHandle; // 0xf0. owner's backref slot, NULLed by swrObjSmok_Free
+        struct swrModel_Node* particleNodes[5]; // 0xf4. borrowed from fireballChildNodesPtr[id * 5]
     } swrObjSmok; // sizeof(0x108)
 
     typedef struct swrObjcMan
@@ -1209,7 +1211,7 @@ extern "C"
 
     typedef struct swrUI_unk2 // one sprite slot (swrUI_unk.ui_elements)
     {
-        int flag;            // 0x00 slot flags (bit 0x20000 via swrUI_SetSpriteFlag)
+        int flag; // 0x00 slot flags (swrUI_SPRITE_SLOT_FLAG)
         int texture_id;      // 0x04 source texture id (swrSprite_CreateFromTextureId)
         int sprite_ingameId; // 0x08 created sprite handle
         float width;         // 0x0c sprite dimensions (swrSprite_SetDim)
@@ -1218,8 +1220,8 @@ extern "C"
         int screen_y1; // 0x18
         int screen_x2; // 0x1c
         int screen_y2; // 0x20
-        void* unk35;         // 0x24
-        void* unk36;         // 0x28
+        int texture_w; // 0x24 texture dimensions (swrUI_SetSpriteRect)
+        int texture_h; // 0x28
         int pos_x;           // 0x2c base position (swrUI_SetSpriteOffset)
         int pos_y;           // 0x30
         char r;              // 0x34 color (swrUI_SetSpriteColor)
@@ -1249,8 +1251,8 @@ extern "C"
         int size_unk2;
         char* unk01_10;
         char unk01_11[12];
-        int unk54;
-        int unk58;
+        int rand_alpha_first; // 0x54 first sprite slot of the alpha-randomize range (swrUI_RandomizeSpriteAlpha)
+        int rand_alpha_count; // 0x58 slot count of that range (0 = all 20)
         int sprite_count;
         swrUI_unk2 ui_elements[20]; // 0x60
         char r;
@@ -1278,11 +1280,23 @@ extern "C"
         int font_index; // 0x4dc font-table index (set via swrUI_ReplaceIndex)
         swrSprite_BBox bbox;
         unsigned int unk0_flag;
-        char unk4f4[20]; // 0x4f4: value-text* @0x4f8, value @0x4fc, list first-visible idx @0x504
+        int unk4f4; // 0x4f4 (written by swrUI_SetValue2_Maybe)
+        char* value_text; // 0x4f8 secondary value-text (swrUI_SetValueText / swrUI_GetValueText)
+        int value; // 0x4fc element value (swrUI_SetValue)
+        int unk500;
+        int first_visible; // 0x504 list first-visible index
         swrUI_ITEM_FLAG item_flags; // 0x508 list-item state (swrUI_ITEM_SELECTED 0x80000)
         char unk50c[40]; // 0x50c scroll layout: left/top/right/bottom @0x50c-0x518, sel text/idx @0x51c/0x520, row spacing @0x524
         int max_length; // 0x534 text-entry max input length (swrUI_SetMaxLength)
-        char unk538[4232];
+        // 0x538 per-widget-class payload. Radio buttons (widget_class 10) use the first two
+        // ints; number fields / sliders (widget_class 6) use the block from 0x544 on.
+        int unk538;
+        int has_option_value; // 0x53c set when option_value holds a real value (else swrUI_GetValue returns -1)
+        int option_value; // 0x540 radio-group option value (swrUI_GetValue, matched by swrUI_GetByValue)
+        char unk544[24]; // 0x544 number-field/slider block: style flags @0x544 (bit 0x1000000 draws the
+                         // number), track length @0x548, percent @0x54c and @0x550, step @0x558
+        int number_value; // 0x55c number-field / slider value (swrUI_GetNumberValue / swrUI_SetNumberValue)
+        char unk560[4192]; // 0x560 rest of the class payload; the swrUI_New slot array follows it
     } swrUI_unk; // sizeof(0x15c0 + unk size)
 
     // this could be some kind of viewport struct.
@@ -2992,19 +3006,20 @@ extern "C"
 
     typedef unsigned int (*tSithCallback)(tSithMessage* message);
 
-    // Inaccurate
+    // Multiplayer player slot; offsets from the slot arithmetic in
+    // swrMultiplayer_ClearPlayerSlot / RegisterPlayer / sithPlayer_HidePlayer (base
+    // 0x00e9f3c0, stride 0xb0). SWR shifted the fields vs the Jedi Knight struct of the
+    // same name, which never fit; JK's pThing / pInSector / respawnMask land in unk8c.
     typedef struct SithPlayer
     {
-        wchar_t awName[32];
-        SithPlayerFlag flags;
-        wchar_t unk[32];
-        DPID playerNetId;
-        SithThing* pThing;
-        char unk8c[24];
-        SithSector* pInSector;
-        int respawnMask;
-        unsigned int msecLastCommTime;
-    } SithPlayer; // sizeof(0xb0) ? in SWR. Doesnt fit the name and the unk
+        int unk0;
+        wchar_t awName[32]; // 0x04. aliased by the swrMultiplayer_playerNames view
+        wchar_t unk44[32]; // 0x44. second wide string, terminated alongside awName by ClearPlayerSlot
+        SithPlayerFlag flags; // 0x84
+        DPID playerNetId; // 0x88
+        char unk8c[32];
+        unsigned int msecLastCommTime; // 0xac. zeroed when the slot is registered
+    } SithPlayer; // sizeof(0xb0)
 
     typedef struct StdConffileArg
     {
@@ -3235,14 +3250,14 @@ extern "C"
         uint8_t unk[16]; // 0x28
     };
 
-    // actual usage of this struct unclear, maybe camera positions on junkyard
-    struct swrUICameraPlacement
+    // One front-end camera framing, indexed by swrObjHang.cameraState out of maybeUICameraPlacements.
+    typedef struct swrUICameraPlacement
     {
-        rdVector3 position1; // 0x0
-        rdVector3 position2; // 0xc
+        rdVector3 position1; // 0x0  eye
+        rdVector3 position2; // 0xc  look-at
         uint32_t unk1; // 0x18
         uint32_t unk2; // 0x1c
-    };
+    } swrUICameraPlacement; // sizeof(0x20)
 
 #ifdef __cplusplus
 }
