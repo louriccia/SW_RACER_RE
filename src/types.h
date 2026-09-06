@@ -4,9 +4,18 @@
 // Ghidra: File -> Parse C Source -> Add types.h -> Parse to Program -> Use open archive
 
 #include <windows.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
+
+// Layout assertion usable from both the C reimpls and the C++ delta layer. Ghidra's C parser
+// skips it along with the rest of the preprocessor.
+#ifdef __cplusplus
+#define SWR_ASSERT_LAYOUT(cond, msg) static_assert(cond, msg)
+#else
+#define SWR_ASSERT_LAYOUT(cond, msg) _Static_assert(cond, msg)
+#endif
 
 #include "types_a3d.h"
 #include "types_directx.h"
@@ -433,10 +442,9 @@ extern "C"
         short flags; // 0x6
     } swrObj; // sizeof(0x8)
 
-    // TODO 0x00475ad0
-
-    // Runtime cursor walking a spline graph (0x30 bytes). swrRace embeds one at +0xac,
-    // swrObjJdge at +0x34. See swrSpline_CursorInit / CursorSeek / CursorEvaluate.
+    // Runtime cursor walking a spline graph (0x30 bytes). swrObjJdge embeds two
+    // (+0x34 camera follow, +0x134 post-race fly-by), swrRace one at +0xac (lap
+    // progress). See swrSpline_CursorInit / CursorSeek / CursorEvaluate.
     typedef struct swrSplineCursor
     {
         struct swrSpline* spline; // 0x00
@@ -449,6 +457,8 @@ extern "C"
         int branchSelector; // 0x28
         int branchFlags; // 0x2c
     } swrSplineCursor; // sizeof(0x30)
+
+    // TODO 0x00475ad0
 
     typedef struct swrRace // swrObjTest
     {
@@ -551,7 +561,7 @@ extern "C"
         float engineHealthMin[6]; // engine health related
         float engineHealth[6]; // 0x288 left top-mid-bot, right top-mid-bot
         unsigned int engineStatus[6];
-        char unk2b8[4];
+        float unk2b8; // 0x2b8. collision / terrain vibration magnitude (0..1), the force-feedback "vibrator"; drives the player-camera shake. Decayed to 0 by swrRace_InRaceTimer while unpaused
         float repairTimer; // 0x2bc
         float damageWarningTimer; // 0x2c0
         float totalDamage; // 0x2c4
@@ -761,6 +771,54 @@ extern "C"
         char unkcf;
     } swrObjHang; // sizeof(0xd0)
 
+    // One player profile (0x50 bytes). Live working copies are swrRace_aProfiles (20 slots;
+    // [0] = active player, [1] = player 2); the save image embeds 4 more. Moved between the two by
+    // swrRace_CopyProfileFromSave / swrRace_CopyProfileToSave.
+    typedef struct swrSaveProfile
+    {
+        char name[32]; // 0x00. player name, NUL-padded
+        uint8_t unk20; // 0x20
+        uint8_t linkedToSave; // 0x21. 1 = swrRace_SaveCurrentProfile mirrors this profile into save slot `saveSlot`
+        uint8_t saveSlot; // 0x22. save-image profile slot this profile syncs with (defaults to its own index)
+        uint8_t unk23; // 0x23
+        uint8_t pilotId; // 0x24. selected pilot (stamped as record holder by swrRace_ResultsMenu; default 0 = Anakin)
+        uint8_t tracksUnlocked[3]; // 0x25. per-circuit track-unlocked bitmask (bit N = track N; default 1)
+        uint8_t circuitsCompleted; // 0x28. bit c = circuit c finished; bit 3 = invitational circuit unlocked
+        uint8_t unk29; // 0x29
+        uint16_t beatTrackPlace[4]; // 0x2a. per-circuit best finishing place, 2 bits per track
+        char unk32[2]; // 0x32
+        uint32_t pilotsUnlocked; // 0x34. pilot unlock bitfield (default 0x22e01)
+        int truguts; // 0x38. currency (default 400)
+        uint32_t unk3c; // 0x3c. cleared by swrRace_LoadGameData and the profile defaults
+        char nbPitDroids; // 0x40. default 1
+        char upgradeLevels[7]; // 0x41. traction/turning/accel/topspeed/airbrake/cooling/repair
+        char upgradeHealths[7]; // 0x48. 0xff = full health
+        char unk4f; // 0x4f
+    } swrSaveProfile; // sizeof(0x50)
+
+    // In-memory image of .\data\player\tgfd.dat, written to disk verbatim after a 4-byte 0x10003
+    // version magic. `checksum` covers everything after itself (swrRace_ComputeSaveChecksum).
+    // Record tables are indexed [trackId * 2 + mirrored] (25 tracks x normal/mirror).
+    // Original engine module name: "elfSaveLoad".
+    typedef struct swrSaveData
+    {
+        uint32_t checksum; // 0x000. CRC32 of the 0xfd0 bytes after this field
+        uint8_t unk4; // 0x004. set to 1 by swrRace_InitDefaultGameData
+        uint8_t sfxVolume; // 0x005. default 225 (= sound_sfx_volume)
+        int16_t musicVolume; // 0x006. default 200 (= sound_music_volume)
+        uint32_t unlockFlags; // 0x008. default 3; |= 0x20 once every track is beaten 1st place (swrRace_ResultsMenu, swrRace_CheatUnlockAll)
+        uint8_t beatTracksGlobal[4]; // 0x00c. = g_aBeatTracksGlobal, defaults {7,3,1,0}
+        uint32_t pilotsUnlockedGlobal; // 0x010. union of every profile's pilot unlocks; 0 = image uninitialized (swrRace_IsGameDataUninitialized)
+        swrSaveProfile profiles[4]; // 0x014. saved profile slots
+        float record3LapTimes[50]; // 0x154. per-track 3-lap (full race) record times, default 3599.99
+        float recordLapTimes[50]; // 0x21c. per-track best single-lap record times, default 3599.99
+        char record3LapNames[50][32]; // 0x2e4. record-holder names (default all 'A')
+        char recordLapNames[50][32]; // 0x924
+        char record3LapPilots[50]; // 0xf64. record-holder pilot ids (default = g_aTrackInfos[track].FavoritePilot)
+        char recordLapPilots[50]; // 0xf96
+        char unkfc8[12]; // 0xfc8
+    } swrSaveData; // sizeof(0xfd4)
+
     typedef struct swrObjJdge
     {
         swrObj obj;
@@ -775,13 +833,12 @@ extern "C"
         rdMatrix44 camBaseMat; // 0x64. judge camera base transform (reset to identity at 'Load' via swrCam_CamState_InitMainMat4)
         rdMatrix44 unk80_mat;
         rdMatrix44 unkbc_mat;
-        int hud_mode; // 0x124. annodue: _hud_mode
+        swrObjJdge_HUDMODE hud_mode; // 0x124. in-race position-HUD layout (annodue: _hud_mode)
         int event;
         char unk128[4];
-        void* camSweepState; // 0x12c. post-race camera-sweep state; while non-null F2 walks unk134_mat and F0 gates the finish -> results transition on it
-        rdMatrix44 unk134_mat; // 0x134. post-race fly-by transform, driven by swrSpline_EvaluateToMatrix only while camSweepState != NULL
-        float unk174[11];
-        float unk1a0; // 0x1a0. reset to 1.0 at 'Load'; purpose not yet identified (no reader found in the judge functions)
+        void* camSweepState; // 0x130. camera-sweep gate; while non-null F2 walks camSweepCursor and F0 gates the finish -> results transition on it
+        swrSplineCursor camSweepCursor; // 0x134. cinematic camera path walker. swrObjJdge_F2 (+0x32) evaluates it into camSweepTransform while camSweepState != NULL; seeded by swrObjJdge_SetupTrackEnvironment, and left with a NULL spline on a track that has no camera path
+        rdMatrix44 camSweepTransform; // 0x164. swrSpline_EvaluateToMatrix output for the sweep; reset to identity at 'Load'/'RSet'
         void* cam_spline;
         int unk1a8;
         int planetId;
@@ -800,6 +857,12 @@ extern "C"
         int unk1e0;
         float unk1e4;
     } swrObjJdge; // sizeof(0x1e8)
+    // camSweepCursor/camSweepTransform replaced a single rdMatrix44 plus two float runs covering
+    // the same 0x70 bytes; pin the layout so a future edit cannot shift the fields after them.
+    SWR_ASSERT_LAYOUT(sizeof(swrObjJdge) == 0x1e8, "swrObjJdge size changed");
+    SWR_ASSERT_LAYOUT(offsetof(swrObjJdge, camSweepCursor) == 0x134, "camSweepCursor moved");
+    SWR_ASSERT_LAYOUT(offsetof(swrObjJdge, camSweepTransform) == 0x164, "camSweepTransform moved");
+    SWR_ASSERT_LAYOUT(offsetof(swrObjJdge, cam_spline) == 0x1a4, "cam_spline moved");
 
     typedef struct swrObjScen
     {
@@ -1088,7 +1151,9 @@ extern "C"
 
     typedef struct swrScore
     {
-        float time_unk;
+        float time_unk; // 0x0. for 'REMO' racers this holds the racer's int net slot (swrRace_LapCompletion
+                        // reads it as an int to index the swrMultiplayer_aRemoteLap* arrays; swrObjJdge_F4
+                        // compares it against event payloads as a float)
         int identifier; // 'Locl' (0x4c6f636c) = local player (assigned to firstLocalPlayer..); else AI/remote ('AAll')
         int flag; // 0x1 = active/in-race, 0x2 = finished (ranked by results_P1_total_time once set; see swrObjJdge_GetRacerRankValue)
         // 0xc. Pointer to this racer's live working profile record (swrRace_aProfiles + slot*0x50), set only for
@@ -1110,7 +1175,8 @@ extern "C"
         float results_P1_Lap4;
         float results_P1_Lap5;
         float results_P1_total_time;
-        float results_P1_Lap; // 0x78. current lap counter (float; cast to int to index the lap-time array above)
+        int results_P1_Lap; // 0x78. current lap counter (indexes the lap-time array above; incremented as an
+                            // int by swrObjJdge_F2 and loaded via fild in swrObjJdge_GetRacerProgress)
         int unk7c;
         float lastRaceDamage;
         swrRace* obj_test_ptr;
@@ -3123,6 +3189,16 @@ extern "C"
         char unk2c[4];
         MODELID puppet_modelId;
     } swrRacerData; // sizeof(0x34)
+
+    // Per-pod visual / camera row (swrRacer_PodVisualData[23], by pilot id); read by the swrRace_Podd*
+    // animators and swrObjcMan_UpdateChaseCamera / UpdatePreRaceSweep.
+    typedef struct swrRacerVisualData
+    {
+        float unk0[19];
+        float chaseCamTrail;  // 0x4c. chase-camera distance behind the pod (doubled in the far chase view)
+        float chaseCamHeight; // 0x50. chase-camera height above the pod
+        float unk54[6];
+    } swrRacerVisualData; // sizeof(0x6c)
 
     // see swrText_CreateEntry. swrTextEntries[1|2]Pos should be swrTextEntryInfo
     typedef struct swrTextEntryInfo

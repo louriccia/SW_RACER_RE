@@ -69,5 +69,8 @@ swrRace *find_entity_for_node(const swrModel_Node *node);
 // so the sub-nodes hidden on purpose (cockpit interior, shadows) are not un-hidden with it.
 bool is_foreign_hidden_pod_root(const swrModel_Node *node);
 
+// Owner if `node` is a racer's pod root (owner->partNodes[0]), else nullptr.
+swrRace *pod_root_owner(const swrModel_Node *node);
+
 void apply_node_transform(rdMatrix44 &model_mat, const swrModel_Node *node,
                           rdVector3 *viewport_position);
