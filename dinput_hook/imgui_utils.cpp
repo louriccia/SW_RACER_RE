@@ -249,6 +249,22 @@ void read_settings_ini() {
     imgui_state.mp_disable_collision = config::get_int("settings", "mp_disable_collision", 1);
 
     imgui_state.cache_meshes = config::get_int("settings", "cache_meshes", 1);
+    imgui_state.reflection_texgen = config::get_int("settings", "reflection_texgen", 1);
+    const float texgen_scale = config::get_float("settings", "reflection_texgen_scale", 2.0f);
+    imgui_state.reflection_texgen_scale =
+        (texgen_scale >= 0.5f && texgen_scale <= 3.0f) ? texgen_scale : 2.0f;
+    const float texgen_rot = config::get_float("settings", "reflection_texgen_rotation", 0.0f);
+    imgui_state.reflection_texgen_rotation =
+        (texgen_rot >= 0.0f && texgen_rot <= 360.0f) ? texgen_rot : 0.0f;
+    {
+        const std::string offset =
+            config::get_string("settings", "reflection_texgen_offset", "0.5 0.5");
+        float ou = 0.5f, ov = 0.5f;
+        if (sscanf(offset.c_str(), "%f %f", &ou, &ov) == 2) {
+            imgui_state.reflection_texgen_offset[0] = (ou >= -1.0f && ou <= 1.0f) ? ou : 0.5f;
+            imgui_state.reflection_texgen_offset[1] = (ov >= -1.0f && ov <= 1.0f) ? ov : 0.5f;
+        }
+    }
     imgui_state.cull_meshes = config::get_int("settings", "cull_meshes", 1);
     imgui_state.stream_dynamic_meshes = config::get_int("settings", "stream_dynamic_meshes", 1);
     imgui_state.hd_scene_captures = config::get_int("settings", "hd_scene_captures", 0);
@@ -349,6 +365,13 @@ void save_settings_ini() {
     config::set_float("settings", "ui_scale", imgui_state.ui_scale);
     config::set_bool("settings", "mp_disable_collision", imgui_state.mp_disable_collision);
     config::set_bool("settings", "cache_meshes", imgui_state.cache_meshes);
+    config::set_bool("settings", "reflection_texgen", imgui_state.reflection_texgen);
+    config::set_float("settings", "reflection_texgen_scale", imgui_state.reflection_texgen_scale);
+    config::set_float("settings", "reflection_texgen_rotation",
+                      imgui_state.reflection_texgen_rotation);
+    config::set_string("settings", "reflection_texgen_offset",
+                       std::to_string(imgui_state.reflection_texgen_offset[0]) + " " +
+                           std::to_string(imgui_state.reflection_texgen_offset[1]));
     config::set_bool("settings", "cull_meshes", imgui_state.cull_meshes);
     config::set_bool("settings", "stream_dynamic_meshes", imgui_state.stream_dynamic_meshes);
     config::set_bool("settings", "hd_scene_captures", imgui_state.hd_scene_captures);
@@ -1080,6 +1103,33 @@ static void panel_graphics_settings() {
     if (ImGui::Checkbox("Enable fog", &imgui_state.enable_fog)) {
         save_settings_ini();
     }
+    // N64 pseudo-reflection texgen on meshes sampling chrome01 (issue #206).
+    if (ImGui::Checkbox("N64 reflective texgen", &imgui_state.reflection_texgen)) {
+        save_settings_ini();
+    }
+    // An HD-replaced model is drawn by the glTF path and returns before the N64 material code, so
+    // this never reaches it -- including the pods, which is where the chrome is most visible. Say so
+    // rather than letting the toggle look broken.
+    if (imgui_state.reflection_texgen && imgui_state.HD_replacement) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                           "HD model replacement is on: replaced models (pods included) draw "
+                           "through the glTF renderer and never reach this. Turn HD replacement "
+                           "off to see it on pod chrome.");
+    }
+    if (imgui_state.reflection_texgen) {
+        if (ImGui::SliderFloat("Reflection detail", &imgui_state.reflection_texgen_scale, 0.5f, 3.0f,
+                               "%.2f")) {
+            save_settings_ini();
+        }
+        if (ImGui::SliderFloat("Reflection rotation", &imgui_state.reflection_texgen_rotation, 0.0f,
+                               360.0f, "%.0f deg")) {
+            save_settings_ini();
+        }
+        if (ImGui::SliderFloat2("Reflection offset", imgui_state.reflection_texgen_offset, -1.0f,
+                                1.0f, "%.2f")) {
+            save_settings_ini();
+        }
+    }
 
     // Applied in stdDisplay_Update_Hook when changed. Turn off to tell vsync judder apart from
     // real render-time variance: under vsync a missed vblank halves the framerate (60<->30
@@ -1417,6 +1467,37 @@ static void panel_textures() {
                          ImVec2(50, 50));
             ImGui::SameLine();
             ImGui::Text("#%d", *imgui_state.picked_texture_id);
+        }
+        // #206 discovery aid: force texgen onto the hovered surface and read its material
+        // signature, to find which combiner/render-mode value marks the reflective materials.
+        ImGui::Checkbox("Force reflection texgen on hovered",
+                        &imgui_state.debug_texgen_on_picked);
+        const auto &pm = imgui_state.picked_mesh_material;
+        if (pm.valid) {
+            ImGui::SeparatorText("Hovered mesh material");
+            ImGui::Text("reflective=%d  normals=%d  texgen_applied=%d", pm.is_reflective,
+                        pm.has_normals, pm.texgen_applied);
+            ImGui::Text("type          %08X", pm.type);
+            ImGui::Text("unk1          %08X", pm.mat_unk1);
+            ImGui::Text("unk2          %08X", pm.mat_unk2);
+            ImGui::Text("unk5          %08X", pm.mat_unk5);
+            ImGui::Text("unk8          %08X", pm.mat_unk8);
+            ImGui::Text("render_mode_1 %08X", pm.render_mode_1);
+            ImGui::Text("render_mode_2 %08X", pm.render_mode_2);
+            // Decode the combiners to (A-B)*C+D form.
+            ImGui::Text("cc_cycle1 %08X %s", pm.cc_cycle1,
+                        CombineMode(pm.cc_cycle1, false).to_string().c_str());
+            ImGui::Text("ac_cycle1 %08X %s", pm.ac_cycle1,
+                        CombineMode(pm.ac_cycle1, true).to_string().c_str());
+            ImGui::Text("cc_cycle2 %08X %s", pm.cc_cycle2,
+                        CombineMode(pm.cc_cycle2, false).to_string().c_str());
+            ImGui::Text("ac_cycle2 %08X %s", pm.ac_cycle2,
+                        CombineMode(pm.ac_cycle2, true).to_string().c_str());
+            ImGui::Text("tex.unk0      %08X", pm.tex_unk0);
+            ImGui::Text("tex.type      %08X", pm.tex_type);
+            ImGui::Text("tex.unk6      %08X", pm.tex_unk6);
+            ImGui::Text("tex.unk7      %08X", pm.tex_unk7);
+            ImGui::Text("tex.spec0flag %08X", pm.tex_spec0_flags);
         }
     }
 
