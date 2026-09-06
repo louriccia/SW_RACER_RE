@@ -12,6 +12,7 @@
 #include "stb_image.h"
 #include "texture_replacement.h"
 #include "camera/camera.h"
+#include "camera/player_camera.h"
 
 extern "C" {
 #include "./game_deltas/DirectX_delta.h"
@@ -32,12 +33,14 @@ extern "C" {
 #include "./game_deltas/swrControl_delta.h"
 #include "./game_deltas/swrModel_delta.h"
 #include "./game_deltas/swrSpline_delta.h"
+#include "./game_deltas/swrAssetBuffer_delta.h"
 #include "./game_deltas/swrObjJdge_delta.h"
 #include "./game_deltas/swrGamepadNav_delta.h"
 #include "./game_deltas/swrMultiplayer_delta.h"
 #include "./game_deltas/swrPlayerHUD_delta.h"
 #include "./game_deltas/swrWeather_delta.h"
 #include "./game_deltas/swrObjHang_delta.h"
+#include "./game_deltas/sithRender_delta.h"
 #include "./game_deltas/swrRace_delta.h"
 
 #include <glad/glad.h>
@@ -70,6 +73,7 @@ extern "C" {
 #include <main.h>
 #include <Main/swrControl.h>
 #include <Swr/swrAssetBuffer.h>
+#include <Engine/sithRender.h>
 #include <Platform/std3D.h>
 #include <Platform/stdControl.h>
 #include <Primitives/rdMatrix.h>
@@ -1111,7 +1115,16 @@ void debug_render_node(const swrViewport &current_vp, const swrModel_Node *node,
         current_vp.node_flags1_exact_match_for_rendering;
     const bool any_match_fail =
         (current_vp.node_flags1_any_match_for_rendering & node->flags_1) == 0;
-    if (exact_match_fail || any_match_fail) {
+    swrRace *root_owner = pod_root_owner(node);
+    const bool local_pod_root =
+        root_owner != nullptr && (root_owner->flags0 & swrObjTest_FLAG0_LOCAL) != 0;
+    if (local_pod_root && playercam_HideOwnPod())
+        return;
+    const bool unhide_local_pod =
+        local_pod_root && playercam_ShowPodInFirstPerson() &&
+        (root_owner->flags0 & (swrObjTest_FLAG0_POD_HIDDEN | swrObjTest_FLAG0_DEAD)) ==
+            swrObjTest_FLAG0_POD_HIDDEN;
+    if ((exact_match_fail || any_match_fail) && !unhide_local_pod) {
         // The scene's per-node visibility flags hide this node. We honor that, with one exception:
         // a racer's pod that its OWN camera hides. swrRace_PoddAnimateEngines clears the pod root's
         // visible bit whenever the pod is in a hide-from-own-view camera mode (first-person / bumper
@@ -1459,7 +1472,7 @@ void swrViewport_Render_Hook(int x) {
     const bool mirrored = (GameSettingFlags & 0x4000) != 0;
 
     const rdClipFrustum *frustum = rdCamera_pCurCamera->pClipFrustum;
-    const float n = frustum->zNear;
+    const float n = frustum->zNear * playercam_NearClipScale();
     const float t = 1.0f / tan(0.5 * rdCamera_pCurCamera->fov / 180.0 * 3.14159);
     // The game's fov is the HORIZONTAL fov, calibrated for 4:3. Hold the 4:3 VERTICAL fov constant
     // across aspect ratios (Hor+) so widescreen reveals more horizontally instead of cropping the
@@ -1795,6 +1808,9 @@ extern "C" int stdDisplay_Update_Hook() {
         applied_vsync = imgui_state.vsync;
     }
 
+    // Before imgui_Update, so the debug overlay stays out of the shot.
+    sithRender_CapturePendingScreenshot();
+
     begin_texture_replacement();
     imgui_Update();// Added
     end_texture_replacement();
@@ -2031,10 +2047,14 @@ extern "C" void init_renderer_hooks() {
     // the Smush skip hook.)
     hook_replace(swrSound_Startup, swrSound_Startup_delta);
 
+    // F12 screenshot (issue #289). Reverse-hooked (registered in hook_generated) -> replace it.
+    hook_replace(sithRender_MakeScreenShot, sithRender_MakeScreenShot_delta);
+
     // Free-camera spike (Phase 1): render-only takeover of the scene camera at the
     // rdCamera_Update seam. Toggle in-race with F9; WASD + Space/Ctrl to move, arrows or RMB-drag to
     // look, Shift/Alt for fast/slow.
     freecam_RegisterHooks();
+    playercam_RegisterHooks();
 
 #if ENABLE_GAMEPAD_NAV
     // Feed the gamepad's D-pad / START / BACK into the game's menu + in-race input.
@@ -2452,6 +2472,10 @@ extern "C" void init_renderer_hooks() {
     // hangar menu cap was also raised to 100 in tracks_delta.c.
     swrObjJdge_PatchLapTimeOverflow();
 
+    // Must land before swrScene_Startup, which allocates the asset buffer once and keeps it for
+    // the process.
+    swrAssetBuffer_PatchSize();
+
     // Weather: the game's 80-particle, fixed-box, sprite-based system (whose motion-blur streak draw
     // was stubbed out) is replaced with our own particle simulation drawn in the GL layer --
     // swrWeather_RenderParticles_delta runs the tick + draw instead of the original. Enable/Disable
@@ -2532,6 +2556,10 @@ extern "C" void init_renderer_hooks() {
     hook_function("swrSpline_LoadSplineById", (uint32_t) swrSpline_LoadSplineById,
                   (uint8_t *) swrSpline_LoadSplineById_ADDR);
     hook_replace(swrSpline_LoadSplineById, swrSpline_LoadSplineById_delta);
+
+    hook_function("swrSpline_EvaluateToMatrix", (uint32_t) swrSpline_EvaluateToMatrix,
+                  (uint8_t *) swrSpline_EvaluateToMatrix_ADDR);
+    hook_replace(swrSpline_EvaluateToMatrix, swrSpline_EvaluateToMatrix_delta);
 
     fprintf(hook_log, "Done\n");
     fflush(hook_log);

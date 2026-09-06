@@ -3,6 +3,7 @@
 #include "n64_shader.h"
 #include "config.h"
 #include "camera/camera.h"
+#include "camera/player_camera.h"
 
 #include <string>
 #include <set>
@@ -235,6 +236,8 @@ void read_settings_ini() {
     imgui_state.enable_fog = config::get_int("settings", "enable_fog", 1);
     imgui_state.enable_gamepad_nav = config::get_int("settings", "enable_gamepad_nav", 1);
 
+    // Millisecond precision on every displayed time (default on). Lives in the times delta.
+    g_time_show_millis = config::get_int("settings", "time_show_millis", 1) != 0;
     imgui_state.enable_weather =
         config::get_int("settings", "enable_weather", 1);
 
@@ -341,6 +344,7 @@ void save_settings_ini() {
     config::set_bool("settings", "show_fps_graph", imgui_state.show_fps_graph);
     config::set_bool("settings", "enable_fog", imgui_state.enable_fog);
     config::set_bool("settings", "enable_gamepad_nav", imgui_state.enable_gamepad_nav);
+    config::set_bool("settings", "time_show_millis", g_time_show_millis);
     config::set_bool("settings", "ui_resolution_independent", imgui_state.ui_resolution_independent);
     config::set_float("settings", "ui_scale", imgui_state.ui_scale);
     config::set_bool("settings", "mp_disable_collision", imgui_state.mp_disable_collision);
@@ -397,10 +401,6 @@ extern "C" int cutscene_should_skip_prerace_cinematic(void) {
     return imgui_state.skip_prerace_cinematic ? 1 : 0;
 }
 
-
-const wchar_t *settings_ini_path() {
-    return config::path().c_str();
-}
 
 const char *swrModel_NodeTypeStr(uint32_t nodeType) {
     switch (nodeType) {
@@ -640,6 +640,7 @@ void imgui_Update() {
         read_settings_ini();
         register_builtin_debug_panels();
         freecam_RegisterPanel();// camera system (dinput_hook/camera)
+        playercam_RegisterPanel();
         debug_ui_register_builtin_shell_panels();
         debug_ui_load_settings();
     }
@@ -1660,6 +1661,12 @@ static void panel_race() {
                         &imgui_state.fast_restart))
         persist_settings_ini();
     ImGui::TextDisabled("Single-player only. Press Enter during a race to restart instantly.");
+
+    // Millisecond precision on all displayed times (lap popup, per-lap rows, totals, records).
+    ImGui::Separator();
+    if (ImGui::Checkbox("Show milliseconds in times", &g_time_show_millis))
+        persist_settings_ini();
+    ImGui::TextDisabled("Thousandths of a second on every time readout. Off = stock hundredths.");
 }
 
 // Player: audio controls. Master volume drives the A3D device output gain (the

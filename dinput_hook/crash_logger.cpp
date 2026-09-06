@@ -7,6 +7,7 @@
 #include <io.h>// _get_osfhandle / _fileno
 
 #include "hook_helper.h"// hook_log
+#include "build_id.h"    // SWR_BUILD_* (generated at build time)
 
 // Render-thread must make progress at least this often once frames start; a longer stall is
 // treated as a hang. Log-only, so a rare false trip during a legitimately long stall just leaves
@@ -24,6 +25,9 @@ static const int STARTUP_TIMEOUT_MS = 45000;
 // from the crash filter / watchdog; a plain pointer swap is atomic on x86 and the strings are
 // static literals, so no lock is needed.
 static const char *volatile g_last_stage = "pre-init";
+
+// Longest crash_logger_stagef() string; longer is truncated, not dropped.
+static const int STAGE_TEXT_MAX = 192;
 
 // ---------------------------------------------------------------------------------------------
 // Shared report writers. Everything writes through write_fmt to a caller-supplied Win32 file
@@ -71,6 +75,28 @@ static void write_env_line(HANDLE out) {
     if (get_host)
         get_host(&sysname, &release);
     write_fmt(out, "  environment: Wine %s on %s %s\n", ver ? ver : "?", sysname, release);
+}
+
+// Stamp which build produced this report; DINPUT.dll offsets alone are ambiguous across builds.
+// The PE timestamp separates two builds of the same commit, and still identifies a binary when
+// git was unavailable at build time (revision "unknown").
+static void write_build_line(HANDLE out) {
+    unsigned long pe_stamp = 0;
+    HMODULE self = nullptr;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR) &write_build_line, &self) &&
+        self) {
+        const IMAGE_DOS_HEADER *dos = (const IMAGE_DOS_HEADER *) self;
+        if (dos->e_magic == IMAGE_DOS_SIGNATURE) {
+            const IMAGE_NT_HEADERS *nt =
+                (const IMAGE_NT_HEADERS *) ((const char *) self + dos->e_lfanew);
+            if (nt->Signature == IMAGE_NT_SIGNATURE)
+                pe_stamp = nt->FileHeader.TimeDateStamp;
+        }
+    }
+    write_fmt(out, "  build: %s @ %s%s (pe %08lx)\n", SWR_BUILD_BRANCH, SWR_BUILD_COMMIT,
+              SWR_BUILD_DIRTY ? "-dirty" : "", pe_stamp);
 }
 
 static void log_addr(HANDLE out, void *addr) {
@@ -122,6 +148,7 @@ static void write_exception_report(HANDLE out, const EXCEPTION_RECORD *er, UINT_
     write_fmt(out, "*** unhandled exception: code=0x%08lx addr=%p ***\n", er->ExceptionCode,
               er->ExceptionAddress);
     write_env_line(out);
+    write_build_line(out);
     write_fmt(out, "  last stage: %s\n", g_last_stage);
     if (er->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && er->NumberParameters >= 2) {
         write_fmt(out, "    access %s at %p\n", er->ExceptionInformation[0] ? "write" : "read",
@@ -250,6 +277,7 @@ static void capture_hang(HANDLE thread, const char *kind, const char *headline, 
     if (cf != INVALID_HANDLE_VALUE) {
         write_fmt(cf, headline, seconds);
         write_env_line(cf);
+        write_build_line(cf);
         write_fmt(cf, "  last stage: %s\n", g_last_stage);
         write_fmt(cf, "  frozen instruction:\n");
         log_addr(cf, (void *) (UINT_PTR) ctx.Eip);
@@ -347,6 +375,23 @@ void crash_logger_stage(const char *name) {
         fprintf(hook_log, "[stage] %s\n", name);
         fflush(hook_log);
     }
+}
+
+void crash_logger_stagef(const char *fmt, ...) {
+    // The text has to outlive the call, and the crash filter may be reading the previous stage
+    // while this one is written -- so two static slots, used alternately, never the one being read.
+    static char slot[2][STAGE_TEXT_MAX];
+    static int next_slot = 0;
+
+    char *buf = slot[next_slot];
+    next_slot ^= 1;
+
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(slot[0]), fmt, ap);
+    va_end(ap);
+
+    crash_logger_stage(buf);
 }
 
 void crash_logger_heartbeat(void) {
