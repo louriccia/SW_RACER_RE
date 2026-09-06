@@ -13,22 +13,40 @@ extern "C" {
 #include "globals.h"
 }
 
-extern "C" FILE* hook_log;
+extern "C" FILE *hook_log;
 
 // Armed by the F12 handler, consumed at end of frame. Empty means nothing pending.
 static std::string g_pending_screenshot;
 
+// Time of the last accepted request, in glfwGetTime() seconds; negative means "none yet".
+//
+// swrMain_ProcessDebugKeys has no rising-edge check on F12, so one press can ask for a screenshot
+// more than once and write several files. Two approaches do not work here. A frame count does not:
+// measured on a 2560x1377 capture the repeat came two frames later, but two other presses in the
+// same run never repeated at all, so how long the key happens to be held decides it. Reading the
+// physical key state does not either: the handler fires a frame or more after the key-down edge, so
+// by the time the request arrives the key already reads as held and every press gets swallowed.
+//
+// What does separate them is the spacing. Across the runs, repeats landed 47-70 ms behind their
+// press, while deliberate presses were never closer than 1.8 s. A debounce anywhere in that gap
+// collapses a press to one file, and a quarter second is far below what a person can intend as two
+// screenshots.
+static double g_last_request_time = -1.0;
+
+// Requests closer together than this are the same press. See the note above for the measurements.
+static constexpr double SCREENSHOT_DEBOUNCE_SECONDS = 0.25;
+
 // 24-bit bottom-up BMP. glReadPixels already hands back rows bottom-up in GL_BGR order, which is
 // exactly the on-disk layout, so the rows go straight out with only the 4-byte stride padding
 // applied.
-static bool write_bmp_24(const char* filename, int width, int height,
-                         const std::vector<uint8_t>& bgr) {
+static bool write_bmp_24(const char *filename, int width, int height,
+                         const std::vector<uint8_t> &bgr) {
     const int row_bytes = width * 3;
     const int padded_row = (row_bytes + 3) & ~3;
     const uint32_t pixel_bytes = (uint32_t) padded_row * (uint32_t) height;
     const uint32_t pixel_offset = 14 + 40;
 
-    FILE* f = fopen(filename, "wb");
+    FILE *f = fopen(filename, "wb");
     if (!f)
         return false;
 
@@ -66,11 +84,20 @@ static bool write_bmp_24(const char* filename, int width, int height,
     return ok;
 }
 
-void sithRender_MakeScreenShot_delta(char* prefix) {
+void sithRender_MakeScreenShot_delta(char *prefix) {
+    // Swallow the repeat before picking a name, so it does not burn a file index and leave a gap in
+    // the numbering.
+    const double now = glfwGetTime();
+    if (g_last_request_time >= 0.0 && (now - g_last_request_time) < SCREENSHOT_DEBOUNCE_SECONDS) {
+        g_last_request_time = now;
+        return;
+    }
+    g_last_request_time = now;
+
     // Same numbering the original uses: walk the index until a name is free, and leave
     // stdDisplay_ScreenshotIndex past it so the next shot starts from there.
     char filename[80];
-    FILE* probe = NULL;
+    FILE *probe = NULL;
     do {
         const int index = stdDisplay_ScreenshotIndex;
         stdDisplay_ScreenshotIndex = index + 1;
@@ -81,8 +108,8 @@ void sithRender_MakeScreenShot_delta(char* prefix) {
         fclose(probe);
     } while (true);
 
-    // Arm only; the frame is not finished at input time. A second F12 in the same frame keeps the
-    // first name rather than dropping a numbered file that never gets written.
+    // Arm only; the frame is not finished at input time. A second request in the same frame keeps
+    // the first name rather than dropping a numbered file that never gets written.
     if (g_pending_screenshot.empty())
         g_pending_screenshot = filename;
 }
@@ -96,7 +123,7 @@ void sithRender_CapturePendingScreenshot(void) {
 
     int width = 0;
     int height = 0;
-    GLFWwindow* window = glfwGetCurrentContext();
+    GLFWwindow *window = glfwGetCurrentContext();
     if (window)
         glfwGetFramebufferSize(window, &width, &height);
     if (width <= 0 || height <= 0)

@@ -14,7 +14,7 @@ extern "C" {
 
 // Replaces sithRender_MakeScreenShot. Picks the next free "<prefix>NNN.bmp" and arms the capture;
 // the pixels are read at the end of the frame, where the scene is actually complete.
-void sithRender_MakeScreenShot_delta(char* prefix);
+void sithRender_MakeScreenShot_delta(char *prefix);
 
 // Called once per frame from stdDisplay_Update_Hook, after the scene has been resolved into the
 // default framebuffer and before the debug overlay is drawn. No-op unless a capture is armed.
