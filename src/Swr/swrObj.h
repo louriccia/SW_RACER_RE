@@ -513,18 +513,20 @@ void swrObjHang_ShowPartNodes(swrObjHang* hang);
 // Unload/clear the front-end scene's model nodes and clear scene animations.
 void swrModel_clearSceneModelsAndChildren(void);
 // Set the target position/look-at (and transition mode) for the holo-scene camera move.
-void swrObjHang_SetHoloCameraTarget(rdVector3* pos, rdVector3* lookAt, short mode, int param_4, int reset);
+void swrObjHang_SetHoloCameraTarget(rdVector3* pos, rdVector3* lookAt, short mode, int keepEyeOffset, int reset);
 // Compute a holo-scene camera target for a scene element (jittered one-shot framing, or a direct
 // snap) and feed it to swrObjHang_SetHoloCameraTarget.
 void swrObjHang_AimHoloCamera(swrObjHang* hang, int param_2, int param_3);
 // Per-frame variant: recompute and apply the holo-scene camera target for the focused element.
-void swrObjHang_UpdateHoloCameraTarget(swrObjHang* hang, int param_2);
+void swrObjHang_UpdateHoloCameraTarget(swrObjHang* hang, int itemIndex);
 // Position + scale a holo-projector scene node on its camera-facing billboard.
 void swrObjHang_PositionHoloNode(int nodeIndex, float param_2, float param_3, float param_4);
 // Animate the holo screen-transition node (scaled by swrRace_Transition).
 void swrObjHang_AnimateTransitionNode(void);
 
-// Race start: build the roster (SP/MP) then fire the 'Begn' scene/judge events to spin up the race.
+// Builds the roster (SP/MP) then fires the 'Begn' scene/judge events. The 'Begn' payload carries
+// the track's saved records (swrRace_saveData recordLapTimes / record3LapTimes / record3LapPilots
+// at [track*2 + mirror]), which swrObjJdge_F4 latches for the session.
 void swrObjHang_StartRace(swrObjHang* hang, int* param_2, int param_3);
 void* swrObjHang_BuildRosterSinglePlayer(swrObjHang* hang, int* out);
 void* swrObjHang_BuildRosterMultiplayer(swrObjHang* hang, int* out);
@@ -720,20 +722,22 @@ void swrObjHang_TickMenuRepeatDelay_Maybe(void);
 // Handles up/down vehicle-select navigation with key-repeat, UI sounds, and transition stepping.
 void swrObjHang_NavigateVehicleSelect(int player, float param_2, int param_3);
 
-// Frees a particle object: hides its model nodes, clears the node-array backref, swrObj_Free.
-void swrObjSmok_Free(swrObj* smok);
+// Frees a particle object: hides its model nodes, clears the owner's backref, swrObj_Free.
+void swrObjSmok_Free(swrObj* obj);
 
+// Ages the particle: counts lifetime down, advances the alpha window, self-frees at end of life.
 void swrObjSmok_F0(swrObjSmok* smok);
 
+// Per-frame billboard update: orients, scales, spins, tints and UV-scrolls each particle node.
 void swrObjSmok_F3(swrObjSmok* smok);
 
 int swrObjSmok_F4(swrObjSmok* smok, int* subEvents);
 
-void swrObjSmok_SetFireballChildNodesPtr(swrModel_Node**);
+void swrObjSmok_SetFireballChildNodesPtr(swrModel_Node** nodes);
 
-// swrObjSmok particle create/setter API (smoke/fire/spark/explosion):
-// Allocates and configures a particle by type (2/3 sparks, 6 fire, 8 explosion); returns the object.
-void* swrObjSmok_Spawn(int type, int param_2, float lifetime, rdVector3* pos, float scale);
+// swrObjSmok particle create/setter API. Spawn applies the preset for the given
+// swrObjSmok_TYPE; the setters are NULL-tolerant, so an expired handle is safe to pass.
+swrObjSmok* swrObjSmok_Spawn(int type, int flags, float lifetime, rdVector3* pos, float scale);
 void swrObjSmok_SetPosition(swrObjSmok* smok, rdVector3* pos);
 void swrObjSmok_SetVelocity(swrObjSmok* smok, rdVector3* vel);
 void swrObjSmok_SetLifetime(swrObjSmok* smok, float lifetime);
