@@ -2,6 +2,7 @@
 #include "hook_helper.h"
 #include "debug_ui.h"
 #include "patch.h"
+#include "imgui_utils.h"// settings_ini_path
 
 #include <imgui.h>
 
@@ -11,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <cwchar>
 
 extern "C" {
 #include <Swr/swrObj.h>
@@ -594,40 +596,106 @@ void orchestrator_DrawOverlay() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Config: [orchestrator] in SW_RACER_RE.ini (loaded at panel registration, saved on every edit)
+
+static const wchar_t *INI_SECTION = L"orchestrator";
+
+static float ini_get_float(const wchar_t *ini, const wchar_t *key, float def) {
+    wchar_t got[48], defbuf[48];
+    swprintf(defbuf, 48, L"%.4f", def);
+    GetPrivateProfileStringW(INI_SECTION, key, defbuf, got, 48, ini);
+    return (float) wcstod(got, NULL);
+}
+static void ini_set_float(const wchar_t *ini, const wchar_t *key, float v) {
+    wchar_t buf[48];
+    swprintf(buf, 48, L"%.4f", v);
+    WritePrivateProfileStringW(INI_SECTION, key, buf, ini);
+}
+static void ini_set_int(const wchar_t *ini, const wchar_t *key, int v) {
+    wchar_t buf[16];
+    swprintf(buf, 16, L"%d", v);
+    WritePrivateProfileStringW(INI_SECTION, key, buf, ini);
+}
+
+static void load_config() {
+    const wchar_t *ini = settings_ini_path();
+    g_laps = std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"laps", g_laps, ini), 1, 10);
+    g_racers =
+        std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"racers", g_racers, ini), 1, 20);
+    g_pause_s = ini_get_float(ini, L"pause_s", g_pause_s);
+    g_rotate_tracks =
+        GetPrivateProfileIntW(INI_SECTION, L"rotate_tracks", g_rotate_tracks, ini) != 0;
+    g_unstick = GetPrivateProfileIntW(INI_SECTION, L"unstick", g_unstick, ini) != 0;
+    g_stuck_s = ini_get_float(ini, L"stuck_s", g_stuck_s);
+    g_dnf = GetPrivateProfileIntW(INI_SECTION, L"dnf", g_dnf, ini) != 0;
+    g_dnf_s = ini_get_float(ini, L"dnf_s", g_dnf_s);
+    g_full_physics = GetPrivateProfileIntW(INI_SECTION, L"full_physics", g_full_physics, ini) != 0;
+    g_ai_damage = GetPrivateProfileIntW(INI_SECTION, L"ai_damage", g_ai_damage, ini) != 0;
+    g_ai_repair = GetPrivateProfileIntW(INI_SECTION, L"ai_repair", g_ai_repair, ini) != 0;
+    g_repair_start = ini_get_float(ini, L"repair_start", g_repair_start);
+    g_repair_stop = ini_get_float(ini, L"repair_stop", g_repair_stop);
+    g_ai_lighting = GetPrivateProfileIntW(INI_SECTION, L"ai_lighting", g_ai_lighting, ini) != 0;
+    g_snapshot_s = ini_get_float(ini, L"snapshot_s", g_snapshot_s);
+}
+
+static void save_config() {
+    const wchar_t *ini = settings_ini_path();
+    ini_set_int(ini, L"laps", g_laps);
+    ini_set_int(ini, L"racers", g_racers);
+    ini_set_float(ini, L"pause_s", g_pause_s);
+    ini_set_int(ini, L"rotate_tracks", g_rotate_tracks);
+    ini_set_int(ini, L"unstick", g_unstick);
+    ini_set_float(ini, L"stuck_s", g_stuck_s);
+    ini_set_int(ini, L"dnf", g_dnf);
+    ini_set_float(ini, L"dnf_s", g_dnf_s);
+    ini_set_int(ini, L"full_physics", g_full_physics);
+    ini_set_int(ini, L"ai_damage", g_ai_damage);
+    ini_set_int(ini, L"ai_repair", g_ai_repair);
+    ini_set_float(ini, L"repair_start", g_repair_start);
+    ini_set_float(ini, L"repair_stop", g_repair_stop);
+    ini_set_int(ini, L"ai_lighting", g_ai_lighting);
+    ini_set_float(ini, L"snapshot_s", g_snapshot_s);
+}
+
+// ---------------------------------------------------------------------------------------------
 // Panel
 
 static void panel_orchestrator() {
     ImGui::TextWrapped("Phase 0 spike: unattended AI-only races back to back. Arm it, then start "
                        "a Free Play race normally (or press Start now from a menu). F8 toggles.");
+    bool changed = false;
     bool armed = g_armed;
     if (ImGui::Checkbox("Armed", &armed))
         orchestrator_ToggleArmed();
-    ImGui::SliderInt("Racers", &g_racers, 1, 20);
-    ImGui::SliderInt("Laps", &g_laps, 1, 10);
-    ImGui::SliderFloat("Pause between races (s)", &g_pause_s, 0.0f, 120.0f, "%.0f");
-    ImGui::Checkbox("Random track (no repeat in last 10)", &g_rotate_tracks);
-    ImGui::Checkbox("Full physics for all AI (no on-rails LOD)", &g_full_physics);
-    ImGui::Checkbox("AI engine damage: fires burn, engines explode", &g_ai_damage);
-    ImGui::Checkbox("AI may repair", &g_ai_repair);
+    changed |= ImGui::SliderInt("Racers", &g_racers, 1, 20);
+    changed |= ImGui::SliderInt("Laps", &g_laps, 1, 10);
+    changed |= ImGui::SliderFloat("Pause between races (s)", &g_pause_s, 0.0f, 120.0f, "%.0f");
+    changed |= ImGui::Checkbox("Random track (no repeat in last 10)", &g_rotate_tracks);
+    changed |= ImGui::Checkbox("Full physics for all AI (no on-rails LOD)", &g_full_physics);
+    changed |= ImGui::Checkbox("AI engine damage: fires burn, engines explode", &g_ai_damage);
+    changed |= ImGui::Checkbox("AI may repair", &g_ai_repair);
     if (g_ai_repair) {
         ImGui::SameLine();
         ImGui::SetNextItemWidth(90.0f);
-        ImGui::SliderFloat("start##rep", &g_repair_start, 0.2f, 0.95f, "%.2f");
+        changed |= ImGui::SliderFloat("start##rep", &g_repair_start, 0.2f, 0.95f, "%.2f");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(90.0f);
-        ImGui::SliderFloat("stop##rep", &g_repair_stop, 0.0f, 0.5f, "%.2f");
+        changed |= ImGui::SliderFloat("stop##rep", &g_repair_stop, 0.0f, 0.5f, "%.2f");
     }
-    ImGui::Checkbox("Light AI pods from the followed pod's light bank", &g_ai_lighting);
+    changed |= ImGui::Checkbox("Light AI pods from the followed pod's light bank", &g_ai_lighting);
     ImGui::SetNextItemWidth(120.0f);
-    ImGui::SliderFloat("Field snapshot to log (s)", &g_snapshot_s, 0.0f, 60.0f, "%.0f");
-    ImGui::Checkbox("Snap stuck pods", &g_unstick);
+    changed |= ImGui::SliderFloat("Field snapshot to log (s)", &g_snapshot_s, 0.0f, 60.0f, "%.0f");
+    changed |= ImGui::Checkbox("Snap stuck pods", &g_unstick);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(120.0f);
-    ImGui::SliderFloat("after (s)##stuck", &g_stuck_s, 3.0f, 30.0f, "%.0f");
-    ImGui::Checkbox("DNF stragglers", &g_dnf);
+    changed |= ImGui::SliderFloat("after (s)##stuck", &g_stuck_s, 3.0f, 30.0f, "%.0f");
+    changed |= ImGui::Checkbox("DNF stragglers", &g_dnf);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(120.0f);
-    ImGui::SliderFloat("after winner (s)##dnf", &g_dnf_s, 10.0f, 600.0f, "%.0f");
+    changed |= ImGui::SliderFloat("after winner (s)##dnf", &g_dnf_s, 10.0f, 600.0f, "%.0f");
+
+    if (changed)
+        save_config();
 
     swrObjHang *hang = get_hang();
     swrObjJdge *jdge = get_jdge();
@@ -661,5 +729,6 @@ static DebugPanel g_panel = {.category = "Race",
                              .dev_only = true};
 
 void orchestrator_RegisterPanel() {
+    load_config();
     debug_ui_register(&g_panel);
 }
