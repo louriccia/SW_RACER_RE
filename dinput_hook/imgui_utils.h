@@ -159,6 +159,10 @@ GLuint gl_texture_from_texture_id(TEXID id);
 // shell persists its panel state into the same file as the graphics settings.
 const wchar_t *settings_ini_path();
 
+// Strips the swrText render codes ("~~", "~c", "~f5", ...) out of one of the game's name
+// strings so it reads cleanly in a plain ImGui widget. Shared with the AI racer inspector.
+std::string strip_text_codes(const char *s);
+
 void imgui_Update();
 void imgui_render_node(swrModel_Node *node);
 
