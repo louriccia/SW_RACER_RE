@@ -2538,6 +2538,10 @@ extern "C" void init_renderer_hooks() {
                   (uint8_t *) swrSpline_LoadSplineById_ADDR);
     hook_replace(swrSpline_LoadSplineById, swrSpline_LoadSplineById_delta);
 
+    hook_function("swrSpline_EvaluateToMatrix", (uint32_t) swrSpline_EvaluateToMatrix,
+                  (uint8_t *) swrSpline_EvaluateToMatrix_ADDR);
+    hook_replace(swrSpline_EvaluateToMatrix, swrSpline_EvaluateToMatrix_delta);
+
     fprintf(hook_log, "Done\n");
     fflush(hook_log);
 }

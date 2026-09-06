@@ -1172,10 +1172,22 @@ void swrObjJdge_F0_delta(swrObjJdge *jdge) {
     // Suppressed while a fast restart is skipping the intro -- the two have opposite intents (play
     // the sweep vs skip straight to the countdown), and the restart wins.
     if (imgui_state.restore_prerace_track_sweep && !fast_restart_skip) {
-        if (state == 4 && prevState != 4 && jdge->cam_spline != NULL) {
+        // unk134_mat is really the fly-by SPLINE CURSOR, not a matrix: swrObjJdge_F2+0x32 does
+        //   if ((flag & 0xf) == 4 && camSweepState) EvaluateToMatrix(&unk134_mat, &unk134_mat.vD);
+        // so its first field is the spline pointer. swrObjJdge_SetupTrackEnvironment leaves that
+        // unseeded on a custom track, and opening the gate then makes F2 evaluate a null spline --
+        // a black sweep that never ends, or a fault before the evaluator was guarded.
+        const void *sweepSpline = *(void *const *) &jdge->unk134_mat;
+        if (state == 4 && prevState != 4 && jdge->cam_spline != NULL && sweepSpline != NULL) {
             savedCamera = (short) unkCameraArrayIndex;
             jdge->camSweepState = jdge->cam_spline;// non-null gate (F0/F2 only test != 0)
             ((swrViewport_SetActiveCameraFn) swrViewport_SetActiveCamera_ADDR)(5);
+        } else if (state == 4 && prevState != 4) {
+            fprintf(hook_log,
+                    "[prerace_sweep] no fly-by cursor for track model %d (cam_spline=%p); leaving "
+                    "the sweep dormant\n",
+                    jdge->unk1b0_modelId, (void *) jdge->cam_spline);
+            fflush(hook_log);
         } else if (state != 4 && prevState == 4 && savedCamera != 5) {
             jdge->camSweepState = NULL;
             ((swrViewport_SetActiveCameraFn) swrViewport_SetActiveCamera_ADDR)(savedCamera);
