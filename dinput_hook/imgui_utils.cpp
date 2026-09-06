@@ -3,6 +3,7 @@
 #include "n64_shader.h"
 #include "camera/camera.h"
 #include "camera/player_camera.h"
+#include "orchestrator.h"
 
 #include <string>
 #include <set>
@@ -748,6 +749,7 @@ void imgui_Update() {
         register_builtin_debug_panels();
         freecam_RegisterPanel();// camera system (dinput_hook/camera)
         playercam_RegisterPanel();
+        orchestrator_RegisterPanel();
         debug_ui_register_builtin_shell_panels();
         debug_ui_load_settings();
     }
@@ -759,6 +761,7 @@ void imgui_Update() {
         // Act on a pending fast-restart hotkey (set from the input callback). Runs every frame,
         // independent of the overlay being open, so the hotkey works during a race.
         service_fast_restart();
+        orchestrator_Service();
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -766,6 +769,7 @@ void imgui_Update() {
 
         // The FPS overlay is independent of the F5 debug menu (debug_ui_render gates that).
         draw_fps_overlay();
+        orchestrator_DrawOverlay();
         debug_ui_render();
         draw_screen_fade_overlay();// restored screen fade-to-black (over the game, under the panels)
 

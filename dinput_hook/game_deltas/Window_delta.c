@@ -199,6 +199,8 @@ void set_window_mode(int mode) {
 // Fast restart (speedrunner hotkey), defined in swrObjJdge_delta.cpp. Arms an instant,
 // no-loading-screen race restart; returns true if it consumed the press (feature on + live SP race).
 extern bool fast_restart_try_request(void);
+// Race orchestrator (dinput_hook/orchestrator.cpp): F8 arms / disarms the unattended AI race loop.
+extern void orchestrator_ToggleArmed(void);
 
 static void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_ENTER && action == GLFW_PRESS && mods & GLFW_MOD_ALT) {
@@ -241,6 +243,8 @@ static void key_callback(GLFWwindow *window, int key, int scancode, int action, 
         show_imgui ^= 1;
         persist_settings_ini();
     }
+    if (key == GLFW_KEY_F8 && action == GLFW_PRESS)
+        orchestrator_ToggleArmed();
 
     const bool pressed = action != GLFW_RELEASE;
 
