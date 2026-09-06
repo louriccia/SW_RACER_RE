@@ -19,60 +19,67 @@ extern "C" FILE *hook_log;
 static std::string g_pending_screenshot;
 
 // Time of the last accepted request, in glfwGetTime() seconds; negative means "none yet".
-//
-// swrMain_ProcessDebugKeys has no rising-edge check on F12, so one press can ask for a screenshot
-// more than once and write several files. Two approaches do not work here. A frame count does not:
-// measured on a 2560x1377 capture the repeat came two frames later, but two other presses in the
-// same run never repeated at all, so how long the key happens to be held decides it. Reading the
-// physical key state does not either: the handler fires a frame or more after the key-down edge, so
-// by the time the request arrives the key already reads as held and every press gets swallowed.
-//
-// What does separate them is the spacing. Across the runs, repeats landed 47-70 ms behind their
-// press, while deliberate presses were never closer than 1.8 s. A debounce anywhere in that gap
-// collapses a press to one file, and a quarter second is far below what a person can intend as two
-// screenshots.
+// swrMain_ProcessDebugKeys has no rising-edge check on F12, so one press can ask for a capture
+// more than once. Neither a frame count nor the physical key state separates a repeat from a
+// second press: the repeat lands a variable number of frames out, and the handler runs after the
+// key-down edge so the key always reads as held. Spacing does -- measured repeats sit 47-70 ms
+// behind their press, deliberate presses no closer than 1.8 s.
 static double g_last_request_time = -1.0;
 
-// Requests closer together than this are the same press. See the note above for the measurements.
 static constexpr double SCREENSHOT_DEBOUNCE_SECONDS = 0.25;
 
-// 24-bit bottom-up BMP. glReadPixels already hands back rows bottom-up in GL_BGR order, which is
-// exactly the on-disk layout, so the rows go straight out with only the 4-byte stride padding
-// applied.
+// BMP layout (BITMAPFILEHEADER + BITMAPINFOHEADER, both fixed by the format).
+static constexpr int BMP_FILE_HEADER_SIZE = 14;
+static constexpr int BMP_INFO_HEADER_SIZE = 40;
+static constexpr int BMP_PIXEL_OFFSET = BMP_FILE_HEADER_SIZE + BMP_INFO_HEADER_SIZE;
+static constexpr int BMP_BITS_PER_PIXEL = 24;
+static constexpr int BMP_BYTES_PER_PIXEL = 3;
+static constexpr int BMP_ROW_ALIGN = 4;// each row is padded up to a 4-byte boundary
+
+// Field offsets within the two headers, in the order the format lays them out.
+static constexpr int BMP_OFF_FILE_SIZE = 2;
+static constexpr int BMP_OFF_PIXEL_OFFSET = 10;
+static constexpr int BMP_OFF_INFO_SIZE = BMP_FILE_HEADER_SIZE + 0;
+static constexpr int BMP_OFF_WIDTH = BMP_FILE_HEADER_SIZE + 4;
+static constexpr int BMP_OFF_HEIGHT = BMP_FILE_HEADER_SIZE + 8;
+static constexpr int BMP_OFF_PLANES = BMP_FILE_HEADER_SIZE + 12;
+static constexpr int BMP_OFF_BIT_COUNT = BMP_FILE_HEADER_SIZE + 14;
+static constexpr int BMP_OFF_IMAGE_SIZE = BMP_FILE_HEADER_SIZE + 20;
+
+// glReadPixels hands back rows bottom-up in GL_BGR, which is the on-disk layout, so rows go
+// straight out with only stride padding applied.
 static bool write_bmp_24(const char *filename, int width, int height,
                          const std::vector<uint8_t> &bgr) {
-    const int row_bytes = width * 3;
-    const int padded_row = (row_bytes + 3) & ~3;
+    const int row_bytes = width * BMP_BYTES_PER_PIXEL;
+    const int padded_row = (row_bytes + BMP_ROW_ALIGN - 1) & ~(BMP_ROW_ALIGN - 1);
     const uint32_t pixel_bytes = (uint32_t) padded_row * (uint32_t) height;
-    const uint32_t pixel_offset = 14 + 40;
 
     FILE *f = fopen(filename, "wb");
     if (!f)
         return false;
 
-    uint8_t header[14 + 40] = {0};
-    // BITMAPFILEHEADER
+    uint8_t header[BMP_PIXEL_OFFSET] = {0};
     header[0] = 'B';
     header[1] = 'M';
-    const uint32_t file_size = pixel_offset + pixel_bytes;
-    std::memcpy(&header[2], &file_size, 4);
-    std::memcpy(&header[10], &pixel_offset, 4);
-    // BITMAPINFOHEADER
-    const uint32_t info_size = 40;
+    const uint32_t file_size = (uint32_t) BMP_PIXEL_OFFSET + pixel_bytes;
+    const uint32_t pixel_offset = BMP_PIXEL_OFFSET;
+    const uint32_t info_size = BMP_INFO_HEADER_SIZE;
     const int32_t w32 = width;
     const int32_t h32 = height;
     const uint16_t planes = 1;
-    const uint16_t bpp = 24;
-    std::memcpy(&header[14], &info_size, 4);
-    std::memcpy(&header[18], &w32, 4);
-    std::memcpy(&header[22], &h32, 4);
-    std::memcpy(&header[26], &planes, 2);
-    std::memcpy(&header[28], &bpp, 2);
-    std::memcpy(&header[34], &pixel_bytes, 4);
+    const uint16_t bpp = BMP_BITS_PER_PIXEL;
+    std::memcpy(&header[BMP_OFF_FILE_SIZE], &file_size, sizeof(file_size));
+    std::memcpy(&header[BMP_OFF_PIXEL_OFFSET], &pixel_offset, sizeof(pixel_offset));
+    std::memcpy(&header[BMP_OFF_INFO_SIZE], &info_size, sizeof(info_size));
+    std::memcpy(&header[BMP_OFF_WIDTH], &w32, sizeof(w32));
+    std::memcpy(&header[BMP_OFF_HEIGHT], &h32, sizeof(h32));
+    std::memcpy(&header[BMP_OFF_PLANES], &planes, sizeof(planes));
+    std::memcpy(&header[BMP_OFF_BIT_COUNT], &bpp, sizeof(bpp));
+    std::memcpy(&header[BMP_OFF_IMAGE_SIZE], &pixel_bytes, sizeof(pixel_bytes));
 
     bool ok = fwrite(header, 1, sizeof(header), f) == sizeof(header);
 
-    static const uint8_t padding[3] = {0, 0, 0};
+    static const uint8_t padding[BMP_ROW_ALIGN - 1] = {0};
     const int pad = padded_row - row_bytes;
     for (int y = 0; ok && y < height; y++) {
         ok = fwrite(&bgr[(size_t) y * row_bytes], 1, row_bytes, f) == (size_t) row_bytes;
@@ -129,10 +136,10 @@ void sithRender_CapturePendingScreenshot(void) {
     if (width <= 0 || height <= 0)
         return;
 
-    std::vector<uint8_t> pixels((size_t) width * height * 3);
+    std::vector<uint8_t> pixels((size_t) width * height * BMP_BYTES_PER_PIXEL);
 
-    // The scene has already been blitted into framebuffer 0 by swrViewport_Render_Hook. Read from
-    // the front-most complete image, and force a tight row stride so the buffer matches the width.
+    // swrViewport_Render_Hook has already blitted the scene into framebuffer 0. Tight row stride so
+    // the buffer matches the width.
     GLint prev_read_fb = 0;
     GLint prev_pack_align = 4;
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prev_read_fb);

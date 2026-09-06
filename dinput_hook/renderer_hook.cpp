@@ -1808,8 +1808,7 @@ extern "C" int stdDisplay_Update_Hook() {
         applied_vsync = imgui_state.vsync;
     }
 
-    // Screenshot read-back (issue #289), before imgui_Update so the debug overlay stays out of the
-    // shot. The scene is already resolved into framebuffer 0 by swrViewport_Render_Hook.
+    // Before imgui_Update, so the debug overlay stays out of the shot.
     sithRender_CapturePendingScreenshot();
 
     begin_texture_replacement();
@@ -2048,9 +2047,7 @@ extern "C" void init_renderer_hooks() {
     // the Smush skip hook.)
     hook_replace(swrSound_Startup, swrSound_Startup_delta);
 
-    // F12 screenshot (issue #289): the original writes the DirectDraw back buffer, which the GL
-    // takeover never fills, so it faults inside stdColor_ColorConvertOneRow. sithRender_MakeScreenShot
-    // is reverse-hooked (registered in hook_generated) -> replace it.
+    // F12 screenshot (issue #289). Reverse-hooked (registered in hook_generated) -> replace it.
     hook_replace(sithRender_MakeScreenShot, sithRender_MakeScreenShot_delta);
 
     // Free-camera spike (Phase 1): render-only takeover of the scene camera at the
