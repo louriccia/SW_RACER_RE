@@ -1224,8 +1224,17 @@ static void panel_graphics_settings() {
         save_settings_ini();
     }
     // N64 pseudo-reflection texgen on meshes sampling chrome01 (issue #206).
-    if (ImGui::Checkbox("N64 reflective texgen (#206)", &imgui_state.reflection_texgen)) {
+    if (ImGui::Checkbox("N64 reflective texgen", &imgui_state.reflection_texgen)) {
         save_settings_ini();
+    }
+    // An HD-replaced model is drawn by the glTF path and returns before the N64 material code, so
+    // this never reaches it -- including the pods, which is where the chrome is most visible. Say so
+    // rather than letting the toggle look broken.
+    if (imgui_state.reflection_texgen && imgui_state.HD_replacement) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                           "HD model replacement is on: replaced models (pods included) draw "
+                           "through the glTF renderer and never reach this. Turn HD replacement "
+                           "off to see it on pod chrome.");
     }
     if (imgui_state.reflection_texgen) {
         if (ImGui::SliderFloat("Reflection detail", &imgui_state.reflection_texgen_scale, 0.5f, 3.0f,
@@ -1581,11 +1590,11 @@ static void panel_textures() {
         }
         // #206 discovery aid: force texgen onto the hovered surface and read its material
         // signature, to find which combiner/render-mode value marks the reflective materials.
-        ImGui::Checkbox("Force reflection texgen on hovered (#206)",
+        ImGui::Checkbox("Force reflection texgen on hovered",
                         &imgui_state.debug_texgen_on_picked);
         const auto &pm = imgui_state.picked_mesh_material;
         if (pm.valid) {
-            ImGui::SeparatorText("Hovered mesh material (#206)");
+            ImGui::SeparatorText("Hovered mesh material");
             ImGui::Text("reflective=%d  normals=%d  texgen_applied=%d", pm.is_reflective,
                         pm.has_normals, pm.texgen_applied);
             ImGui::Text("type          %08X", pm.type);
