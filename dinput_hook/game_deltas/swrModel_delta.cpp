@@ -204,31 +204,41 @@ void swrText_InitFonts_delta(void) {
 
 // We don't have the original function decompiled properly yet
 swrModel_Header *swrModel_LoadFromId_delta(MODELID id) {
-    // if (id > CUSTOM_TRACK_MODELID_BEGIN) {
-    //     fprintf(hook_log, "model id load: %d\n", id);
-    //     fflush(hook_log);
-    // }
+    const MODELID requested_id = id;
     const bool is_custom_track = prepare_loading_custom_track_model(&id);
 
     char *model_asset_pointer_begin = swrAssetBuffer_GetBuffer();
     swrModel_Header *header = hook_call_original(swrModel_LoadFromId, id);
     char *model_asset_pointer_end = swrAssetBuffer_GetBuffer();
+    // finalize_loading_custom_track_model must run even on a failed load -- it restores the block
+    // file paths, and leaving them pointed at the custom track's folder breaks every later load.
     if (is_custom_track) {
         finalize_loading_custom_track_model(header);
     } else {
         fixup_custom_model(header);
     }
 
-    // remove all models whose asset pointer is invalid:
+    // remove all models whose asset pointer is invalid: the buffer rewound past them, stale
+    // whether or not this load succeeded.
     std::erase_if(asset_pointer_to_model, [&](const AssetPointerToModel &elem) {
         return elem.asset_pointer_begin >= model_asset_pointer_begin;
     });
 
-    asset_pointer_to_model.emplace_back() = {
-        model_asset_pointer_begin,
-        model_asset_pointer_end,
-        id,
-    };
+    if (!header) {
+        // Usually the asset buffer is exhausted, which a large custom track makes easy. Register
+        // nothing: a failed load owns no asset range.
+        fprintf(hook_log,
+                "[swrModel_LoadFromId_delta] model %d (requested as %d) failed to load, %d bytes "
+                "of asset buffer left\n",
+                id, requested_id, swrAssetBuffer_RemainingSize());
+        fflush(hook_log);
+    } else {
+        asset_pointer_to_model.emplace_back() = {
+            model_asset_pointer_begin,
+            model_asset_pointer_end,
+            id,
+        };
+    }
 
     // setting this to 0 skips the generation of the renderDroid scene graph in the RenderAll
     // functions. it's not needed since the renderer replacement uses the swrModel_Node scene graph #
@@ -243,6 +253,8 @@ swrModel_Header *swrModel_LoadFromId_delta(MODELID id) {
 #undef HD_FONT_HEIGHT
 
 void **texture_buffer_replacement = nullptr;
+// Which texture block the cached entries in texture_buffer_replacement were loaded from.
+static std::string texture_block_of_buffer;
 
 // 0x00447420
 void swrModel_InitializeTextureBuffer_delta() {
@@ -251,6 +263,8 @@ void swrModel_InitializeTextureBuffer_delta() {
     // assumes that the out_textureblock.bin file from the custom track only appends to the textures
     // and does not replace existing ones. the behavior is not totally clear if that happens.
     const uint32_t prev_texture_count = texture_count;
+    void **const prev_buffer = texture_buffer_replacement;
+    const void *const caller = __builtin_return_address(0);
 
     swrLoader_OpenBlock(swrLoader_TYPE_TEXTURE_BLOCK);
     swrLoader_ReadAt(swrLoader_TYPE_TEXTURE_BLOCK, 0, &texture_count, 4u);
@@ -258,10 +272,40 @@ void swrModel_InitializeTextureBuffer_delta() {
 
     texture_buffer_replacement =
         (void **) realloc(texture_buffer_replacement, texture_count * sizeof(uint32_t));
-    // clear the new textures:
-    if (prev_texture_count < texture_count)
+
+    // Cached entries point into whichever block was mapped when they loaded, so a block swap
+    // (stock <-> custom) invalidates all of them -- keeping them hands swrModel_LoadModelTexture
+    // a pointer into the other block's data. Only a repeat init of the same block may keep its
+    // cache.
+    const char *const block = *SWR_TEXTUREBLOCK_PATH_PTR;
+    const bool block_changed = texture_block_of_buffer != block;
+    if (block_changed) {
+        memset(texture_buffer_replacement, 0, texture_count * sizeof(void *));
+        texture_block_of_buffer = block;
+    } else if (prev_texture_count < texture_count) {
+        // clear the new textures:
         memset(texture_buffer_replacement + prev_texture_count, 0,
                (texture_count - prev_texture_count) * sizeof(void *));
+    }
+
+    static int call_count = 0;
+    const uintptr_t caller_addr = (uintptr_t) caller;
+    char caller_text[32];
+    if (caller_addr >= SWR_TEXT_ADDR_ && caller_addr <= SWR_TEXT_END_ADDR_)
+        snprintf(caller_text, sizeof(caller_text), "SWEP1RCR.EXE+0x%x", (unsigned) caller_addr);
+    else
+        snprintf(caller_text, sizeof(caller_text), "%p", caller);
+
+    fprintf(hook_log,
+            "[swrModel_InitializeTextureBuffer_delta] call %d: textures %u -> %u, buffer %p -> %p "
+            "(%s), block '%s', %d bytes of asset buffer left, called from %s\n",
+            ++call_count, prev_texture_count, texture_count, (void *) prev_buffer,
+            (void *) texture_buffer_replacement,
+            prev_buffer == texture_buffer_replacement ? "same" : "MOVED", block,
+            swrAssetBuffer_RemainingSize(), caller_text);
+    fprintf(hook_log, "[swrModel_InitializeTextureBuffer_delta] cache %s\n",
+            block_changed ? "CLEARED (block changed)" : "kept (same block)");
+    fflush(hook_log);
 
     char *range_begin = (char *) 0x00447420;
     char *range_end = (char *) 0x004475ED;
@@ -312,16 +356,73 @@ void swrUI_DrawTextAligned_delta(int font, char *text, short *bbox, unsigned int
     ui_menu_text_depth--;
 }
 
-// Shared X-centering shift for every entries1 (menu/HUD) text string, whichever wrapper emitted it:
+// The design-space X columns the in-race HUD strings are emitted at, in the same 320-wide sprite draw
+// space their sibling sprites use. Each is the exact literal its emitter passes.
+// ENGINE/FIRE, TEMP/WARN, OVERHEAT, Warning, Repair (swrRace_InRaceEngineUI)
+static constexpr int kHudTextXEngineWarning = 54;
+// "#/#" + "LAP", in the minimap / arrow HUD modes and in the progress-ring mode respectively
+static constexpr int kHudTextXLapCounter = 42;
+static constexpr int kHudTextXLapCounterRing = 62;
+// "BOOST" and the digital speed readout (swrObjJdge_DrawSpeedDialHud / swrRace_InRaceTimer)
+static constexpr int kHudTextXBoostLabel = 244;
+static constexpr int kHudTextXSpeedReadout = 254;
+// "#/#" + "POS"
+static constexpr int kHudTextXPositionCounter = 278;
+
+// Edge-anchored in-race HUD text, keyed by the exact design x the game draws it at (from
+// swrRace_InRaceTimer / swrObjJdge_DrawSpeedDialHud). These strings sit on HUD clusters that anchor to
+// a screen edge (see hud_sprite_anchor in swrSprite_delta), so their text must ride the same edge or it
+// detaches from the frame. RIGHT shifts by two centering offsets (real right edge), LEFT by zero (real
+// left); everything else -- centered messages, the timer, countdown -- stays plain-centered. Matched by
+// exact x (not a range) so a centered string near these columns is never caught. Only consulted for
+// HUD text (ui_menu_text_depth == 0); menu text is unaffected.
+static UiAnchorH hud_text_anchor(int x) {
+    switch (x) {
+    // Both sit on the right-anchored speedometer frame.
+    case kHudTextXBoostLabel:
+    case kHudTextXSpeedReadout:
+        return UI_H_RIGHT;
+    // The engine warning rides the bottom-left engine readout; both lap columns ride the header lap
+    // holder (swrUISprite_dial_lap_pos_rgb_0), which anchors LEFT.
+    case kHudTextXEngineWarning:
+    case kHudTextXLapCounter:
+    case kHudTextXLapCounterRing:
+        return UI_H_LEFT;
+    // Rides the header position holder (swrUISprite_dial_lap_pos_rgb_1).
+    case kHudTextXPositionCounter:
+        return UI_H_RIGHT;
+    default:
+        return UI_H_CENTER;
+    }
+}
+
+// Shared X shift for every entries1 (menu/HUD) text string, whichever wrapper emitted it:
 // swrText_CreateTextEntry1, swrText_CreateColorlessEntry1, and swrText_CreateColorlessFormattedEntry1
 // all sink into swrText_CreateEntry. Menu text (inside a swrUI_DrawText scope) lives in the 640
 // widget space (ui_layout_scale); all other text in the ~320 draw space (ui_sprite_scale). Match the
-// divisor to the text's space so it shifts the same px as its sibling sprites. Returns x unchanged
-// when centering is off (ui_center_offset_px() is 0).
+// divisor to the text's space so it shifts the same px as its sibling sprites. HUD text on an
+// edge-anchored cluster (hud_text_anchor) rides that edge instead of plain centering. Returns x
+// unchanged when centering is off (ui_center_offset_px() is 0).
 static int ui_center_text_x(int x) {
+    // In-race position-marker number text (drawn only inside swrObjJdge_DrawRaceHUD): remap X by HUD
+    // mode exactly like its marker sprite, so the number rides the right strip / full-width ring.
+    if (ui_hud_marker_mode >= 0 && !ui_menu_text_depth)
+        return (int) lroundf(ui_hud_marker_x((float) x, ui_hud_marker_mode));
     float s = ui_menu_text_depth ? ui_layout_scale() : ui_sprite_scale();
-    if (s > 0.0f)
-        x += (int) lroundf(ui_center_offset_px() / s);
+    if (s > 0.0f) {
+        float off = ui_center_offset_px();
+        // Only edge-anchor HUD text while the in-race HUD is being drawn (ui_in_race_hud): the fixed
+        // design-x columns hud_text_anchor keys off are reused by other screens (race-settings
+        // portrait/favorite labels), which must stay plain-centered.
+        if (!ui_menu_text_depth && ui_in_race_hud) {
+            UiAnchorH a = hud_text_anchor(x);
+            if (a == UI_H_RIGHT)
+                off = 2.0f * off;
+            else if (a == UI_H_LEFT)
+                off = 0.0f;
+        }
+        x += (int) lroundf(off / s);
+    }
     return x;
 }
 

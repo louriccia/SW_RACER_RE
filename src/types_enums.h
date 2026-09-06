@@ -70,6 +70,55 @@ typedef enum GameSettingFlag
     GAME_SETTING_MIRROR = 0x4000, // mirror-mode: steering + screen projection are flipped
 } GameSettingFlag;
 
+// jdge->hud_mode: in-race standings/position HUD layout, cycled by the HUD toggle key
+// (swrObjJdge_CycleHudMode: single player wraps 0..4, splitscreen 4..7;
+// swrObjJdge_DrawRaceHUD clamps into the range valid for the player count).
+typedef enum swrObjJdge_HUDMODE
+{
+    swrObjJdge_HUDMODE_GAP_ARROWS = 0, // rival gap-arrow ladder at the right screen edge
+    swrObjJdge_HUDMODE_PROGRESS_RING = 1, // lap progress around a rectangular track outline
+    swrObjJdge_HUDMODE_MINIMAP_FAR = 2, // rotated radar minimap, wide zoom (default)
+    swrObjJdge_HUDMODE_MINIMAP_NEAR = 3, // rotated radar minimap, close zoom
+    swrObjJdge_HUDMODE_OFF = 4, // no position indicator (also forced in attract-demo mode)
+    swrObjJdge_HUDMODE_SPLIT_COLUMN = 5, // splitscreen: vertical progress column
+    swrObjJdge_HUDMODE_SPLIT_OFF = 6, // splitscreen: no column, running total time only
+    swrObjJdge_HUDMODE_SPLIT_COLUMN_TIME = 7, // splitscreen: progress column + running total time
+} swrObjJdge_HUDMODE;
+
+// swrUI_localPlayersInputPressedBitset menu-navigation bits (per-frame pressed edges).
+typedef enum swrUI_INPUTBIT
+{
+    swrUI_INPUT_MENU_UP = 0x4000,
+    swrUI_INPUT_MENU_DOWN = 0x8000,
+    swrUI_INPUT_MENU_LEFT = 0x10000, // decrease the focused option
+    swrUI_INPUT_MENU_RIGHT = 0x20000, // increase the focused option
+} swrUI_INPUTBIT;
+
+// swrRace_resultsStateFlags: one-shot latches while the results screen is up,
+// cleared when leaving it (swrRace_ResultsMenu).
+typedef enum swrRace_RESULTSFLAG
+{
+    swrRace_RESULTSFLAG_NAME_ENTRY_P1 = 0x1, // player 1 was sent to record name entry
+    swrRace_RESULTSFLAG_NAME_ENTRY_P2 = 0x2, // player 2 was sent to record name entry
+    swrRace_RESULTSFLAG_RECORDS_COMMITTED = 0x4, // new records copied into the save image
+    swrRace_RESULTSFLAG_PILOT_UNLOCK_SHOWN = 0x8, // tournament pilot-unlock cutaway triggered
+} swrRace_RESULTSFLAG;
+
+// swrSaveData.unlockFlags (tgfd.dat +0x8) bits.
+typedef enum swrSaveData_UNLOCKFLAGS
+{
+    swrSaveData_UNLOCK_DEFAULT_Maybe = 0x3, // present in a fresh save image; meaning not yet identified
+    swrSaveData_UNLOCK_BEAT_ALL_TRACKS_FIRST = 0x20, // every track beaten in 1st place across all circuits
+                                                     // (swrRace_ResultsMenu); also forced by swrRace_CheatUnlockAll
+} swrSaveData_UNLOCKFLAGS;
+
+// Per-racer SFX guard bits (swrSound_SetSfxFlag / TestSfxFlag / ClearSfxFlag on
+// score->sfxChannel): each latches a one-shot line so it isn't spammed.
+typedef enum swrSound_SFXFLAG
+{
+    swrSound_SFXFLAG_LAP_FANFARE = 0x100000, // lap-record / finish fanfare played for this racer
+} swrSound_SFXFLAG;
+
 // swrObj flags @ +0x6 (the header every event-pool entity starts with).
 typedef enum swrObj_FLAG
 {
@@ -265,6 +314,22 @@ typedef enum swrObjTrig_FLAG
     swrObjTrig_FLAG_FIRED = 0x2,      // one-shot consumed; FindOrCreate won't hand it out again
     swrObjTrig_FLAG_FX_SPAWNED = 0x4, // earthquake FX has been spawned (SpawnEarthquakeShake phase gate)
 } swrObjTrig_FLAG;
+
+// swrObjSmok.type -- picks the velocity / size / spin / UV-scroll preset applied by
+// swrObjSmok_Spawn. FIRE and EXPLOSION share one preset, ENGINE_SMOKE and FLAME_ATTACK
+// another (they differ only in UV scroll). Any other value spawns an unconfigured object.
+typedef enum swrObjSmok_TYPE
+{
+    swrObjSmok_TYPE_FIRE = 2, // burning track prop (swrRace_InitFireEffects)
+    swrObjSmok_TYPE_EXPLOSION = 3, // death / hard-landing burst (swrRace_Explode, HandleDeathExplosion, PlaceOnTrack)
+    swrObjSmok_TYPE_ENGINE_SMOKE = 6, // per-engine damage plume (swrRace_UpdateEngineDamageFX)
+    swrObjSmok_TYPE_FLAME_ATTACK = 8, // Sebulba's flame jet (swrRace_SpawnFlameAttack)
+} swrObjSmok_TYPE;
+
+typedef enum swrObjSmok_FLAG
+{
+    swrObjSmok_FLAG_OWNER_MANAGED = 0x1, // F0 will not self-free at end of life; the owner frees it
+} swrObjSmok_FLAG;
 
 // array of animations at 0x00e25e60
 typedef enum swrMAPANIM_INDEX

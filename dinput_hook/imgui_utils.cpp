@@ -1,6 +1,8 @@
 #include "imgui_utils.h"
 #include "debug_ui.h"
 #include "n64_shader.h"
+#include "camera/camera.h"
+#include "camera/player_camera.h"
 
 #include <string>
 #include <set>
@@ -246,11 +248,14 @@ void read_settings_ini() {
     imgui_state.enable_gamepad_nav =
         GetPrivateProfileIntW(L"settings", L"enable_gamepad_nav", 1, ini_path.c_str());
 
+    // Millisecond precision on every displayed time (default on). Lives in the times delta.
+    g_time_show_millis =
+        GetPrivateProfileIntW(L"settings", L"time_show_millis", 1, ini_path.c_str()) != 0;
     imgui_state.enable_weather =
         GetPrivateProfileIntW(L"settings", L"enable_weather", 1, ini_path.c_str());
 
     imgui_state.ui_resolution_independent =
-        GetPrivateProfileIntW(L"settings", L"ui_resolution_independent", 0, ini_path.c_str()) != 0;
+        GetPrivateProfileIntW(L"settings", L"ui_resolution_independent", 1, ini_path.c_str()) != 0;
     wchar_t ui_scale_buf[32] = {0};
     GetPrivateProfileStringW(L"settings", L"ui_scale", L"1.0", ui_scale_buf, 32, ini_path.c_str());
     float ui_scale = (float) wcstod(ui_scale_buf, nullptr);
@@ -261,6 +266,30 @@ void read_settings_ini() {
 
     imgui_state.cache_meshes =
         GetPrivateProfileIntW(L"settings", L"cache_meshes", 1, ini_path.c_str());
+    imgui_state.reflection_texgen =
+        GetPrivateProfileIntW(L"settings", L"reflection_texgen", 1, ini_path.c_str());
+    wchar_t texgen_scale_buf[32] = {0};
+    GetPrivateProfileStringW(L"settings", L"reflection_texgen_scale", L"2.0", texgen_scale_buf, 32,
+                             ini_path.c_str());
+    float texgen_scale = (float) wcstod(texgen_scale_buf, nullptr);
+    imgui_state.reflection_texgen_scale =
+        (texgen_scale >= 0.5f && texgen_scale <= 3.0f) ? texgen_scale : 2.0f;
+    wchar_t texgen_rot_buf[32] = {0};
+    GetPrivateProfileStringW(L"settings", L"reflection_texgen_rotation", L"0.0", texgen_rot_buf, 32,
+                             ini_path.c_str());
+    float texgen_rot = (float) wcstod(texgen_rot_buf, nullptr);
+    imgui_state.reflection_texgen_rotation =
+        (texgen_rot >= 0.0f && texgen_rot <= 360.0f) ? texgen_rot : 0.0f;
+    wchar_t texgen_off_buf[64] = {0};
+    GetPrivateProfileStringW(L"settings", L"reflection_texgen_offset", L"0.5 0.5", texgen_off_buf,
+                             64, ini_path.c_str());
+    {
+        float ou = 0.5f, ov = 0.5f;
+        if (swscanf(texgen_off_buf, L"%f %f", &ou, &ov) == 2) {
+            imgui_state.reflection_texgen_offset[0] = (ou >= -1.0f && ou <= 1.0f) ? ou : 0.5f;
+            imgui_state.reflection_texgen_offset[1] = (ov >= -1.0f && ov <= 1.0f) ? ov : 0.5f;
+        }
+    }
     imgui_state.cull_meshes =
         GetPrivateProfileIntW(L"settings", L"cull_meshes", 1, ini_path.c_str());
     imgui_state.stream_dynamic_meshes =
@@ -389,6 +418,8 @@ void save_settings_ini() {
                                ini_path.c_str());
     WritePrivateProfileStringW(L"settings", L"enable_gamepad_nav",
                                imgui_state.enable_gamepad_nav ? L"1" : L"0", ini_path.c_str());
+    WritePrivateProfileStringW(L"settings", L"time_show_millis",
+                               g_time_show_millis ? L"1" : L"0", ini_path.c_str());
 
     WritePrivateProfileStringW(L"settings", L"enable_weather",
                                imgui_state.enable_weather ? L"1" : L"0", ini_path.c_str());
@@ -404,6 +435,20 @@ void save_settings_ini() {
 
     WritePrivateProfileStringW(L"settings", L"cache_meshes", imgui_state.cache_meshes ? L"1" : L"0",
                                ini_path.c_str());
+    WritePrivateProfileStringW(L"settings", L"reflection_texgen",
+                               imgui_state.reflection_texgen ? L"1" : L"0", ini_path.c_str());
+    WritePrivateProfileStringW(L"settings", L"reflection_texgen_scale",
+                               std::to_wstring(imgui_state.reflection_texgen_scale).c_str(),
+                               ini_path.c_str());
+    WritePrivateProfileStringW(L"settings", L"reflection_texgen_rotation",
+                               std::to_wstring(imgui_state.reflection_texgen_rotation).c_str(),
+                               ini_path.c_str());
+    WritePrivateProfileStringW(
+        L"settings", L"reflection_texgen_offset",
+        (std::to_wstring(imgui_state.reflection_texgen_offset[0]) + L" " +
+         std::to_wstring(imgui_state.reflection_texgen_offset[1]))
+            .c_str(),
+        ini_path.c_str());
 
     WritePrivateProfileStringW(L"settings", L"cull_meshes", imgui_state.cull_meshes ? L"1" : L"0",
                                ini_path.c_str());
@@ -752,6 +797,8 @@ void imgui_Update() {
 
         read_settings_ini();
         register_builtin_debug_panels();
+        freecam_RegisterPanel();// camera system (dinput_hook/camera)
+        playercam_RegisterPanel();
         debug_ui_register_builtin_shell_panels();
         debug_ui_load_settings();
     }
@@ -1191,6 +1238,33 @@ static void panel_graphics_settings() {
     if (ImGui::Checkbox("Enable fog", &imgui_state.enable_fog)) {
         save_settings_ini();
     }
+    // N64 pseudo-reflection texgen on meshes sampling chrome01 (issue #206).
+    if (ImGui::Checkbox("N64 reflective texgen", &imgui_state.reflection_texgen)) {
+        save_settings_ini();
+    }
+    // An HD-replaced model is drawn by the glTF path and returns before the N64 material code, so
+    // this never reaches it -- including the pods, which is where the chrome is most visible. Say so
+    // rather than letting the toggle look broken.
+    if (imgui_state.reflection_texgen && imgui_state.HD_replacement) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                           "HD model replacement is on: replaced models (pods included) draw "
+                           "through the glTF renderer and never reach this. Turn HD replacement "
+                           "off to see it on pod chrome.");
+    }
+    if (imgui_state.reflection_texgen) {
+        if (ImGui::SliderFloat("Reflection detail", &imgui_state.reflection_texgen_scale, 0.5f, 3.0f,
+                               "%.2f")) {
+            save_settings_ini();
+        }
+        if (ImGui::SliderFloat("Reflection rotation", &imgui_state.reflection_texgen_rotation, 0.0f,
+                               360.0f, "%.0f deg")) {
+            save_settings_ini();
+        }
+        if (ImGui::SliderFloat2("Reflection offset", imgui_state.reflection_texgen_offset, -1.0f,
+                                1.0f, "%.2f")) {
+            save_settings_ini();
+        }
+    }
 
     // Applied in stdDisplay_Update_Hook when changed. Turn off to tell vsync judder apart from
     // real render-time variance: under vsync a missed vblank halves the framerate (60<->30
@@ -1266,7 +1340,7 @@ static void panel_graphics_settings() {
         save_settings_ini();
     }
 
-    if (ImGui::Checkbox("Resolution-independent UI (experimental)",
+    if (ImGui::Checkbox("Resolution-independent UI (widescreen menus + HUD)",
                         &imgui_state.ui_resolution_independent)) {
         save_settings_ini();
     }
@@ -1529,6 +1603,37 @@ static void panel_textures() {
             ImGui::SameLine();
             ImGui::Text("#%d", *imgui_state.picked_texture_id);
         }
+        // #206 discovery aid: force texgen onto the hovered surface and read its material
+        // signature, to find which combiner/render-mode value marks the reflective materials.
+        ImGui::Checkbox("Force reflection texgen on hovered",
+                        &imgui_state.debug_texgen_on_picked);
+        const auto &pm = imgui_state.picked_mesh_material;
+        if (pm.valid) {
+            ImGui::SeparatorText("Hovered mesh material");
+            ImGui::Text("reflective=%d  normals=%d  texgen_applied=%d", pm.is_reflective,
+                        pm.has_normals, pm.texgen_applied);
+            ImGui::Text("type          %08X", pm.type);
+            ImGui::Text("unk1          %08X", pm.mat_unk1);
+            ImGui::Text("unk2          %08X", pm.mat_unk2);
+            ImGui::Text("unk5          %08X", pm.mat_unk5);
+            ImGui::Text("unk8          %08X", pm.mat_unk8);
+            ImGui::Text("render_mode_1 %08X", pm.render_mode_1);
+            ImGui::Text("render_mode_2 %08X", pm.render_mode_2);
+            // Decode the combiners to (A-B)*C+D form.
+            ImGui::Text("cc_cycle1 %08X %s", pm.cc_cycle1,
+                        CombineMode(pm.cc_cycle1, false).to_string().c_str());
+            ImGui::Text("ac_cycle1 %08X %s", pm.ac_cycle1,
+                        CombineMode(pm.ac_cycle1, true).to_string().c_str());
+            ImGui::Text("cc_cycle2 %08X %s", pm.cc_cycle2,
+                        CombineMode(pm.cc_cycle2, false).to_string().c_str());
+            ImGui::Text("ac_cycle2 %08X %s", pm.ac_cycle2,
+                        CombineMode(pm.ac_cycle2, true).to_string().c_str());
+            ImGui::Text("tex.unk0      %08X", pm.tex_unk0);
+            ImGui::Text("tex.type      %08X", pm.tex_type);
+            ImGui::Text("tex.unk6      %08X", pm.tex_unk6);
+            ImGui::Text("tex.unk7      %08X", pm.tex_unk7);
+            ImGui::Text("tex.spec0flag %08X", pm.tex_spec0_flags);
+        }
     }
 
     ImGui::Separator();
@@ -1772,6 +1877,12 @@ static void panel_race() {
                         &imgui_state.fast_restart))
         persist_settings_ini();
     ImGui::TextDisabled("Single-player only. Press Enter during a race to restart instantly.");
+
+    // Millisecond precision on all displayed times (lap popup, per-lap rows, totals, records).
+    ImGui::Separator();
+    if (ImGui::Checkbox("Show milliseconds in times", &g_time_show_millis))
+        persist_settings_ini();
+    ImGui::TextDisabled("Thousandths of a second on every time readout. Off = stock hundredths.");
 }
 
 // Player: audio controls. Master volume drives the A3D device output gain (the
@@ -2450,8 +2561,28 @@ void imgui_draw_log_window(bool *p_open) {
     ImGui::End();
 }
 
+// Manual in-race HUD-mode cycle (declared in swrObjJdge_delta): a Caps Lock alternative for remote
+// desktop, where Caps Lock does not emulate. Cycles the minimap/speedometer layout.
+extern bool g_request_hud_mode_cycle;
+extern int g_current_hud_mode;
+
+static void panel_hud_mode() {
+    if (g_current_hud_mode >= 0)
+        ImGui::Text("Current HUD mode: %d", g_current_hud_mode);
+    else
+        ImGui::TextDisabled("Not in a race");
+    if (ImGui::Button("Cycle HUD mode"))
+        g_request_hud_mode_cycle = true;
+    ImGui::SameLine();
+    ImGui::TextDisabled("(same as Caps Lock)");
+    ImGui::TextWrapped(
+        "Changes the in-race minimap / speedometer layout. Single-player cycles 0-4, splitscreen 4-7.");
+}
+
 static DebugPanel g_panel_fps = {
     .category = "Render", .name = "FPS", .draw = panel_fps, .dev_only = false};
+static DebugPanel g_panel_hud_mode = {
+    .category = "Race", .name = "In-race HUD mode", .draw = panel_hud_mode, .dev_only = false};
 static DebugPanel g_panel_graphics_settings = {
     .category = "Render", .name = "Graphics Settings", .draw = panel_graphics_settings,
     .dev_only = false, .open = true};
@@ -2484,6 +2615,7 @@ static DebugPanel g_panel_pod_readout = {
 
 static void register_builtin_debug_panels() {
     debug_ui_register(&g_panel_fps);
+    debug_ui_register(&g_panel_hud_mode);
     debug_ui_register(&g_panel_graphics_settings);
     debug_ui_register(&g_panel_hd_models);
     debug_ui_register(&g_panel_race);
