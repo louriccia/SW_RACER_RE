@@ -2,6 +2,7 @@
 // Free camera (Phase 1) -- see camera.h.
 //
 #include "camera.h"
+#include "player_camera.h"
 #include "../hook_helper.h"
 #include "../debug_ui.h"
 #include "../imgui_utils.h"
@@ -179,10 +180,6 @@ void set_active(bool on) {
     g_seeded = false;
     if (on) {
         g_saved_fov_scale = imgui_state.fov_scale;
-        // Fresh hide-HUD keep-set for this session. It accumulates across the frames we fly (a sky
-        // sprite made visible on any frame stays kept), so a sprite that isn't re-asserted every
-        // frame isn't wrongly dropped -- and it's never cleared per-frame while off (no wasted work).
-        std::memset(g_keep_sprite, 0, sizeof(g_keep_sprite));
     } else {
         imgui_state.fov_scale = g_saved_fov_scale;
         g_have_cam = false;
@@ -549,13 +546,18 @@ extern "C" void __cdecl freecam_ProcessInputs_delta(void) {
 // dropped via the DrawTextEntries hooks. (swrSprite_Draw2 / SetPosF are already delta-owned, so the
 // Draw2 filter is applied inside swrSprite_Draw2_delta via freecam_HudSpriteHidden.)
 static bool hud_hidden() {
-    return g_active;
+    return g_active || playercam_HudHidden();
 }
 
 // Wrap the world-sprite render so swrSprite_SetVisible records the sky sprites into the keep-set.
 typedef void(__cdecl *swrPlayerHUD_RenderViewport_t)(void *, bool);
 extern "C" void __cdecl swrPlayerHUD_RenderViewport_delta(void *viewport, bool secondaryPass) {
     const bool rec = hud_hidden();
+    // Keep-set restarts when hiding starts and accumulates while hidden.
+    static bool was_hiding = false;
+    if (rec && !was_hiding)
+        std::memset(g_keep_sprite, 0, sizeof(g_keep_sprite));
+    was_hiding = rec;
     if (rec)
         g_world_recording = true;
     hook_call_original((swrPlayerHUD_RenderViewport_t) swrPlayerHUD_RenderViewport_ADDR, viewport,
@@ -563,6 +565,8 @@ extern "C" void __cdecl swrPlayerHUD_RenderViewport_delta(void *viewport, bool s
     g_world_recording = false;
 }
 extern "C" void __cdecl swrSprite_SetVisible_delta(short id, int visible) {
+    if (visible && playercam_SuppressSpriteVisibility())
+        visible = 0;
     hook_call_original(swrSprite_SetVisible, id, visible);
     if (g_world_recording && visible && id >= 0 && id < 251)
         g_keep_sprite[id] = true;
