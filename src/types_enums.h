@@ -70,6 +70,55 @@ typedef enum GameSettingFlag
     GAME_SETTING_MIRROR = 0x4000, // mirror-mode: steering + screen projection are flipped
 } GameSettingFlag;
 
+// jdge->hud_mode: in-race standings/position HUD layout, cycled by the HUD toggle key
+// (swrObjJdge_CycleHudMode: single player wraps 0..4, splitscreen 4..7;
+// swrObjJdge_DrawRaceHUD clamps into the range valid for the player count).
+typedef enum swrObjJdge_HUDMODE
+{
+    swrObjJdge_HUDMODE_GAP_ARROWS = 0, // rival gap-arrow ladder at the right screen edge
+    swrObjJdge_HUDMODE_PROGRESS_RING = 1, // lap progress around a rectangular track outline
+    swrObjJdge_HUDMODE_MINIMAP_FAR = 2, // rotated radar minimap, wide zoom (default)
+    swrObjJdge_HUDMODE_MINIMAP_NEAR = 3, // rotated radar minimap, close zoom
+    swrObjJdge_HUDMODE_OFF = 4, // no position indicator (also forced in attract-demo mode)
+    swrObjJdge_HUDMODE_SPLIT_COLUMN = 5, // splitscreen: vertical progress column
+    swrObjJdge_HUDMODE_SPLIT_OFF = 6, // splitscreen: no column, running total time only
+    swrObjJdge_HUDMODE_SPLIT_COLUMN_TIME = 7, // splitscreen: progress column + running total time
+} swrObjJdge_HUDMODE;
+
+// swrUI_localPlayersInputPressedBitset menu-navigation bits (per-frame pressed edges).
+typedef enum swrUI_INPUTBIT
+{
+    swrUI_INPUT_MENU_UP = 0x4000,
+    swrUI_INPUT_MENU_DOWN = 0x8000,
+    swrUI_INPUT_MENU_LEFT = 0x10000, // decrease the focused option
+    swrUI_INPUT_MENU_RIGHT = 0x20000, // increase the focused option
+} swrUI_INPUTBIT;
+
+// swrRace_resultsStateFlags: one-shot latches while the results screen is up,
+// cleared when leaving it (swrRace_ResultsMenu).
+typedef enum swrRace_RESULTSFLAG
+{
+    swrRace_RESULTSFLAG_NAME_ENTRY_P1 = 0x1, // player 1 was sent to record name entry
+    swrRace_RESULTSFLAG_NAME_ENTRY_P2 = 0x2, // player 2 was sent to record name entry
+    swrRace_RESULTSFLAG_RECORDS_COMMITTED = 0x4, // new records copied into the save image
+    swrRace_RESULTSFLAG_PILOT_UNLOCK_SHOWN = 0x8, // tournament pilot-unlock cutaway triggered
+} swrRace_RESULTSFLAG;
+
+// swrSaveData.unlockFlags (tgfd.dat +0x8) bits.
+typedef enum swrSaveData_UNLOCKFLAGS
+{
+    swrSaveData_UNLOCK_DEFAULT_Maybe = 0x3, // present in a fresh save image; meaning not yet identified
+    swrSaveData_UNLOCK_BEAT_ALL_TRACKS_FIRST = 0x20, // every track beaten in 1st place across all circuits
+                                                     // (swrRace_ResultsMenu); also forced by swrRace_CheatUnlockAll
+} swrSaveData_UNLOCKFLAGS;
+
+// Per-racer SFX guard bits (swrSound_SetSfxFlag / TestSfxFlag / ClearSfxFlag on
+// score->sfxChannel): each latches a one-shot line so it isn't spammed.
+typedef enum swrSound_SFXFLAG
+{
+    swrSound_SFXFLAG_LAP_FANFARE = 0x100000, // lap-record / finish fanfare played for this racer
+} swrSound_SFXFLAG;
+
 // swrRace (swrObjTest) flags0 @ +0x60. Bit meanings cross-checked against Ghidra
 // (swrRace_Init/swrRace_AI/swrObjTest_F0/F4) and annodue's Test entity RE.
 typedef enum swrObjTest_FLAG0
@@ -258,6 +307,22 @@ typedef enum swrObjTrig_FLAG
     swrObjTrig_FLAG_FIRED = 0x2,      // one-shot consumed; FindOrCreate won't hand it out again
     swrObjTrig_FLAG_FX_SPAWNED = 0x4, // earthquake FX has been spawned (SpawnEarthquakeShake phase gate)
 } swrObjTrig_FLAG;
+
+// swrObjSmok.type -- picks the velocity / size / spin / UV-scroll preset applied by
+// swrObjSmok_Spawn. FIRE and EXPLOSION share one preset, ENGINE_SMOKE and FLAME_ATTACK
+// another (they differ only in UV scroll). Any other value spawns an unconfigured object.
+typedef enum swrObjSmok_TYPE
+{
+    swrObjSmok_TYPE_FIRE = 2, // burning track prop (swrRace_InitFireEffects)
+    swrObjSmok_TYPE_EXPLOSION = 3, // death / hard-landing burst (swrRace_Explode, HandleDeathExplosion, PlaceOnTrack)
+    swrObjSmok_TYPE_ENGINE_SMOKE = 6, // per-engine damage plume (swrRace_UpdateEngineDamageFX)
+    swrObjSmok_TYPE_FLAME_ATTACK = 8, // Sebulba's flame jet (swrRace_SpawnFlameAttack)
+} swrObjSmok_TYPE;
+
+typedef enum swrObjSmok_FLAG
+{
+    swrObjSmok_FLAG_OWNER_MANAGED = 0x1, // F0 will not self-free at end of life; the owner frees it
+} swrObjSmok_FLAG;
 
 // array of animations at 0x00e25e60
 typedef enum swrMAPANIM_INDEX
@@ -1004,18 +1069,55 @@ typedef enum swrUISprite
 typedef enum swrUI_FLAG
 {
     swrUI_STATIC = 0x4, // non-interactive static element (set by swrUI_NewLabel); skipped by focus navigation
+    swrUI_HOVERED = 0x10, // element under the cursor (swrUI_SetUI4)
     swrUI_FOCUSED = 0x20, // element currently has keyboard focus (swrUI_SetFocusedElement)
     swrUI_VISIBLE = 0x40, // element is visible (swrUI_IsElementVisible walks the parent chain)
+    swrUI_RADIO_GROUP_UNK = 0x80, // radio-group marker; swrUI_ClearGroupChecked rewinds to a flagged element whose predecessor leaves the group
     swrUI_DISABLED = 0x100, // grayed-out / non-interactive (swrUI_DisableElement)
+    swrUI_CHECK_SPRITE_UNK = 0x400, // set on the auto-created check-sprite child element (swrUI_SetChecked)
     swrUI_SELECTED = 0x800,
     swrUI_VERTICAL = 0x10000,
     swrUI_LEFT_RIGHT_UNK = 0x20000, // LEFT_TO_RIGHT or RIGHT_TO_LEFT ?
+    swrUI_CHECKED = 0x20000, // same bit: checked state on checkable class-0xa items (swrUI_SetChecked)
+    swrUI_CHECK_CIRCLE_UNK = 0x40000, // draw the check as the axis_check_circ art (swrUI_SetChecked)
 } swrUI_FLAG;
 
 typedef enum swrUI_ITEM_FLAG
 {
     swrUI_ITEM_SELECTED = 0x80000, // list item is the current selection (swrUI_GetSelectedItem)
 } swrUI_ITEM_FLAG;
+
+typedef enum swrUI_SPRITE_SLOT_FLAG // swrUI_unk2.flag, applied by swrUI_RenderElementSprites
+{
+    swrUI_SPRITE_SLOT_IN_USE = 0x10000, // slot allocated (swrUI_AddSprite)
+    swrUI_SPRITE_SLOT_ENABLED_UNK = 0x20000, // toggled by swrUI_SetSpriteFlag
+    swrUI_SPRITE_SLOT_CENTER_H = 0x40000, // center horizontally in the element rect
+    swrUI_SPRITE_SLOT_CENTER_V = 0x80000, // center vertically in the element rect
+    swrUI_SPRITE_SLOT_CENTER_BOTH = 0x100000, // center on both axes
+    swrUI_SPRITE_SLOT_MIRROR_V = 0x200000, // -> swrSprite flag 0x8 (mirror vertically)
+    swrUI_SPRITE_SLOT_MIRROR_H = 0x400000, // -> swrSprite flag 0x4 (mirror horizontally)
+    swrUI_SPRITE_SLOT_FLAG_8000_UNK = 0x800000, // -> swrSprite flag 0x8000
+    swrUI_SPRITE_SLOT_ADDITIVE = 0x1000000, // -> swrSprite flag 0x800 (additive blending)
+} swrUI_SPRITE_SLOT_FLAG;
+
+typedef enum swrUI_CLASS // swrUI_unk.widget_class, set by each swrUI_New* ctor
+{
+    swrUI_CLASS_SCREEN_TEXT = 3, // swrUI_NewScreenText
+    swrUI_CLASS_LIST = 5, // swrUI_NewList
+    swrUI_CLASS_NUMBER_FIELD = 6, // swrUI_NewNumberField (slider + value)
+    swrUI_CLASS_SPRITE = 7, // swrUI_NewSpriteElement
+    swrUI_CLASS_PANEL = 8, // swrUI_NewPanel (9-slice framed panel)
+    swrUI_CLASS_TEXT_ENTRY = 9, // swrUI_NewTextEntry
+    swrUI_CLASS_FRAMED_TEXT = 10, // swrUI_NewFramedText (checkable/radio item)
+    swrUI_CLASS_3PATCH_BOX = 11, // swrUI_New3PatchBox
+    swrUI_CLASS_LIST_ITEM = 12, // swrUI_AddListItem
+} swrUI_CLASS;
+
+typedef enum swrUI_MSG // element proc / swrUI_RunCallbacks message codes (partial)
+{
+    swrUI_MSG_HOVER_CHANGED = 1, // fired by swrUI_SetUI4; param 0 = left, 1 = entered
+    swrUI_MSG_CHECKED_CHANGED = 5000, // fired to the parent by swrUI_SetChecked; param = new state
+} swrUI_MSG;
 
 typedef enum swrConfig_DEVICE
 {

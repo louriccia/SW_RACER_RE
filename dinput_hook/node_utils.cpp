@@ -194,6 +194,13 @@ bool is_foreign_hidden_pod_root(const swrModel_Node *node) {
     return owner->partNodes != nullptr && node == owner->partNodes[0];
 }
 
+swrRace *pod_root_owner(const swrModel_Node *node) {
+    swrRace *owner = find_entity_for_node(node);
+    if (owner == nullptr || owner->partNodes == nullptr || node != owner->partNodes[0])
+        return nullptr;
+    return owner;
+}
+
 void apply_node_transform(rdMatrix44 &model_mat, const swrModel_Node *node,
                           rdVector3 *viewport_position) {
     if (node->type == NODE_TRANSFORMED || node->type == NODE_TRANSFORMED_WITH_PIVOT) {
