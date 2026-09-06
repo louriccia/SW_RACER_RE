@@ -307,6 +307,13 @@ void read_settings_ini() {
 
     imgui_state.show_pod_names = config::get_int("settings", "show_pod_names", 1);
 
+    imgui_state.show_collision = config::get_int("settings", "show_collision", 0);
+    imgui_state.show_triggers = config::get_int("settings", "show_triggers", 0);
+    imgui_state.show_hitbox = config::get_int("settings", "show_hitbox", 0);
+    imgui_state.collision_wireframe = config::get_int("settings", "collision_wireframe", 0);
+    const float collision_opacity = config::get_float("settings", "collision_opacity", 0.35f);
+    imgui_state.collision_opacity =
+        (collision_opacity >= 0.0f && collision_opacity <= 1.0f) ? collision_opacity : 0.35f;
     imgui_state.skip_intro_fmv =
         config::get_int("settings", "skip_intro_fmv", 0);
     imgui_state.skip_cantina_intro =
@@ -386,6 +393,11 @@ void save_settings_ini() {
     config::set_bool("settings", "hd_replacement", imgui_state.HD_replacement);
     config::set_bool("settings", "show_imgui", show_imgui);
     config::set_bool("settings", "show_pod_names", imgui_state.show_pod_names);
+    config::set_bool("settings", "show_collision", imgui_state.show_collision);
+    config::set_bool("settings", "show_triggers", imgui_state.show_triggers);
+    config::set_bool("settings", "show_hitbox", imgui_state.show_hitbox);
+    config::set_bool("settings", "collision_wireframe", imgui_state.collision_wireframe);
+    config::set_float("settings", "collision_opacity", imgui_state.collision_opacity);
     config::set_bool("settings", "cursor_use_game_sprite", imgui_state.cursor_use_game_sprite);
     config::set_bool("settings", "fast_restart", imgui_state.fast_restart);
     config::set_bool("settings", "mp_allow_upgrades", imgui_state.mp_allow_upgrades);
@@ -1372,6 +1384,32 @@ static void panel_render_debug() {
     ImGui::Checkbox("debug ggx cubemap", &imgui_state.debug_ggx_cubemap);
     ImGui::Checkbox("debug env cubemap", &imgui_state.debug_env_cubemap);
     ImGui::Checkbox("debug ggx lut", &imgui_state.debug_ggxLut);
+}
+
+// Track collision-mesh overlay: the geometry the pod actually collides against, color-coded by
+// surface reaction. In-race only.
+static void panel_collision() {
+    if (ImGui::Checkbox("Show collision mesh", &imgui_state.show_collision)) {
+        save_settings_ini();
+    }
+    if (ImGui::Checkbox("Show triggers + racer markers", &imgui_state.show_triggers)) {
+        save_settings_ini();
+    }
+    if (ImGui::Checkbox("Show pod hitbox", &imgui_state.show_hitbox)) {
+        save_settings_ini();
+    }
+    if (imgui_state.show_hitbox) {
+        ImGui::Indent();
+        ImGui::TextDisabled("green: pod body radius (walls, per-pod)");
+        ImGui::TextDisabled("cyan: pod-vs-pod radius (r=5)");
+        ImGui::Unindent();
+    }
+    if (ImGui::Checkbox("Wireframe only", &imgui_state.collision_wireframe)) {
+        save_settings_ini();
+    }
+    if (ImGui::SliderFloat("Fill opacity", &imgui_state.collision_opacity, 0.0f, 1.0f, "%.2f")) {
+        save_settings_ini();
+    }
 }
 
 // Dev: scene graph + (debug-build only) per-frame node/material property tallies.
@@ -2468,6 +2506,8 @@ static DebugPanel g_panel_cheats = {
     .category = "Cheats", .name = "Cheats", .draw = panel_cheats, .dev_only = false};
 static DebugPanel g_panel_render_debug = {
     .category = "Debug", .name = "Render Debug", .draw = panel_render_debug, .dev_only = true};
+static DebugPanel g_panel_collision = {
+    .category = "Inspect", .name = "Collision", .draw = panel_collision, .dev_only = false};
 static DebugPanel g_panel_scene_inspector = {
     .category = "Inspect", .name = "Scene", .draw = panel_scene_inspector, .dev_only = true};
 static DebugPanel g_panel_textures = {
@@ -2490,6 +2530,7 @@ static void register_builtin_debug_panels() {
     debug_ui_register(&g_panel_input_diag);
     debug_ui_register(&g_panel_cheats);
     debug_ui_register(&g_panel_render_debug);
+    debug_ui_register(&g_panel_collision);
     debug_ui_register(&g_panel_scene_inspector);
     debug_ui_register(&g_panel_textures);
     debug_ui_register(&g_panel_pod_transforms);
