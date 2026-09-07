@@ -23,6 +23,7 @@ extern "C" {
 #include <Swr/swrEvent.h>
 #include <Swr/swrMultiplayer.h>
 #include <Swr/swrText.h>
+#include <Swr/swrRender.h>
 #include <globals.h>
 void hook_function(const char *function_name, uint32_t original_address, uint8_t *hook_address);
 }
@@ -63,6 +64,8 @@ static bool g_skip_requested = false;   // panel "Skip": end the current race / 
 static bool g_restart_requested = false;// panel "Restart": end it and rerun the same track
 static int g_force_track = -1;          // next start_race uses this track instead of picking one
 static int g_next_track = -1;// pre-picked at the winner's finish so the overlay can show it
+static int g_menu_track =
+    -1;// hangar track_index when armed; restored on disarm (menu indexes by circuit)
 static char g_status[128] = "idle";
 
 static RaceDescriptor g_race = {-1, 1, 20, 0};
@@ -91,6 +94,8 @@ static bool g_fini_fired = false;
 static DWORD g_last_snapshot_ms = 0;
 static DWORD g_first_finish_ms = 0;
 static const int MAX_RACERS = 20;
+static const int SHARED_AI_BANK =
+    10;// the one light bank every AI pod reads (see apply_ai_lighting)
 static float g_last_progress[MAX_RACERS];
 static DWORD g_last_progress_ms[MAX_RACERS];
 static int g_snaps[MAX_RACERS];
@@ -397,9 +402,7 @@ static void __cdecl swrObjTest_F3_delta(swrRace *pod) {
     const int followed = director_FollowedSlot();
     if (followed < 0 || swrScoresPtr == NULL || swrScoresPtr[followed].obj_test_ptr != pod)
         return;
-    const int slot = pod->current_light_index + 1;
-    if (slot < 1 || slot > 12)
-        return;
+    const int slot = SHARED_AI_BANK + 1;// the renderer reads bank + 1
     if ((pod->flags0 & (swrObjTest_FLAG0_RESPAWN_INVINC | swrObjTest_FLAG0_DEAD)) == 0) {
         g_bank_color = lightColor1[slot];
         g_bank_ambient = lightAmbientColor[slot];
@@ -410,11 +413,16 @@ static void __cdecl swrObjTest_F3_delta(swrRace *pod) {
     }
 }
 
+static float *__cdecl SetLightColorsAndDirection2_delta(int a1, rdVector3 *ambient,
+                                                        rdVector3 *color, rdVector3 *dir);
+
 void orchestrator_RegisterHooks() {
     hook_function("swrObjJdge_SpawnRacers", (uint32_t) swrObjJdge_SpawnRacers_ADDR,
                   (uint8_t *) swrObjJdge_SpawnRacers_delta);
     hook_function("swrObjHang_F4", (uint32_t) swrObjHang_F4_ADDR, (uint8_t *) swrObjHang_F4_delta);
     hook_function("swrObjTest_F3", (uint32_t) swrObjTest_F3_ADDR, (uint8_t *) swrObjTest_F3_delta);
+    hook_function("SetLightColorsAndDirection2", (uint32_t) SetLightColorsAndDirection2_ADDR,
+                  (uint8_t *) SetLightColorsAndDirection2_delta);
     hook_function("swrRace_CalcTargetTurnRate", (uint32_t) swrRace_CalcTargetTurnRate_ADDR,
                   (uint8_t *) swrRace_CalcTargetTurnRate_delta);
     srand((unsigned) time(NULL));
@@ -429,21 +437,36 @@ void orchestrator_RegisterHooks() {
 // (swrObjcMan_UpdateLighting). In an all-AI race that is the favourite (score flag 0x20). Point every
 // other full pod at that bank with the same node tags SpawnRacer applies.
 static const int LIGHT_BANK_COUNT = 12;// numEnabledLights[12]; lightColor1[13] is indexed +1
+// Every pod's bank index is its entity id (0..19) but the light arrays hold 13 slots; vanilla only
+// ever lights local pods (ids 0/1). With the camera on any pod and AI respawning, ids >= 12 wrote past
+// lightColor1 into the neighbouring arrays every frame. Route the followed pod's writes (camera-man
+// terrain light, F3 respawn flash) to one fixed bank, drop everyone else's (nobody reads them), and
+// bounds-guard the writer regardless.
+static int followed_light_id() {
+    const int followed = director_FollowedSlot();
+    if (followed < 0 || swrScoresPtr == NULL || swrScoresPtr[followed].obj_test_ptr == NULL)
+        return -1;
+    return swrScoresPtr[followed].obj_test_ptr->current_light_index;
+}
+
+typedef float *(__cdecl *SetLightColorsAndDirection2_t)(int a1, rdVector3 *ambient,
+                                                        rdVector3 *color, rdVector3 *dir);
+
+static float *__cdecl SetLightColorsAndDirection2_delta(int a1, rdVector3 *ambient,
+                                                        rdVector3 *color, rdVector3 *dir) {
+    if (g_armed && firstLocalPlayer == NULL && a1 >= 0) {
+        if (a1 != followed_light_id())
+            return (float *) a1;// unread bank: skip (and never overflow)
+        a1 = SHARED_AI_BANK;
+    }
+    if (a1 >= LIGHT_BANK_COUNT)
+        return (float *) a1;// would write past the 13-entry light arrays
+    return hook_call_original((SetLightColorsAndDirection2_t) SetLightColorsAndDirection2_ADDR, a1,
+                              ambient, color, dir);
+}
 
 static void apply_ai_lighting(swrObjJdge *jdge) {
-    // The bank being refreshed is the followed pod's (swrObjcMan_UpdateLighting runs for the pod
-    // the camera-man follows); fall back to the favourite before the camera is assigned.
-    int bank = -1;
-    const int followed = director_FollowedSlot();
-    if (followed >= 0 && swrScoresPtr[followed].obj_test_ptr != NULL)
-        bank = swrScoresPtr[followed].obj_test_ptr->current_light_index;
-    for (int i = 0; bank < 0 && i < jdge->num_players && i < MAX_RACERS; i++) {
-        const swrScore *score = &swrScoresPtr[i];
-        if ((score->flag & 0x20) != 0 && score->obj_test_ptr != NULL)
-            bank = score->obj_test_ptr->current_light_index;
-    }
-    if (bank < 0 || bank >= LIGHT_BANK_COUNT)
-        return;
+    const int bank = SHARED_AI_BANK;
     static const int LIT_PARTS_0x10[] = {1, 2, 3, 4, 5, 0x47};
     static const int LIT_PARTS_0x100[] = {0x2a, 0x2b, 0x1c, 0x1d};
     for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++) {
@@ -697,10 +720,17 @@ extern "C" void orchestrator_ToggleArmed(void) {
     g_next_track = -1;
     if (g_armed) {
         reset_race_watch();
+        swrObjHang *hang = get_hang();
+        g_menu_track = hang != NULL ? hang->track_index : -1;
     } else {
         swrObjHang *hang = get_hang();
-        if (hang != NULL)
+        if (hang != NULL) {
             hang->demo_mode = 0;
+            // Our random picks span circuits; the hangar menu indexes the track within its current
+            // circuit, so put the track it was on back before it redraws.
+            if (g_menu_track >= 0)
+                hang->track_index = (char) g_menu_track;
+        }
         overlay_ForceLeaderboard(false);
         overlay_ForceNameplates(false);
         overlay_SetTitle("");
