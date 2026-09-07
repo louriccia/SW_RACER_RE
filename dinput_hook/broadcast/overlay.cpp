@@ -118,9 +118,15 @@ static void draw_status_icon(StatusIcon icon) {
     ImGui::Dummy(ImVec2(size * 1.3f, h));
 }
 
+// No title bar, but movable: drag anywhere on the board to reposition it; the new spot is saved
+// as the margins for the current anchor.
 static const ImGuiWindowFlags OVERLAY_FLAGS =
-    ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
-    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing;
+    ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+    ImGuiWindowFlags_NoScrollbar;
+static bool g_reposition = true;// apply the configured margins on the next Begin
+static bool g_dragging = false;
+static void save_config();
 
 static void draw_leaderboard(const RaceTelemetry *t) {
     char gaps[RACE_TELEMETRY_MAX_ROWS][48];
@@ -142,10 +148,27 @@ static void draw_leaderboard(const RaceTelemetry *t) {
     const ImGuiIO &io = ImGui::GetIO();
     const ImVec2 pos = g_anchor == 0 ? ImVec2(g_margin_x, g_margin_y)
                                      : ImVec2(io.DisplaySize.x - g_margin_x, g_margin_y);
-    ImGui::SetNextWindowPos(pos, ImGuiCond_Always, ImVec2(g_anchor == 0 ? 0.0f : 1.0f, 0.0f));
+    if (g_reposition) {
+        ImGui::SetNextWindowPos(pos, ImGuiCond_Always, ImVec2(g_anchor == 0 ? 0.0f : 1.0f, 0.0f));
+        g_reposition = false;
+    }
     ImGui::SetNextWindowBgAlpha(g_opacity);
     if (ImGui::Begin("##broadcast_leaderboard", NULL, OVERLAY_FLAGS)) {
         ImGui::SetWindowFontScale(g_scale);
+        // Drag to move: while the window is being dragged, fold its position back into the
+        // margins; persist once the button is released.
+        const bool held = ImGui::IsWindowFocused() && ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
+                          ImGui::IsMouseDragging(ImGuiMouseButton_Left);
+        if (held) {
+            const ImVec2 wp = ImGui::GetWindowPos();
+            const ImVec2 ws = ImGui::GetWindowSize();
+            g_margin_x = g_anchor == 0 ? wp.x : io.DisplaySize.x - (wp.x + ws.x);
+            g_margin_y = wp.y;
+            g_dragging = true;
+        } else if (g_dragging) {
+            g_dragging = false;
+            save_config();
+        }
         ImGui::Text("%s  |  %s", g_title[0] ? g_title : "RACE", track_name(t->track_index));
         ImGui::Separator();
 
@@ -264,12 +287,16 @@ static void panel_broadcast() {
     changed |= ImGui::Checkbox("Status icons (finished / crashed / on fire)", &g_show_tags);
     changed |= ImGui::SliderFloat("Scale", &g_scale, 1.0f, 3.0f, "%.1f");
     changed |= ImGui::SliderFloat("Opacity", &g_opacity, 0.0f, 1.0f, "%.2f");
-    changed |= ImGui::RadioButton("Left", &g_anchor, 0);
+    bool moved = false;
+    moved |= ImGui::RadioButton("Left", &g_anchor, 0);
     ImGui::SameLine();
-    changed |= ImGui::RadioButton("Right", &g_anchor, 1);
-    changed |= ImGui::SliderFloat("Margin X", &g_margin_x, 0.0f, 400.0f, "%.0f");
-    changed |= ImGui::SliderFloat("Margin Y", &g_margin_y, 0.0f, 400.0f, "%.0f");
-    if (changed)
+    moved |= ImGui::RadioButton("Right", &g_anchor, 1);
+    moved |= ImGui::SliderFloat("Margin X", &g_margin_x, 0.0f, 1000.0f, "%.0f");
+    moved |= ImGui::SliderFloat("Margin Y", &g_margin_y, 0.0f, 1000.0f, "%.0f");
+    ImGui::TextDisabled("The board can also be dragged with the mouse.");
+    if (moved)
+        g_reposition = true;
+    if (changed || moved)
         save_config();
 
     const RaceTelemetry *t = race_telemetry_Get();

@@ -511,7 +511,7 @@ void orchestrator_Service() {
             now_ms >= g_cooldown_end_ms ? 0.0f : (g_cooldown_end_ms - now_ms) / 1000.0f;
         const int track = g_next_track >= 0 ? g_next_track : (int) hang->track_index;
         char footer[160];
-        snprintf(footer, sizeof(footer), "NEXT: %s  (%d racers, %d lap%s)  in %d:%02d",
+        snprintf(footer, sizeof(footer), "NEXT: %s\n%d racers, %d lap%s  |  starts in %d:%02d",
                  track_name(track), g_racers, g_laps, g_laps == 1 ? "" : "s", (int) left / 60,
                  (int) left % 60);
         overlay_SetFooter(footer);
