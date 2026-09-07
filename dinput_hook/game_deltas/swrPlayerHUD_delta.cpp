@@ -162,9 +162,10 @@ void swrText_CreateTextEntry2_delta(int16_t screen_x, int16_t screen_y, char r, 
             // 0x004ac64c, swapped for the overlay's nameplate scale during swrText_RenderEntries1),
             // which scales the position too: pre-divide so the label lands on the pod, then nudge
             // it up by the configured screen px. "~c" in the string handles centring.
-            float scale;
-            int offset_y;
-            overlay_NameplateStyle(&scale, &offset_y);
+            float scale = 0.5f;// the stock factor: multiplayer names keep the vanilla size
+            int offset_y = 0;
+            if (overlay_NameplatesActive())// broadcast labels: the factor is swapped at render
+                overlay_NameplateStyle(&scale, &offset_y);
             screen_x = (int16_t) lroundf((float) screen_x / scale + HUD_NAME_OFFSET_X);
             screen_y = (int16_t) lroundf(((float) screen_y + (float) offset_y) / scale);
             screenText = g_slotName[slot];
