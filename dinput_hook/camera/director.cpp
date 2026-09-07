@@ -44,13 +44,15 @@ static float g_trackside_past = 450.0f; // release once the pod is this far past
 static float g_trackside_max_s = 22.0f; // or after this long (pod stalled / went the other way)
 static float g_trackside_aim_smooth = 0.15f;
 static float g_drone_height = 150.0f;// world units above the pod
-static const int CFG_VERSION = 3;    // bump when a default should override a stored value
+static const int CFG_VERSION = 4;    // bump when a default should override a stored value
 static float g_drone_back = 130.0f;  // behind the pod along its horizontal heading
 static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
 static float g_drone_smooth = 0.5f;  // position time constant (s)
 static float g_orbit_dist = 120.0f;  // rival within this many world units -> orbit shot possible
 static float g_orbit_rate = 0.35f;   // orbit sweep rate (rad/s)
-static float g_orbit_sweep = 1.1f;// sweep amplitude (rad) either side of the "away from rival" line
+static float g_orbit_sweep = 0.6f;// sweep amplitude (rad) either side of the "away from rival" line
+static float g_orbit_radius = 60.0f;// camera distance from the followed pod
+static float g_orbit_height = 18.0f;
 static float g_orbit_smooth = 0.4f;
 static float g_cockpit_max_s = 8.0f;// cockpit shots are short
 
@@ -74,7 +76,6 @@ static const DWORD DEAD_HOLD_MS = 1200;// show the wreck for a beat, then cut
 static rdVector3 g_cam_pos, g_cam_aim;
 static int g_orbit_rival = -1;
 static float g_orbit_ang = 0.0f;// eased, unwrapped camera angle around the pair
-static float g_orbit_radius = 0.0f;
 static bool g_orbit_ang_seeded = false;
 static rdVector3 g_trackside_pos;// fixed camera position
 static rdVector3 g_trackside_fwd;// spline tangent at the camera (pass-by test)
@@ -392,15 +393,15 @@ static void shot_drone(swrObjcMan *cman, const swrRace *pod) {
     write_camera(cman);
 }
 
-// Orbit: circle the pair (followed pod + nearest rival), aimed at their midpoint, sweeping side to
-// side around the line that keeps the rival in frame.
+// Orbit: ride with the followed pod and watch the rival. The camera sits at a fixed radius from
+// the pod on the side away from the rival (so the pod is in the foreground and the rival beyond
+// it), slowly sweeping around that line, and aims between the two, weighted toward the rival.
+// The position is rigid in the pod's frame every frame -- easing a world position at race speed
+// left the old version trailing hundreds of units behind and staring at empty track; only the
+// angle and the aim are eased.
 static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *rival) {
     const rdVector3 p = {pod->transform.vD.x, pod->transform.vD.y, pod->transform.vD.z};
     const rdVector3 q = {rival->transform.vD.x, rival->transform.vD.y, rival->transform.vD.z};
-    // frame both, weighted toward the followed pod so a rival at the edge of range never leaves
-    // the camera staring at empty track
-    const rdVector3 mid = {p.x * 0.65f + q.x * 0.35f, p.y * 0.65f + q.y * 0.35f,
-                           p.z * 0.65f + q.z * 0.35f};
     float dx = p.x - q.x, dy = p.y - q.y;
     const float sep = sqrtf(dx * dx + dy * dy);
     if (sep < 1e-3f) {
@@ -414,7 +415,6 @@ static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *riva
     const float t = (GetTickCount() - g_shot_start_ms) / 1000.0f;
     const float phase = g_orbit_sweep * sinf(t * g_orbit_rate);
     const float want_ang = atan2f(dy, dx) + phase;
-    const float want_radius = std::clamp(sep * 0.9f + 45.0f, 55.0f, 190.0f);
 
     // The pair line flips 180 degrees when the pods swap order: ease the angle itself along the
     // shortest arc so the camera swings around rather than jumping.
@@ -422,7 +422,6 @@ static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *riva
     const float a = g_orbit_smooth > 0.0f ? 1.0f - expf(-dt / g_orbit_smooth) : 1.0f;
     if (!g_orbit_ang_seeded) {
         g_orbit_ang = want_ang;
-        g_orbit_radius = want_radius;
         g_orbit_ang_seeded = true;
     } else {
         float d = want_ang - g_orbit_ang;
@@ -431,13 +430,13 @@ static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *riva
         while (d < -3.14159265f)
             d += 6.2831853f;
         g_orbit_ang += d * a;
-        g_orbit_radius += (want_radius - g_orbit_radius) * a;
     }
-    const float height = 25.0f + sep * 0.2f;
-    const rdVector3 want_pos = {mid.x + cosf(g_orbit_ang) * g_orbit_radius,
-                                mid.y + sinf(g_orbit_ang) * g_orbit_radius, mid.z + height};
-    const rdVector3 want_aim = {mid.x, mid.y, mid.z + 2.0f};
-    ease_to(want_pos, want_aim, g_orbit_smooth);
+    const rdVector3 pos = {p.x + cosf(g_orbit_ang) * g_orbit_radius,
+                           p.y + sinf(g_orbit_ang) * g_orbit_radius, p.z + g_orbit_height};
+    const rdVector3 want_aim = {p.x * 0.35f + q.x * 0.65f, p.y * 0.35f + q.y * 0.65f,
+                                p.z * 0.35f + q.z * 0.65f + 2.0f};
+    ease_to(pos, want_aim, 0.12f);
+    g_cam_pos = pos;// rigid to the pod; only the aim eases
     write_camera(cman);
 }
 
@@ -574,16 +573,20 @@ static void load_config() {
         g_drone_height = config::get_float(INI_SECTION, "drone_height", g_drone_height);
         g_drone_back = config::get_float(INI_SECTION, "drone_back", g_drone_back);
     }
-    if (stored_version >= CFG_VERSION) {// v3: further / longer trackside defaults
+    if (stored_version >= 3) {// v3: further / longer trackside defaults
         g_trackside_ahead = config::get_float(INI_SECTION, "trackside_ahead", g_trackside_ahead);
         g_trackside_past = config::get_float(INI_SECTION, "trackside_past", g_trackside_past);
         g_trackside_max_s = config::get_float(INI_SECTION, "trackside_max_s", g_trackside_max_s);
+    }
+    if (stored_version >= CFG_VERSION) {// v4: pod-anchored orbit, narrower sweep
+        g_orbit_sweep = config::get_float(INI_SECTION, "orbit_sweep", g_orbit_sweep);
+        g_orbit_radius = config::get_float(INI_SECTION, "orbit_radius", g_orbit_radius);
+        g_orbit_height = config::get_float(INI_SECTION, "orbit_height", g_orbit_height);
     }
     g_drone_ahead = config::get_float(INI_SECTION, "drone_ahead", g_drone_ahead);
     g_drone_smooth = config::get_float(INI_SECTION, "drone_smooth", g_drone_smooth);
     g_orbit_dist = config::get_float(INI_SECTION, "orbit_dist", g_orbit_dist);
     g_orbit_rate = config::get_float(INI_SECTION, "orbit_rate", g_orbit_rate);
-    g_orbit_sweep = config::get_float(INI_SECTION, "orbit_sweep", g_orbit_sweep);
     g_orbit_smooth = config::get_float(INI_SECTION, "orbit_smooth", g_orbit_smooth);
     g_cockpit_max_s = config::get_float(INI_SECTION, "cockpit_max_s", g_cockpit_max_s);
 }
@@ -614,6 +617,8 @@ static void save_config() {
     config::set_float(INI_SECTION, "orbit_dist", g_orbit_dist);
     config::set_float(INI_SECTION, "orbit_rate", g_orbit_rate);
     config::set_float(INI_SECTION, "orbit_sweep", g_orbit_sweep);
+    config::set_float(INI_SECTION, "orbit_radius", g_orbit_radius);
+    config::set_float(INI_SECTION, "orbit_height", g_orbit_height);
     config::set_float(INI_SECTION, "orbit_smooth", g_orbit_smooth);
     config::set_float(INI_SECTION, "cockpit_max_s", g_cockpit_max_s);
     config::save();
@@ -650,6 +655,8 @@ static void panel_director() {
         ImGui::SliderFloat("Rival within (world units)", &g_orbit_dist, 20.0f, 400.0f, "%.0f");
     changed |= ImGui::SliderFloat("Sweep rate (rad/s)", &g_orbit_rate, 0.0f, 1.5f, "%.2f");
     changed |= ImGui::SliderFloat("Sweep amplitude (rad)", &g_orbit_sweep, 0.0f, 2.5f, "%.2f");
+    changed |= ImGui::SliderFloat("Distance from pod", &g_orbit_radius, 15.0f, 200.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Height##orbit", &g_orbit_height, 0.0f, 120.0f, "%.0f");
     changed |= ImGui::SliderFloat("Smoothing (s)##orbit", &g_orbit_smooth, 0.0f, 2.0f, "%.2f");
     ImGui::SeparatorText("Cockpit");
     changed |= ImGui::SliderFloat("Max duration (s)", &g_cockpit_max_s, 2.0f, 30.0f, "%.0f");
