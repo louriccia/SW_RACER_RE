@@ -16,6 +16,14 @@ extern "C" {
 
 static RaceTelemetry g_t;
 
+// Rank hysteresis: two pods trading places every frame make the board flicker, so the published
+// order only changes when a racer is clearly ahead of the one in front (by RANK_HYSTERESIS_LAPS of
+// progress). Finishers are always ordered by time and always ahead of anyone still racing.
+static const float RANK_HYSTERESIS_LAPS = 0.003f;
+static int g_prev_order[RACE_TELEMETRY_MAX_ROWS];// slots in published order
+static int g_prev_order_n = 0;
+static const swrObjJdge *g_order_jdge = NULL;
+
 // Leader pace: sampled once a second and smoothed, so progress deficits can be shown as seconds.
 static float g_pace_prev_prog = -1.0f;
 static DWORD g_pace_prev_ms = 0;
@@ -137,13 +145,47 @@ void race_telemetry_Update() {
     if (n == 0)
         return;
 
-    std::sort(g_t.rows, g_t.rows + n, [](const RaceTelemetryRow &a, const RaceTelemetryRow &b) {
+    // Start from the previously published order (new slots appended), then bubble only the
+    // swaps that clear the hysteresis margin.
+    if (jdge != g_order_jdge || g_t.judge_state == 0) {
+        g_order_jdge = jdge;
+        g_prev_order_n = 0;
+    }
+    RaceTelemetryRow rows[RACE_TELEMETRY_MAX_ROWS];
+    int rn = 0;
+    bool used[RACE_TELEMETRY_MAX_ROWS] = {false};
+    for (int k = 0; k < g_prev_order_n; k++)
+        for (int i = 0; i < n; i++)
+            if (!used[i] && g_t.rows[i].slot == g_prev_order[k]) {
+                rows[rn++] = g_t.rows[i];
+                used[i] = true;
+            }
+    for (int i = 0; i < n; i++)
+        if (!used[i])
+            rows[rn++] = g_t.rows[i];
+    auto clearly_ahead = [](const RaceTelemetryRow &b, const RaceTelemetryRow &a) {
+        // true when b (behind on the board) should move in front of a
         if (a.finished != b.finished)
-            return a.finished;
+            return b.finished;
         if (a.finished)
-            return a.total_time_s < b.total_time_s;
-        return a.progress > b.progress;
-    });
+            return b.total_time_s < a.total_time_s;
+        return b.progress > a.progress + RANK_HYSTERESIS_LAPS;
+    };
+    for (int pass = 0; pass < rn; pass++) {
+        bool swapped = false;
+        for (int k = 0; k + 1 < rn; k++)
+            if (clearly_ahead(rows[k + 1], rows[k])) {
+                std::swap(rows[k], rows[k + 1]);
+                swapped = true;
+            }
+        if (!swapped)
+            break;
+    }
+    for (int k = 0; k < rn; k++) {
+        g_t.rows[k] = rows[k];
+        g_prev_order[k] = rows[k].slot;
+    }
+    g_prev_order_n = rn;
 
     const float lead_prog = leader_progress(jdge);
     g_t.leader_finished = g_t.rows[0].finished;

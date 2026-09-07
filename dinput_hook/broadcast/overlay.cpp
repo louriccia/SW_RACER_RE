@@ -61,16 +61,61 @@ static const char *track_name(int track_index) {
 static void format_time(float seconds, char *out, size_t n) {
     if (seconds < 0.0f)
         seconds = 0.0f;
-    const int ms = (int) (seconds * 1000.0f + 0.5f);
-    snprintf(out, n, "%d:%02d.%03d", ms / 60000, (ms / 1000) % 60, ms % 1000);
+    const int cs = (int) (seconds * 100.0f + 0.5f);
+    snprintf(out, n, "%d:%02d.%02d", cs / 6000, (cs / 100) % 60, cs % 100);
 }
 
 static void format_gap(float seconds, char *out, size_t n) {
-    const int ms = (int) (seconds * 1000.0f + 0.5f);
-    if (ms >= 60000)
-        snprintf(out, n, "+%d:%02d.%03d", ms / 60000, (ms / 1000) % 60, ms % 1000);
+    const int cs = (int) (seconds * 100.0f + 0.5f);
+    if (cs >= 6000)
+        snprintf(out, n, "+%d:%02d.%02d", cs / 6000, (cs / 100) % 60, cs % 100);
     else
-        snprintf(out, n, "+%d.%03d", ms / 1000, ms % 1000);
+        snprintf(out, n, "+%d.%02d", cs / 100, cs % 100);
+}
+
+// Status icons drawn with the draw list (the default ImGui font has no glyphs for these).
+enum StatusIcon { ICON_NONE, ICON_FINISHED, ICON_CRASHED, ICON_FIRE };
+
+static void draw_status_icon(StatusIcon icon) {
+    const float h = ImGui::GetTextLineHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    const float pad = h * 0.1f;
+    const float size = h - 2.0f * pad;
+    const ImVec2 o(p.x + pad, p.y + pad);
+    switch (icon) {
+        case ICON_FINISHED: {// checkered flag, 4 x 3 squares
+            const float cw = size * 1.3f / 4.0f, ch = size / 3.0f;
+            for (int r = 0; r < 3; r++)
+                for (int c = 0; c < 4; c++) {
+                    const bool dark = ((r + c) & 1) == 0;
+                    dl->AddRectFilled(ImVec2(o.x + c * cw, o.y + r * ch),
+                                      ImVec2(o.x + (c + 1) * cw, o.y + (r + 1) * ch),
+                                      dark ? IM_COL32(20, 20, 20, 255)
+                                           : IM_COL32(240, 240, 240, 255));
+                }
+            break;
+        }
+        case ICON_CRASHED: {// red X
+            const float t = std::max(1.5f, size * 0.15f);
+            dl->AddLine(o, ImVec2(o.x + size, o.y + size), IM_COL32(230, 60, 40, 255), t);
+            dl->AddLine(ImVec2(o.x + size, o.y), ImVec2(o.x, o.y + size),
+                        IM_COL32(230, 60, 40, 255), t);
+            break;
+        }
+        case ICON_FIRE: {// orange flame: triangle over a red base
+            dl->AddTriangleFilled(ImVec2(o.x + size * 0.5f, o.y), ImVec2(o.x + size, o.y + size),
+                                  ImVec2(o.x, o.y + size), IM_COL32(255, 140, 20, 255));
+            dl->AddTriangleFilled(ImVec2(o.x + size * 0.5f, o.y + size * 0.45f),
+                                  ImVec2(o.x + size * 0.8f, o.y + size),
+                                  ImVec2(o.x + size * 0.2f, o.y + size),
+                                  IM_COL32(230, 40, 20, 255));
+            break;
+        }
+        default:
+            break;
+    }
+    ImGui::Dummy(ImVec2(size * 1.3f, h));
 }
 
 static const ImGuiWindowFlags OVERLAY_FLAGS =
@@ -91,7 +136,7 @@ static void draw_leaderboard(const RaceTelemetry *t) {
         else if (r.gap_leader_s >= 0.0f)
             format_gap(r.gap_leader_s, gaps[k], sizeof(gaps[k]));
         else
-            snprintf(gaps[k], sizeof(gaps[k]), "+%.1f%%", r.gap_leader_laps * 100.0f);
+            snprintf(gaps[k], sizeof(gaps[k]), "--");// no leader pace sampled yet
     }
 
     const ImGuiIO &io = ImGui::GetIO();
@@ -128,16 +173,15 @@ static void draw_leaderboard(const RaceTelemetry *t) {
                 ImGui::TextUnformatted(gaps[k]);
                 if (g_show_tags) {
                     ImGui::TableNextColumn();
-                    const char *tag = "";
-                    if (r.finished && results)
-                        tag = "FIN";
-                    else if (!r.finished && results)
-                        tag = r.dead ? "crashed" : "racing";
-                    else if (r.on_fire)
-                        tag = "on fire";
+                    StatusIcon icon = ICON_NONE;
+                    if (r.finished)
+                        icon = ICON_FINISHED;
                     else if (r.dead)
-                        tag = "crashed";
-                    ImGui::TextUnformatted(tag);
+                        icon = ICON_CRASHED;
+                    else if (r.on_fire)
+                        icon = ICON_FIRE;
+                    (void) results;
+                    draw_status_icon(icon);
                 }
             }
             ImGui::EndTable();
@@ -217,7 +261,7 @@ static void panel_broadcast() {
         ImGui::SameLine();
         ImGui::TextDisabled("(forced on by the orchestrator)");
     }
-    changed |= ImGui::Checkbox("Status column (FIN / racing / on fire)", &g_show_tags);
+    changed |= ImGui::Checkbox("Status icons (finished / crashed / on fire)", &g_show_tags);
     changed |= ImGui::SliderFloat("Scale", &g_scale, 1.0f, 3.0f, "%.1f");
     changed |= ImGui::SliderFloat("Opacity", &g_opacity, 0.0f, 1.0f, "%.2f");
     changed |= ImGui::RadioButton("Left", &g_anchor, 0);

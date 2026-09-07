@@ -501,7 +501,10 @@ void orchestrator_Service() {
     hang->demo_mode = 1;
 
     overlay_ForceLeaderboard(true);
-    overlay_SetTitle(g_cooldown_active ? "RESULTS" : "");
+    char title[32];
+    snprintf(title, sizeof(title), "%s %d", g_cooldown_active ? "RESULTS" : "RACE",
+             g_races_started);
+    overlay_SetTitle(title);
     if (g_cooldown_active) {
         const DWORD now_ms = GetTickCount();
         const float left =
