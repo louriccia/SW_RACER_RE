@@ -349,15 +349,10 @@ void __cdecl swrObjJdge_F3_delta(swrObjJdge *jdge) {
         // (swrObjJdge_DrawSpeedDialHud / LayoutHudFrameSprites) are only ever re-shown per frame, so
         // hide those too or they linger from the last racing frame.
         swrObjJdge_HideEngineUI(score);
-        static const short DIAL_SPRITES[] = {swrUISprite_dial_speed_mid_blue,
-                                             swrUISprite_dial_speed_edge_blue_rgb_0,
-                                             swrUISprite_dial_speed_edge_blue_rgb_1,
-                                             0xe /* boost lamp */,
-                                             swrUISprite_gradient_rgb_0,
-                                             swrUISprite_gradient_rgb_1,
-                                             swrUISprite_dial_meter_only_rgb_2,
-                                             swrUISprite_dial_lightflash_rgb_1};
-        for (short id: DIAL_SPRITES)
+        // Header frame 0x0-0xd (swrObjJdge_LayoutHudFrameSprites), dial cluster 0xe-0x12 and the
+        // engine readout up to 0x2a; the racer markers start at 0x2b and the countdown lights live
+        // at 0xa1+, both left alone.
+        for (short id = 0; id <= 0x2a; id++)
             swrSprite_SetVisible(id, 0);
         return;
     }

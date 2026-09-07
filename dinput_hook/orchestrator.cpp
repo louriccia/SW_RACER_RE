@@ -34,6 +34,8 @@ static int g_laps = 1;
 static int g_racers = 20;
 static float g_cooldown_s =
     60.0f;// results / betting window: from the winner's finish to the next load
+static float g_all_done_s = 5.0f;  // once the last racer is in, the window shrinks to this
+static float g_grid_hold_s = 20.0f;// extra time on the pre-race grid view for bettors to pick
 static bool g_rotate_tracks = true;
 static bool g_unstick = true;
 static float g_stuck_s = 8.0f;// no progress for this long -> snap the pod back onto the spline
@@ -83,6 +85,7 @@ static void emit(int event) {
 // Per race
 static bool g_cooldown_active = false;// winner is in; counting down to the next race
 static DWORD g_cooldown_end_ms = 0;
+static DWORD g_grid_hold_start_ms = 0;// first frame of the pre-race orbit (state 5 before 'Go')
 static bool g_fini_fired = false;
 static DWORD g_last_snapshot_ms = 0;
 static DWORD g_first_finish_ms = 0;
@@ -218,6 +221,7 @@ static void reset_race_watch() {
     g_fini_fired = false;
     g_cooldown_active = false;
     g_cooldown_end_ms = 0;
+    g_grid_hold_start_ms = 0;
 }
 
 // Configure the hangar for an all-AI race and jump straight into the loading screen, the way the
@@ -537,8 +541,12 @@ void orchestrator_Service() {
     overlay_ForceNameplates(true);
     director_SetEnabled(true);
     overlay_SetHighlightSlot(director_FollowedSlot());
+    const bool on_grid = g_grid_hold_start_ms != 0 && !g_cooldown_active;
     char title[32];
-    snprintf(title, sizeof(title), "%s %d", g_cooldown_active ? "RESULTS" : "RACE",
+    snprintf(title, sizeof(title), "%s %d",
+             g_cooldown_active ? "RESULTS"
+             : on_grid         ? "GRID"
+                               : "RACE",
              g_races_started);
     overlay_SetTitle(title);
     if (g_cooldown_active) {
@@ -550,6 +558,14 @@ void orchestrator_Service() {
         snprintf(footer, sizeof(footer), "NEXT: %s\n%d racers, %d lap%s  |  starts in %d:%02d",
                  track_name(track), g_racers, g_laps, g_laps == 1 ? "" : "s", (int) left / 60,
                  (int) left % 60);
+        overlay_SetFooter(footer);
+    } else if (on_grid) {
+        const DWORD now_ms = GetTickCount();
+        const DWORD end = g_grid_hold_start_ms + (DWORD) ((g_grid_hold_s + 9.0f) * 1000.0f);
+        const float left = now_ms >= end ? 0.0f : (end - now_ms) / 1000.0f;
+        char footer[96];
+        snprintf(footer, sizeof(footer), "Place your bets  |  race starts in %d:%02d",
+                 (int) left / 60, (int) left % 60);
         overlay_SetFooter(footer);
     } else {
         overlay_SetFooter("");
@@ -576,6 +592,20 @@ void orchestrator_Service() {
 
         if (g_ai_lighting)
             apply_ai_lighting(jdge);
+        // Pre-race grid view: the judge orbits the grid in state 5 (before anyone has the racing
+        // bit) for 9 s, then counts down. Hold that orbit for g_grid_hold_s more so bettors can
+        // read the grid, by keeping its timer from expiring.
+        bool any_racing = false;
+        for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++)
+            if ((swrScoresPtr[i].flag & 1) != 0)
+                any_racing = true;
+        if (state == 5 && !any_racing) {
+            if (g_grid_hold_start_ms == 0)
+                g_grid_hold_start_ms = now;
+            if (now - g_grid_hold_start_ms < (DWORD) (g_grid_hold_s * 1000.0f) &&
+                jdge->raceTimer_ms < 1.0f)
+                jdge->raceTimer_ms = 1.0f;
+        }
         if (state == 1 || state == 2) {
             log_snapshot(jdge, now);
             if (g_unstick)
@@ -594,6 +624,16 @@ void orchestrator_Service() {
             }
             if (g_cooldown_active && g_dnf)
                 supervise_dnf(jdge, now);
+            // Everyone in (or state 2 = nobody relevant left): a short transition is enough.
+            if (g_cooldown_active) {
+                bool all_in = true;
+                for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++)
+                    if (racer_out_on_track(&swrScoresPtr[i]))
+                        all_in = false;
+                const DWORD soon = now + (DWORD) (g_all_done_s * 1000.0f);
+                if ((all_in || state == 2) && g_cooldown_end_ms > soon)
+                    g_cooldown_end_ms = soon;
+            }
             if (g_cooldown_active && now >= g_cooldown_end_ms)
                 end_race(jdge, 'Fini');
         }
@@ -664,6 +704,8 @@ static void load_config() {
     g_racers =
         std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"racers", g_racers, ini), 1, 20);
     g_cooldown_s = ini_get_float(ini, L"cooldown_s", g_cooldown_s);
+    g_all_done_s = ini_get_float(ini, L"all_done_s", g_all_done_s);
+    g_grid_hold_s = ini_get_float(ini, L"grid_hold_s", g_grid_hold_s);
     g_rotate_tracks =
         GetPrivateProfileIntW(INI_SECTION, L"rotate_tracks", g_rotate_tracks, ini) != 0;
     g_unstick = GetPrivateProfileIntW(INI_SECTION, L"unstick", g_unstick, ini) != 0;
@@ -685,6 +727,8 @@ static void save_config() {
     ini_set_int(ini, L"laps", g_laps);
     ini_set_int(ini, L"racers", g_racers);
     ini_set_float(ini, L"cooldown_s", g_cooldown_s);
+    ini_set_float(ini, L"all_done_s", g_all_done_s);
+    ini_set_float(ini, L"grid_hold_s", g_grid_hold_s);
     ini_set_int(ini, L"rotate_tracks", g_rotate_tracks);
     ini_set_int(ini, L"unstick", g_unstick);
     ini_set_float(ini, L"stuck_s", g_stuck_s);
@@ -716,6 +760,10 @@ static void panel_orchestrator() {
     changed |= ImGui::SliderInt("Laps", &g_laps, 1, 10);
     changed |= ImGui::SliderFloat("Results / betting window after the winner (s)", &g_cooldown_s,
                                   5.0f, 900.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Transition once everyone is in (s)", &g_all_done_s, 0.0f, 60.0f,
+                                  "%.0f");
+    changed |= ImGui::SliderFloat("Extra grid time before the start (s)", &g_grid_hold_s, 0.0f,
+                                  120.0f, "%.0f");
     changed |= ImGui::Checkbox("Random track (no repeat in last 10)", &g_rotate_tracks);
     changed |= ImGui::Checkbox("Full physics for all AI (no on-rails LOD)", &g_full_physics);
     changed |= ImGui::Checkbox("AI engine damage: fires burn, engines explode", &g_ai_damage);

@@ -48,6 +48,9 @@ static float g_boost_turn_limit = 60.0f;    // |turnRateTarget| above this = cor
 static float g_boost_cooldown_s = 4.0f;
 static float g_boost_p_overheat = 0.12f;// chance a boost is held until the engines catch fire
 static bool g_boost_sound = true;
+static float g_boost_steer_scale = 0.6f;     // steering authority while boosting (risky in corners)
+static const float BOOST_CHARGE_PITCH = 0.8f;// nose-down held while charging, like the player
+static const float BOOST_SFX_PITCH = -0.13f; // swrRace_BoostCharge: rand * 0.1 - 0.18
 
 // ---------------------------------------------------------------------------------------------
 // Per-race state (indexed by swrScoresPtr slot)
@@ -127,6 +130,9 @@ static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const c
     const bool can_charge = (pod->flags0 & swrObjTest_FLAG0_CAN_CHARGE_BOOST) != 0;
     const bool straight = fabsf(pod->turnRateTarget) < g_boost_turn_limit;
     if (boosting) {
+        // Boosting narrows what the pilot can do with the stick: scale the autopilot's steering
+        // demand so a boost carried into a corner is a real gamble.
+        pod->turnRateTarget *= g_boost_steer_scale;
         const bool timed_out = now >= g_boost_until_ms[slot];
         const bool too_hot = !g_boost_hold_to_fire[slot] && pod->engineTemp <= g_boost_release_temp;
         if (timed_out || too_hot || !straight) {
@@ -148,6 +154,7 @@ static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const c
                 pod->boostIndicatorStatus = 0;
                 break;
             }
+            pod->pitch = BOOST_CHARGE_PITCH;// hold the nose down for the charge second
             pod->boostChargeTimer += dt;
             if (pod->boostChargeTimer > BOOST_CHARGE_S)
                 pod->boostIndicatorStatus = 2;
@@ -167,7 +174,7 @@ static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const c
                 g_boost_hold_to_fire[slot] = frand() < g_boost_p_overheat;
                 g_boosts_total++;
                 if (g_boost_sound)
-                    swrSound_PlaySpatialRange(BOOST_SFX_ID, 7, 1.0f, 1.0f,
+                    swrSound_PlaySpatialRange(BOOST_SFX_ID, 7, BOOST_SFX_PITCH, 1.0f,
                                               (rdVector3 *) &pod->transform.vD, 0, 1, 10.0f,
                                               500.0f);
                 fprintf(hook_log, "[ai_variance] slot %d (%s) boost%s\n", slot, name,
@@ -318,6 +325,7 @@ static void load_config() {
     g_boost_cooldown_s = ini_get_float(ini, L"boost_cooldown_s", g_boost_cooldown_s);
     g_boost_p_overheat = ini_get_float(ini, L"boost_p_overheat", g_boost_p_overheat);
     g_boost_sound = GetPrivateProfileIntW(INI_SECTION, L"boost_sound", g_boost_sound, ini) != 0;
+    g_boost_steer_scale = ini_get_float(ini, L"boost_steer_scale", g_boost_steer_scale);
 }
 
 static void save_config() {
@@ -345,6 +353,7 @@ static void save_config() {
     ini_set_float(ini, L"boost_cooldown_s", g_boost_cooldown_s);
     ini_set_float(ini, L"boost_p_overheat", g_boost_p_overheat);
     ini_set_int(ini, L"boost_sound", g_boost_sound);
+    ini_set_float(ini, L"boost_steer_scale", g_boost_steer_scale);
 }
 
 static void panel_ai_variance() {
@@ -387,6 +396,8 @@ static void panel_ai_variance() {
     changed |= ImGui::SliderFloat("Cooldown (s)", &g_boost_cooldown_s, 0.0f, 20.0f, "%.1f");
     changed |= ImGui::SliderFloat("Chance to hold until overheat", &g_boost_p_overheat, 0.0f, 1.0f,
                                   "%.2f");
+    changed |=
+        ImGui::SliderFloat("Steering while boosting (x)", &g_boost_steer_scale, 0.1f, 1.0f, "%.2f");
     if (changed)
         save_config();
 

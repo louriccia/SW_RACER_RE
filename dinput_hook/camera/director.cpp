@@ -39,7 +39,7 @@ static const int CFG_VERSION = 2;    // bump when a default should override a st
 static float g_drone_back = 130.0f;  // behind the pod along its horizontal heading
 static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
 static float g_drone_smooth = 0.5f;  // position time constant (s)
-static float g_orbit_gap_s = 3.0f;   // rival within this many seconds -> orbit shot possible
+static float g_orbit_dist = 120.0f;  // rival within this many world units -> orbit shot possible
 static float g_orbit_rate = 0.35f;   // orbit sweep rate (rad/s)
 static float g_orbit_sweep = 1.1f;// sweep amplitude (rad) either side of the "away from rival" line
 static float g_orbit_smooth = 0.4f;
@@ -94,24 +94,35 @@ static bool followable(const RaceTelemetryRow &r) {
     return !r.finished && !r.dead;
 }
 
-// Nearest racer to `slot` on the board (ahead or behind) within g_orbit_gap_s, or -1.
-static int nearest_rival(const RaceTelemetry *t, int slot) {
-    const RaceTelemetryRow *me = row_for_slot(t, slot);
-    if (me == NULL || me->gap_leader_s < 0.0f)
+static float pod_distance(int a, int b) {
+    const swrRace *pa = swrScoresPtr[a].obj_test_ptr;
+    const swrRace *pb = swrScoresPtr[b].obj_test_ptr;
+    if (pa == NULL || pb == NULL)
+        return 1e9f;
+    const float dx = pa->transform.vD.x - pb->transform.vD.x;
+    const float dy = pa->transform.vD.y - pb->transform.vD.y;
+    const float dz = pa->transform.vD.z - pb->transform.vD.z;
+    return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+
+// Nearest racer to `slot` in the world (ahead or behind) within `max_dist`, or -1. Progress gaps
+// in seconds put pods a corner apart in "range"; the orbit needs them in the same shot.
+static int nearest_rival(const RaceTelemetry *t, int slot, float max_dist) {
+    if (swrScoresPtr == NULL || row_for_slot(t, slot) == NULL)
         return -1;
     int best = -1;
-    float best_gap = 1e9f;
+    float best_d = 1e9f;
     for (int k = 0; k < t->n; k++) {
         const RaceTelemetryRow &r = t->rows[k];
-        if (r.slot == slot || !followable(r) || r.gap_leader_s < 0.0f)
+        if (r.slot == slot || !followable(r))
             continue;
-        const float gap = fabsf(r.gap_leader_s - me->gap_leader_s);
-        if (gap < best_gap) {
-            best_gap = gap;
+        const float d = pod_distance(slot, r.slot);
+        if (d < best_d) {
+            best_d = d;
             best = r.slot;
         }
     }
-    return best_gap <= g_orbit_gap_s ? best : -1;
+    return best_d <= max_dist ? best : -1;
 }
 
 static void set_shot(Shot s) {
@@ -128,7 +139,7 @@ static void set_shot(Shot s) {
 
 // Roll a shot for the new target; orbit only when a rival is in range.
 static Shot pick_shot(const RaceTelemetry *t, int slot) {
-    g_orbit_rival = nearest_rival(t, slot);
+    g_orbit_rival = nearest_rival(t, slot, g_orbit_dist);
     const int wo = g_orbit_rival >= 0 ? g_w_orbit : 0;
     const int total = g_w_chase + g_w_drone + wo + g_w_cockpit;
     if (total <= 0)
@@ -266,11 +277,10 @@ void director_Service() {
     if (!must_cut) {
         if (g_shot == SHOT_ORBIT) {
             const RaceTelemetryRow *rv = row_for_slot(t, g_orbit_rival);
-            const bool keep = rv != NULL && followable(*rv) && cur->gap_leader_s >= 0.0f &&
-                              rv->gap_leader_s >= 0.0f &&
-                              fabsf(rv->gap_leader_s - cur->gap_leader_s) <= g_orbit_gap_s * 1.5f;
+            const bool keep = rv != NULL && followable(*rv) &&
+                              pod_distance(g_target_slot, g_orbit_rival) <= g_orbit_dist * 1.5f;
             if (!keep) {
-                const int rival = nearest_rival(t, g_target_slot);
+                const int rival = nearest_rival(t, g_target_slot, g_orbit_dist);
                 if (rival < 0)
                     set_shot(SHOT_CHASE);
                 else
@@ -363,7 +373,10 @@ static void shot_drone(swrObjcMan *cman, const swrRace *pod) {
 static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *rival) {
     const rdVector3 p = {pod->transform.vD.x, pod->transform.vD.y, pod->transform.vD.z};
     const rdVector3 q = {rival->transform.vD.x, rival->transform.vD.y, rival->transform.vD.z};
-    const rdVector3 mid = {(p.x + q.x) * 0.5f, (p.y + q.y) * 0.5f, (p.z + q.z) * 0.5f};
+    // frame both, weighted toward the followed pod so a rival at the edge of range never leaves
+    // the camera staring at empty track
+    const rdVector3 mid = {p.x * 0.65f + q.x * 0.35f, p.y * 0.65f + q.y * 0.35f,
+                           p.z * 0.65f + q.z * 0.35f};
     float dx = p.x - q.x, dy = p.y - q.y;
     const float sep = sqrtf(dx * dx + dy * dy);
     if (sep < 1e-3f) {
@@ -377,7 +390,7 @@ static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *riva
     const float t = (GetTickCount() - g_shot_start_ms) / 1000.0f;
     const float phase = g_orbit_sweep * sinf(t * g_orbit_rate);
     const float want_ang = atan2f(dy, dx) + phase;
-    const float want_radius = std::clamp(sep * 0.8f + 40.0f, 50.0f, 180.0f);
+    const float want_radius = std::clamp(sep * 0.9f + 45.0f, 55.0f, 190.0f);
 
     // The pair line flips 180 degrees when the pods swap order: ease the angle itself along the
     // shortest arc so the camera swings around rather than jumping.
@@ -497,7 +510,7 @@ static void load_config() {
     }
     g_drone_ahead = ini_get_float(ini, L"drone_ahead", g_drone_ahead);
     g_drone_smooth = ini_get_float(ini, L"drone_smooth", g_drone_smooth);
-    g_orbit_gap_s = ini_get_float(ini, L"orbit_gap_s", g_orbit_gap_s);
+    g_orbit_dist = ini_get_float(ini, L"orbit_dist", g_orbit_dist);
     g_orbit_rate = ini_get_float(ini, L"orbit_rate", g_orbit_rate);
     g_orbit_sweep = ini_get_float(ini, L"orbit_sweep", g_orbit_sweep);
     g_orbit_smooth = ini_get_float(ini, L"orbit_smooth", g_orbit_smooth);
@@ -522,7 +535,7 @@ static void save_config() {
     ini_set_float(ini, L"drone_back", g_drone_back);
     ini_set_float(ini, L"drone_ahead", g_drone_ahead);
     ini_set_float(ini, L"drone_smooth", g_drone_smooth);
-    ini_set_float(ini, L"orbit_gap_s", g_orbit_gap_s);
+    ini_set_float(ini, L"orbit_dist", g_orbit_dist);
     ini_set_float(ini, L"orbit_rate", g_orbit_rate);
     ini_set_float(ini, L"orbit_sweep", g_orbit_sweep);
     ini_set_float(ini, L"orbit_smooth", g_orbit_smooth);
@@ -555,7 +568,8 @@ static void panel_director() {
     changed |= ImGui::SliderFloat("Aim ahead", &g_drone_ahead, 0.0f, 400.0f, "%.0f");
     changed |= ImGui::SliderFloat("Smoothing (s)##drone", &g_drone_smooth, 0.0f, 2.0f, "%.2f");
     ImGui::SeparatorText("Orbit");
-    changed |= ImGui::SliderFloat("Rival within (s)", &g_orbit_gap_s, 0.5f, 10.0f, "%.1f");
+    changed |=
+        ImGui::SliderFloat("Rival within (world units)", &g_orbit_dist, 20.0f, 400.0f, "%.0f");
     changed |= ImGui::SliderFloat("Sweep rate (rad/s)", &g_orbit_rate, 0.0f, 1.5f, "%.2f");
     changed |= ImGui::SliderFloat("Sweep amplitude (rad)", &g_orbit_sweep, 0.0f, 2.5f, "%.2f");
     changed |= ImGui::SliderFloat("Smoothing (s)##orbit", &g_orbit_smooth, 0.0f, 2.0f, "%.2f");
@@ -587,7 +601,7 @@ static void panel_director() {
         set_shot(SHOT_DRONE);
     ImGui::SameLine();
     if (ImGui::Button("Orbit")) {
-        g_orbit_rival = nearest_rival(t, g_target_slot);
+        g_orbit_rival = nearest_rival(t, g_target_slot, g_orbit_dist);
         set_shot(g_orbit_rival >= 0 ? SHOT_ORBIT : SHOT_CHASE);
     }
     ImGui::SameLine();
