@@ -22,6 +22,7 @@ extern "C" {
 #include <Swr/swrRace.h>
 #include <Swr/swrEvent.h>
 #include <Swr/swrModel.h>// BuildLookAtTransform
+#include <Swr/swrSpline.h>// trackside: walk the pod's spline cursor ahead
 #include <globals.h>
 }
 
@@ -35,6 +36,13 @@ static int g_w_leader = 3, g_w_battle = 3, g_w_random = 1;// target pick weights
 static float g_battle_gap_s = 1.5f;                       // two racers this close are a "battle"
 // Shot mix (weights) + parameters. The stock spectator-mode cycling is disabled while active.
 static int g_w_chase = 2, g_w_drone = 6, g_w_orbit = 2, g_w_cockpit = 1;
+static int g_w_trackside = 3;
+static float g_trackside_ahead = 350.0f;// plant the camera this far along the spline ahead of the pod
+static float g_trackside_side = 70.0f;  // beside the spline (random side)
+static float g_trackside_height = 25.0f;
+static float g_trackside_past = 250.0f; // release once the pod is this far past the camera
+static float g_trackside_max_s = 14.0f; // or after this long (pod stalled / went the other way)
+static float g_trackside_aim_smooth = 0.15f;
 static float g_drone_height = 150.0f;// world units above the pod
 static const int CFG_VERSION = 2;    // bump when a default should override a stored value
 static float g_drone_back = 130.0f;  // behind the pod along its horizontal heading
@@ -56,8 +64,8 @@ static DWORD g_manual_until_ms = 0;
 static const char *g_last_rule = "";
 static int g_cuts = 0;
 
-enum Shot { SHOT_CHASE = 0, SHOT_DRONE, SHOT_ORBIT, SHOT_COCKPIT };
-static const char *SHOT_NAMES[] = {"chase", "drone", "orbit", "cockpit"};
+enum Shot { SHOT_CHASE = 0, SHOT_DRONE, SHOT_ORBIT, SHOT_COCKPIT, SHOT_TRACKSIDE };
+static const char *SHOT_NAMES[] = {"chase", "drone", "orbit", "cockpit", "trackside"};
 static Shot g_shot = SHOT_CHASE;
 static DWORD g_shot_start_ms = 0;
 static bool g_cam_seeded = false;
@@ -68,6 +76,9 @@ static int g_orbit_rival = -1;
 static float g_orbit_ang = 0.0f;// eased, unwrapped camera angle around the pair
 static float g_orbit_radius = 0.0f;
 static bool g_orbit_ang_seeded = false;
+static rdVector3 g_trackside_pos;// fixed camera position
+static rdVector3 g_trackside_fwd;// spline tangent at the camera (pass-by test)
+static bool g_trackside_planted = false;
 
 static swrObjcMan *camera_man() {
     return (swrObjcMan *) swrEvent_FindObjectById('cMan', 0);
@@ -134,6 +145,7 @@ static void set_shot(Shot s) {
     g_cam_seeded = false;
     g_orbit_ang_seeded = false;
     overlay_SuppressNameplates(s == SHOT_DRONE);
+    g_trackside_planted = false;
     if (s == SHOT_COCKPIT)
         playercam_SetExternalCockpit(true);
 }
@@ -142,7 +154,7 @@ static void set_shot(Shot s) {
 static Shot pick_shot(const RaceTelemetry *t, int slot) {
     g_orbit_rival = nearest_rival(t, slot, g_orbit_dist);
     const int wo = g_orbit_rival >= 0 ? g_w_orbit : 0;
-    const int total = g_w_chase + g_w_drone + wo + g_w_cockpit;
+    const int total = g_w_chase + g_w_drone + wo + g_w_cockpit + g_w_trackside;
     if (total <= 0)
         return SHOT_CHASE;
     int roll = rand() % total;
@@ -154,7 +166,10 @@ static Shot pick_shot(const RaceTelemetry *t, int slot) {
     roll -= g_w_drone;
     if (roll < wo)
         return SHOT_ORBIT;
-    return SHOT_COCKPIT;
+    roll -= wo;
+    if (roll < g_w_cockpit)
+        return SHOT_COCKPIT;
+    return SHOT_TRACKSIDE;
 }
 
 // The cut: same payload swrObjHang_AssignRacerCameras sends at spawn ({'NAsn', camIndex, pod}).
@@ -290,6 +305,14 @@ void director_Service() {
         } else if (g_shot == SHOT_COCKPIT &&
                    now - g_shot_start_ms > (DWORD) (g_cockpit_max_s * 1000.0f)) {
             set_shot(SHOT_CHASE);
+        } else if (g_shot == SHOT_TRACKSIDE && g_trackside_planted) {
+            const swrRace *pod = swrScoresPtr[g_target_slot].obj_test_ptr;
+            const float dx = pod != NULL ? pod->transform.vD.x - g_trackside_pos.x : 0.0f;
+            const float dy = pod != NULL ? pod->transform.vD.y - g_trackside_pos.y : 0.0f;
+            const float along = dx * g_trackside_fwd.x + dy * g_trackside_fwd.y;
+            if (pod == NULL || along > g_trackside_past ||
+                now - g_shot_start_ms > (DWORD) (g_trackside_max_s * 1000.0f))
+                set_shot(SHOT_CHASE);
         }
     }
 
@@ -418,6 +441,53 @@ static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *riva
     write_camera(cman);
 }
 
+// Trackside: walk a copy of the pod's spline cursor forward until it is g_trackside_ahead world
+// units away, plant the camera beside that point (spline right vector, random side) and leave it
+// there; only the aim follows the pod. Released by the upkeep once the pod is past the camera.
+static bool plant_trackside(const swrRace *pod) {
+    swrSplineCursor c = pod->splineCursor;
+    if (c.spline == NULL)
+        return false;
+    c.velocity = 0.0f;
+    rdMatrix44 m;
+    const rdVector3 start = {pod->transform.vD.x, pod->transform.vD.y, pod->transform.vD.z};
+    for (int i = 0; i < 400; i++) {
+        c.segmentT += 0.05f;
+        if (c.segmentT > 1.0f) {
+            c.segmentT -= 1.0f;
+            c.endFlag = 0;
+            swrSpline_CursorStep(c.spline, 1, &c);
+        }
+        swrSpline_EvaluateToMatrix(&c, &m);
+        const float dx = m.vD.x - start.x, dy = m.vD.y - start.y, dz = m.vD.z - start.z;
+        if (sqrtf(dx * dx + dy * dy + dz * dz) >= g_trackside_ahead)
+            break;
+    }
+    const float side = (rand() & 1) ? g_trackside_side : -g_trackside_side;
+    g_trackside_pos = {m.vD.x + m.vA.x * side + m.vC.x * g_trackside_height,
+                       m.vD.y + m.vA.y * side + m.vC.y * g_trackside_height,
+                       m.vD.z + m.vA.z * side + m.vC.z * g_trackside_height};
+    g_trackside_fwd = {m.vB.x, m.vB.y, 0.0f};
+    const float l = sqrtf(g_trackside_fwd.x * g_trackside_fwd.x + g_trackside_fwd.y * g_trackside_fwd.y);
+    if (l > 1e-3f) {
+        g_trackside_fwd.x /= l;
+        g_trackside_fwd.y /= l;
+    }
+    g_trackside_planted = true;
+    return true;
+}
+
+static void shot_trackside(swrObjcMan *cman, const swrRace *pod) {
+    if (!g_trackside_planted && !plant_trackside(pod)) {
+        set_shot(SHOT_CHASE);
+        return;
+    }
+    const rdVector3 want_aim = {pod->transform.vD.x, pod->transform.vD.y, pod->transform.vD.z};
+    ease_to(g_trackside_pos, want_aim, g_trackside_aim_smooth);
+    g_cam_pos = g_trackside_pos;// the position never eases: a tripod, not a drone
+    write_camera(cman);
+}
+
 static bool camera_override(swrObjcMan *cman) {
     if (!g_enabled || cman == NULL || g_shot == SHOT_CHASE)
         return false;
@@ -443,6 +513,9 @@ static bool camera_override(swrObjcMan *cman) {
             if (pod->partNodes == NULL)
                 return false;
             playercam_ApplyTrueCockpit(cman, pod);
+            return true;
+        case SHOT_TRACKSIDE:
+            shot_trackside(cman, pod);
             return true;
         default:
             return false;
@@ -483,6 +556,12 @@ static void load_config() {
     g_w_drone = config::get_int(INI_SECTION, "shot_drone", g_w_drone);
     g_w_orbit = config::get_int(INI_SECTION, "shot_orbit", g_w_orbit);
     g_w_cockpit = config::get_int(INI_SECTION, "shot_cockpit", g_w_cockpit);
+    g_w_trackside = config::get_int(INI_SECTION, "shot_trackside", g_w_trackside);
+    g_trackside_ahead = config::get_float(INI_SECTION, "trackside_ahead", g_trackside_ahead);
+    g_trackside_side = config::get_float(INI_SECTION, "trackside_side", g_trackside_side);
+    g_trackside_height = config::get_float(INI_SECTION, "trackside_height", g_trackside_height);
+    g_trackside_past = config::get_float(INI_SECTION, "trackside_past", g_trackside_past);
+    g_trackside_max_s = config::get_float(INI_SECTION, "trackside_max_s", g_trackside_max_s);
     const int stored_version = config::get_int(INI_SECTION, "cfg_version", 1);
     if (stored_version >= CFG_VERSION) {// v2: lower / closer drone defaults replace the old ones
         g_drone_height = config::get_float(INI_SECTION, "drone_height", g_drone_height);
@@ -510,6 +589,12 @@ static void save_config() {
     config::set_int(INI_SECTION, "shot_drone", g_w_drone);
     config::set_int(INI_SECTION, "shot_orbit", g_w_orbit);
     config::set_int(INI_SECTION, "shot_cockpit", g_w_cockpit);
+    config::set_int(INI_SECTION, "shot_trackside", g_w_trackside);
+    config::set_float(INI_SECTION, "trackside_ahead", g_trackside_ahead);
+    config::set_float(INI_SECTION, "trackside_side", g_trackside_side);
+    config::set_float(INI_SECTION, "trackside_height", g_trackside_height);
+    config::set_float(INI_SECTION, "trackside_past", g_trackside_past);
+    config::set_float(INI_SECTION, "trackside_max_s", g_trackside_max_s);
     config::set_float(INI_SECTION, "drone_height", g_drone_height);
     config::set_float(INI_SECTION, "drone_back", g_drone_back);
     config::set_float(INI_SECTION, "drone_ahead", g_drone_ahead);
@@ -542,6 +627,7 @@ static void panel_director() {
     changed |= ImGui::SliderInt("Drone", &g_w_drone, 0, 10);
     changed |= ImGui::SliderInt("Orbit (needs a rival in range)", &g_w_orbit, 0, 10);
     changed |= ImGui::SliderInt("Cockpit", &g_w_cockpit, 0, 10);
+    changed |= ImGui::SliderInt("Trackside", &g_w_trackside, 0, 10);
     ImGui::SeparatorText("Drone");
     changed |= ImGui::SliderFloat("Height", &g_drone_height, 20.0f, 800.0f, "%.0f");
     changed |= ImGui::SliderFloat("Behind", &g_drone_back, 0.0f, 600.0f, "%.0f");
@@ -555,6 +641,12 @@ static void panel_director() {
     changed |= ImGui::SliderFloat("Smoothing (s)##orbit", &g_orbit_smooth, 0.0f, 2.0f, "%.2f");
     ImGui::SeparatorText("Cockpit");
     changed |= ImGui::SliderFloat("Max duration (s)", &g_cockpit_max_s, 2.0f, 30.0f, "%.0f");
+    ImGui::SeparatorText("Trackside");
+    changed |= ImGui::SliderFloat("Plant ahead (world units)", &g_trackside_ahead, 50.0f, 1200.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Beside the track", &g_trackside_side, 0.0f, 300.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Height##trackside", &g_trackside_height, 0.0f, 200.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Release when past by", &g_trackside_past, 20.0f, 1000.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Max duration (s)##trackside", &g_trackside_max_s, 3.0f, 40.0f, "%.0f");
     if (changed)
         save_config();
 
@@ -587,6 +679,9 @@ static void panel_director() {
     ImGui::SameLine();
     if (ImGui::Button("Cockpit"))
         set_shot(SHOT_COCKPIT);
+    ImGui::SameLine();
+    if (ImGui::Button("Trackside"))
+        set_shot(SHOT_TRACKSIDE);
     ImGui::EndDisabled();
 }
 
