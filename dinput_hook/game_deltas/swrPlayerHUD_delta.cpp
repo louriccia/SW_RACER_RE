@@ -148,14 +148,16 @@ void swrText_CreateTextEntry2_delta(int16_t screen_x, int16_t screen_y, char r, 
         const int *py =
             g_mpNameSecondaryPass ? player_sprite_pixel_pos_y2 : player_sprite_pixel_pos_y;
         for (int slot = 0; slot < HUD_NAME_MAX_RACERS; slot++) {
-            if (px[slot] == screen_x && py[slot] == screen_y && g_slotName[slot][0]) {
-                // Scale the draw position by pos_pct (200% undoes the ~F 0.5 position scale); "~c"
-                // in the string handles centring. Then apply the fine-tune offsets.
-                screen_x = (int16_t) ((int) screen_x * HUD_NAME_POS_PCT / 100 + HUD_NAME_OFFSET_X);
-                screen_y = (int16_t) ((int) screen_y * HUD_NAME_POS_PCT / 100 + HUD_NAME_OFFSET_Y);
-                screenText = g_slotName[slot];
-                break;
-            }
+            if (px[slot] != screen_x || py[slot] != screen_y)
+                continue;
+            if (!g_slotName[slot][0])
+                return;// filtered out (overlay_NameplateVisible): no name, and no stock number either
+            // Scale the draw position by pos_pct (200% undoes the ~F 0.5 position scale); "~c"
+            // in the string handles centring. Then apply the fine-tune offsets.
+            screen_x = (int16_t) ((int) screen_x * HUD_NAME_POS_PCT / 100 + HUD_NAME_OFFSET_X);
+            screen_y = (int16_t) ((int) screen_y * HUD_NAME_POS_PCT / 100 + HUD_NAME_OFFSET_Y);
+            screenText = g_slotName[slot];
+            break;
         }
     }
 
