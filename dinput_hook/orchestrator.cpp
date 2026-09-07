@@ -656,27 +656,41 @@ static void draw_board(swrObjHang *hang, swrObjJdge *jdge) {
         ImGui::Text("%s %d  |  %s", g_cooldown_active ? "RESULTS" : "RACE", g_races_started,
                     track_name(hang->track_index));
         ImGui::Separator();
+        char gaps[MAX_RACERS][48];
+        float gap_w = 0.0f;
+        for (int k = 0; k < n; k++) {
+            swrScore *score = &swrScoresPtr[order[k]];
+            char *gap = gaps[k];
+            const size_t gap_n = sizeof(gaps[k]);
+            const bool fin = (score->flag & 2) != 0;
+            if (k == 0) {
+                // leader: absolute time (final for a finisher, race clock while racing)
+                format_time(leader_time, gap, gap_n);
+            } else if (fin) {
+                format_gap(score->results_P1_total_time - leader_time, gap, gap_n);
+            } else {
+                const float laps_behind = lead_prog - swrObjJdge_GetRacerProgress(score);
+                if (laps_behind >= 1.0f)
+                    snprintf(gap, gap_n, "+%d lap%s", (int) laps_behind,
+                             (int) laps_behind == 1 ? "" : "s");
+                else if (g_leader_pace > 0.0f)
+                    format_gap(laps_behind / g_leader_pace, gap, gap_n);
+                else
+                    snprintf(gap, gap_n, "+%.1f%%", laps_behind * 100.0f);
+            }
+            gap_w = std::max(gap_w, ImGui::CalcTextSize(gap).x);
+        }
         if (ImGui::BeginTable("board", 4, ImGuiTableFlags_SizingFixedFit)) {
+            ImGui::TableSetupColumn("pos");
+            ImGui::TableSetupColumn("name");
+            ImGui::TableSetupColumn("gap", ImGuiTableColumnFlags_WidthFixed, gap_w);
+            ImGui::TableSetupColumn("tag");
             for (int k = 0; k < n; k++) {
                 swrScore *score = &swrScoresPtr[order[k]];
-                char name[64], gap[48];
+                char name[64];
                 pilot_name(score, name, sizeof(name));
                 const bool fin = (score->flag & 2) != 0;
-                if (k == 0) {
-                    // leader: absolute time (final for a finisher, race clock while racing)
-                    format_time(leader_time, gap, sizeof(gap));
-                } else if (fin) {
-                    format_gap(score->results_P1_total_time - leader_time, gap, sizeof(gap));
-                } else {
-                    const float laps_behind = lead_prog - swrObjJdge_GetRacerProgress(score);
-                    if (laps_behind >= 1.0f)
-                        snprintf(gap, sizeof(gap), "+%d lap%s", (int) laps_behind,
-                                 (int) laps_behind == 1 ? "" : "s");
-                    else if (g_leader_pace > 0.0f)
-                        format_gap(laps_behind / g_leader_pace, gap, sizeof(gap));
-                    else
-                        snprintf(gap, sizeof(gap), "+%.1f%%", laps_behind * 100.0f);
-                }
+                const char *gap = gaps[k];
                 const char *tag = "";
                 if (fin && g_dnf_marked[order[k]])
                     tag = "DNF";
@@ -692,6 +706,7 @@ static void draw_board(swrObjHang *hang, swrObjJdge *jdge) {
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(name);
                 ImGui::TableNextColumn();
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + gap_w - ImGui::CalcTextSize(gap).x);
                 ImGui::TextUnformatted(gap);
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(tag);
