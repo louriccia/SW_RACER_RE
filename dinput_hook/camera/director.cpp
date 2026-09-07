@@ -35,7 +35,7 @@ static float g_manual_hold_s = 45.0f;// a manual pick holds this long before aut
 static int g_w_leader = 3, g_w_battle = 3, g_w_random = 1;// target pick weights
 static float g_battle_gap_s = 1.5f;                       // two racers this close are a "battle"
 // Shot mix (weights) + parameters. The stock spectator-mode cycling is disabled while active.
-static int g_w_chase = 2, g_w_drone = 6, g_w_orbit = 2, g_w_cockpit = 1;
+static int g_w_chase = 2, g_w_drone = 6, g_w_orbit = 4, g_w_cockpit = 1;
 static int g_w_trackside = 3;
 static float g_trackside_ahead = 750.0f;// plant the camera this far along the spline ahead of the pod
 static float g_trackside_side = 70.0f;  // beside the spline (random side)
@@ -44,10 +44,12 @@ static float g_trackside_past = 450.0f; // release once the pod is this far past
 static float g_trackside_max_s = 22.0f; // or after this long (pod stalled / went the other way)
 static float g_trackside_aim_smooth = 0.15f;
 static float g_drone_height = 120.0f;// world units above the pod
-static const int CFG_VERSION = 5;    // bump when a default should override a stored value
+static const int CFG_VERSION = 6;    // bump when a default should override a stored value
 static float g_drone_back = 110.0f;  // behind the pod along its horizontal heading
 static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
 static float g_drone_smooth = 0.5f;  // position time constant (s)
+static float g_drone_blend_s = 1.6f; // drone -> drone cut: fly to the new pod over this long
+static float g_drone_blend_tau = 0.55f;
 static float g_orbit_dist = 180.0f;  // rival within this many world units -> orbit shot possible
 static float g_orbit_rate = 0.35f;   // orbit sweep rate (rad/s)
 static float g_orbit_sweep = 0.6f;// sweep amplitude (rad) either side of the "away from rival" line
@@ -81,6 +83,7 @@ static bool g_orbit_ang_seeded = false;
 static rdVector3 g_trackside_pos;// fixed camera position
 static rdVector3 g_trackside_fwd;// spline tangent at the camera (pass-by test)
 static bool g_trackside_planted = false;
+static DWORD g_blend_until_ms = 0;// drone -> drone: the camera flies rather than cuts until then
 static DWORD g_blocked_since_ms = 0;// free-camera line of sight to the pod lost at (0 = clear)
 
 static swrObjcMan *camera_man() {
@@ -170,9 +173,13 @@ static int nearest_rival(const RaceTelemetry *t, int slot, float max_dist) {
 static void set_shot(Shot s) {
     if (g_shot == SHOT_COCKPIT && s != SHOT_COCKPIT)
         playercam_SetExternalCockpit(false);
+    // Drone to drone (a new target while already airborne): keep the eased camera state and let
+    // it fly across to the new pod instead of snapping.
+    const bool fly = g_shot == SHOT_DRONE && s == SHOT_DRONE && g_cam_seeded;
     g_shot = s;
     g_shot_start_ms = GetTickCount();
-    g_cam_seeded = false;
+    g_cam_seeded = fly;
+    g_blend_until_ms = fly ? g_shot_start_ms + (DWORD) (g_drone_blend_s * 1000.0f) : 0;
     g_orbit_ang_seeded = false;
     overlay_SuppressNameplates(s == SHOT_DRONE);
     g_trackside_planted = false;
@@ -435,7 +442,8 @@ static void shot_drone(swrObjcMan *cman, const swrRace *pod) {
     const rdVector3 want_pos = {p.x - fx * g_drone_back, p.y - fy * g_drone_back,
                                 p.z + g_drone_height};
     const rdVector3 want_aim = {p.x + fx * g_drone_ahead, p.y + fy * g_drone_ahead, p.z};
-    ease_to(want_pos, want_aim, g_drone_smooth);
+    const bool flying = g_blend_until_ms != 0 && GetTickCount() < g_blend_until_ms;
+    ease_to(want_pos, want_aim, flying ? std::max(g_drone_smooth, g_drone_blend_tau) : g_drone_smooth);
     write_camera(cman);
 }
 
@@ -609,7 +617,6 @@ static void load_config() {
     g_battle_gap_s = config::get_float(INI_SECTION, "battle_gap_s", g_battle_gap_s);
     g_w_chase = config::get_int(INI_SECTION, "shot_chase", g_w_chase);
     g_w_drone = config::get_int(INI_SECTION, "shot_drone", g_w_drone);
-    g_w_orbit = config::get_int(INI_SECTION, "shot_orbit", g_w_orbit);
     g_w_cockpit = config::get_int(INI_SECTION, "shot_cockpit", g_w_cockpit);
     g_w_trackside = config::get_int(INI_SECTION, "shot_trackside", g_w_trackside);
     g_trackside_side = config::get_float(INI_SECTION, "trackside_side", g_trackside_side);
@@ -625,12 +632,17 @@ static void load_config() {
         g_orbit_radius = config::get_float(INI_SECTION, "orbit_radius", g_orbit_radius);
         g_orbit_height = config::get_float(INI_SECTION, "orbit_height", g_orbit_height);
     }
-    if (stored_version >= CFG_VERSION) {// v5: closer drone, wider orbit range, occlusion cut
+    if (stored_version >= 5) {// v5: closer drone, wider orbit range, occlusion cut
         g_drone_height = config::get_float(INI_SECTION, "drone_height", g_drone_height);
         g_drone_back = config::get_float(INI_SECTION, "drone_back", g_drone_back);
         g_orbit_dist = config::get_float(INI_SECTION, "orbit_dist", g_orbit_dist);
         g_occlusion_s = config::get_float(INI_SECTION, "occlusion_s", g_occlusion_s);
     }
+    if (stored_version >= CFG_VERSION) {// v6: orbit weight 2 -> 4
+        g_w_orbit = config::get_int(INI_SECTION, "shot_orbit", g_w_orbit);
+    }
+    g_drone_blend_s = config::get_float(INI_SECTION, "drone_blend_s", g_drone_blend_s);
+    g_drone_blend_tau = config::get_float(INI_SECTION, "drone_blend_tau", g_drone_blend_tau);
     g_drone_ahead = config::get_float(INI_SECTION, "drone_ahead", g_drone_ahead);
     g_drone_smooth = config::get_float(INI_SECTION, "drone_smooth", g_drone_smooth);
     g_orbit_rate = config::get_float(INI_SECTION, "orbit_rate", g_orbit_rate);
@@ -661,6 +673,8 @@ static void save_config() {
     config::set_float(INI_SECTION, "drone_back", g_drone_back);
     config::set_float(INI_SECTION, "drone_ahead", g_drone_ahead);
     config::set_float(INI_SECTION, "drone_smooth", g_drone_smooth);
+    config::set_float(INI_SECTION, "drone_blend_s", g_drone_blend_s);
+    config::set_float(INI_SECTION, "drone_blend_tau", g_drone_blend_tau);
     config::set_float(INI_SECTION, "orbit_dist", g_orbit_dist);
     config::set_float(INI_SECTION, "orbit_rate", g_orbit_rate);
     config::set_float(INI_SECTION, "orbit_sweep", g_orbit_sweep);
@@ -699,6 +713,8 @@ static void panel_director() {
     changed |= ImGui::SliderFloat("Behind", &g_drone_back, 0.0f, 600.0f, "%.0f");
     changed |= ImGui::SliderFloat("Aim ahead", &g_drone_ahead, 0.0f, 400.0f, "%.0f");
     changed |= ImGui::SliderFloat("Smoothing (s)##drone", &g_drone_smooth, 0.0f, 2.0f, "%.2f");
+    changed |= ImGui::SliderFloat("Fly-over on drone-to-drone cuts (s)", &g_drone_blend_s, 0.0f, 5.0f, "%.1f");
+    changed |= ImGui::SliderFloat("Fly-over smoothing (s)", &g_drone_blend_tau, 0.1f, 2.0f, "%.2f");
     ImGui::SeparatorText("Orbit");
     changed |=
         ImGui::SliderFloat("Rival within (world units)", &g_orbit_dist, 20.0f, 400.0f, "%.0f");
