@@ -247,7 +247,8 @@ static void cut_to(int slot, const char *rule) {
     g_dead_since_ms = 0;
     g_cuts++;
     const RaceTelemetry *t = race_telemetry_Get();
-    set_shot(strcmp(rule, "manual") == 0 ? SHOT_CHASE : pick_shot(t, slot));
+    set_shot(strcmp(rule, "manual") == 0 || strcmp(rule, "showcase") == 0 ? SHOT_CHASE
+                                                                          : pick_shot(t, slot));
     const RaceTelemetryRow *r = row_for_slot(t, slot);
     fprintf(hook_log, "[director] cut -> slot %d (%s) by %s, %s shot\n", slot, r ? r->name : "?",
             rule, SHOT_NAMES[g_shot]);
@@ -401,6 +402,10 @@ void director_Service() {
         cut_to(next, must_cut ? "cut-away" : rule);
     else if (must_cut)
         g_last_cut_ms = now;// nothing better to show; re-check after a dwell
+}
+
+void director_Showcase(int slot) {
+    cut_to(slot, "showcase");
 }
 
 void director_FollowSlot(int slot) {

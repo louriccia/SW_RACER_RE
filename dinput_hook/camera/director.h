@@ -20,6 +20,8 @@ bool director_IsEnabled();
 
 // Follow a racer by swrScoresPtr slot now (manual pick). -1 = let auto choose again.
 void director_FollowSlot(int slot);
+// Cut to a racer on the stock chase view without the manual hold (pre-race grid showcase).
+void director_Showcase(int slot);
 
 // Slot currently followed by camera-man 0, or -1.
 int director_FollowedSlot();

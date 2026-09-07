@@ -17,6 +17,7 @@
 #include "orchestrator.h"
 #include "ai_variance.h"
 #include "broadcast/overlay.h"
+#include "broadcast/voice.h"
 
 extern "C" {
 #include "./game_deltas/DirectX_delta.h"
@@ -2153,6 +2154,7 @@ extern "C" void init_renderer_hooks() {
     orchestrator_RegisterHooks();
     ai_variance_RegisterHooks();
     overlay_RegisterHooks();
+    voice_RegisterHooks();
 
 #if ENABLE_GAMEPAD_NAV
     // Feed the gamepad's D-pad / START / BACK into the game's menu + in-race input.

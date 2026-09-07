@@ -6,6 +6,7 @@
 #include "camera/player_camera.h"
 #include "orchestrator.h"
 #include "broadcast/overlay.h"
+#include "broadcast/voice.h"
 #include "camera/director.h"
 #include "ai_variance.h"
 
@@ -683,6 +684,7 @@ void imgui_Update() {
         orchestrator_RegisterPanel();
         overlay_RegisterPanel();
         director_RegisterPanel();
+        voice_RegisterPanel();
         ai_variance_RegisterPanel();
         debug_ui_register_builtin_shell_panels();
         debug_ui_load_settings();
@@ -697,6 +699,7 @@ void imgui_Update() {
         service_fast_restart();
         overlay_Service();
         director_Service();
+        voice_Service();
         orchestrator_Service();
 
         ImGui_ImplOpenGL3_NewFrame();

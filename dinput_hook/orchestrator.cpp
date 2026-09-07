@@ -7,6 +7,7 @@
 #include "game_deltas/tracks_delta.h"// swrUI_GetTrackNameFromId_delta
 #include "broadcast/overlay.h"
 #include "camera/director.h"
+#include "broadcast/voice.h"
 
 #include <imgui.h>
 
@@ -21,6 +22,7 @@
 extern "C" {
 #include <Swr/swrObj.h>
 #include <Swr/swrRace.h>
+#include <Swr/swrSound.h>// swrSound_SetSfxFlag (stock announcer one-shot)
 #include <Swr/swrEvent.h>
 #include <Swr/swrMultiplayer.h>
 #include <Swr/swrText.h>
@@ -50,6 +52,7 @@ static bool g_ai_repair =
 static float g_repair_start = 0.5f;
 static float g_repair_stop = 0.2f;
 static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
+static int g_hero_count = 3;// grid hold: cut to this many random racers with announcer lines (0 = off)
 static bool g_shuffle_grid = true; // random starting grid (stock: roster order, favourite up front)
 static bool g_no_blue_flash = true;// keep the respawn light override off the shared AI light bank
 static float g_snapshot_s = 20.0f; // periodic field snapshot to hook.log (0 = off)
@@ -95,6 +98,9 @@ static bool g_fini_fired = false;
 static DWORD g_last_snapshot_ms = 0;
 static DWORD g_first_finish_ms = 0;
 static const int MAX_RACERS = 20;
+static int g_heroes_shown = 0;// grid showcase progress
+static DWORD g_hero_next_ms = 0;
+static bool g_hero_used[MAX_RACERS];
 static const int SHARED_AI_BANK =
     10;// the one light bank every AI pod reads (see apply_ai_lighting)
 static float g_last_progress[MAX_RACERS];
@@ -229,6 +235,38 @@ static void reset_race_watch() {
     g_cooldown_active = false;
     g_cooldown_end_ms = 0;
     g_grid_hold_start_ms = 0;
+    g_heroes_shown = 0;
+    g_hero_next_ms = 0;
+    memset(g_hero_used, 0, sizeof(g_hero_used));
+}
+
+// Grid showcase: while the grid is held, cut to a few random racers in turn and play the
+// announcer's pre-race lines for them (swrObjJdge_F0 does this once, for the local pilot only,
+// 2 s into the pre-race orbit).
+static void showcase_heroes(const swrObjJdge *jdge, DWORD now) {
+    if (g_hero_count <= 0 || g_heroes_shown >= g_hero_count || !director_IsEnabled())
+        return;
+    if (g_hero_next_ms == 0) {
+        // Suppress the stock line for the stale local pilot id; it uses this one-shot flag.
+        swrSound_SetSfxFlag(0, 0x200000);
+        g_hero_next_ms = now + 1500;
+        return;
+    }
+    if (now < g_hero_next_ms)
+        return;
+    int candidates[MAX_RACERS], n = 0;
+    for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++)
+        if (!g_hero_used[i] && swrScoresPtr[i].obj_test_ptr != NULL)
+            candidates[n++] = i;
+    if (n == 0)
+        return;
+    const int slot = candidates[rand() % n];
+    g_hero_used[slot] = true;
+    director_Showcase(slot);
+    overlay_SetHighlightSlot(slot);
+    voice_AnnounceRacer(slot, g_heroes_shown);
+    g_heroes_shown++;
+    g_hero_next_ms = now + (DWORD) (g_grid_hold_s * 1000.0f / (float) (g_hero_count + 1));
 }
 
 // Configure the hangar for an all-AI race and jump straight into the loading screen, the way the
@@ -663,6 +701,8 @@ void orchestrator_Service() {
             const bool holding = now - g_grid_hold_start_ms < (DWORD) (g_grid_hold_s * 1000.0f);
             if (holding && state == 0 && jdge->raceTimer_ms < 3.5f)
                 jdge->raceTimer_ms = 3.5f;
+            if (holding && state == 0)
+                showcase_heroes(jdge, now);
         }
         if (state == 1 || state == 2) {
             log_snapshot(jdge, now);
@@ -765,6 +805,7 @@ static void load_config() {
     g_repair_start = config::get_float(INI_SECTION, "repair_start", g_repair_start);
     g_repair_stop = config::get_float(INI_SECTION, "repair_stop", g_repair_stop);
     g_ai_lighting = config::get_int(INI_SECTION, "ai_lighting", g_ai_lighting) != 0;
+    g_hero_count = config::get_int(INI_SECTION, "hero_count", g_hero_count);
     g_shuffle_grid = config::get_int(INI_SECTION, "shuffle_grid", g_shuffle_grid) != 0;
     g_no_blue_flash =
         config::get_int(INI_SECTION, "no_blue_flash", g_no_blue_flash) != 0;
@@ -788,6 +829,7 @@ static void save_config() {
     config::set_float(INI_SECTION, "repair_start", g_repair_start);
     config::set_float(INI_SECTION, "repair_stop", g_repair_stop);
     config::set_int(INI_SECTION, "ai_lighting", g_ai_lighting);
+    config::set_int(INI_SECTION, "hero_count", g_hero_count);
     config::set_int(INI_SECTION, "shuffle_grid", g_shuffle_grid);
     config::set_int(INI_SECTION, "no_blue_flash", g_no_blue_flash);
     config::set_float(INI_SECTION, "snapshot_s", g_snapshot_s);
@@ -827,6 +869,7 @@ static void panel_orchestrator() {
         changed |= ImGui::SliderFloat("stop##rep", &g_repair_stop, 0.0f, 0.5f, "%.2f");
     }
     changed |= ImGui::Checkbox("Light AI pods from the followed pod's light bank", &g_ai_lighting);
+    changed |= ImGui::SliderInt("Grid showcase: racers introduced by the announcer", &g_hero_count, 0, 6);
     changed |= ImGui::Checkbox("Random starting grid", &g_shuffle_grid);
     changed |= ImGui::Checkbox("No respawn blue flash on the shared AI lighting", &g_no_blue_flash);
     ImGui::SetNextItemWidth(120.0f);
