@@ -37,14 +37,14 @@ static float g_battle_gap_s = 1.5f;                       // two racers this clo
 // Shot mix (weights) + parameters. The stock spectator-mode cycling is disabled while active.
 static int g_w_chase = 2, g_w_drone = 6, g_w_orbit = 2, g_w_cockpit = 1;
 static int g_w_trackside = 3;
-static float g_trackside_ahead = 350.0f;// plant the camera this far along the spline ahead of the pod
+static float g_trackside_ahead = 750.0f;// plant the camera this far along the spline ahead of the pod
 static float g_trackside_side = 70.0f;  // beside the spline (random side)
 static float g_trackside_height = 25.0f;
-static float g_trackside_past = 250.0f; // release once the pod is this far past the camera
-static float g_trackside_max_s = 14.0f; // or after this long (pod stalled / went the other way)
+static float g_trackside_past = 450.0f; // release once the pod is this far past the camera
+static float g_trackside_max_s = 22.0f; // or after this long (pod stalled / went the other way)
 static float g_trackside_aim_smooth = 0.15f;
 static float g_drone_height = 150.0f;// world units above the pod
-static const int CFG_VERSION = 2;    // bump when a default should override a stored value
+static const int CFG_VERSION = 3;    // bump when a default should override a stored value
 static float g_drone_back = 130.0f;  // behind the pod along its horizontal heading
 static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
 static float g_drone_smooth = 0.5f;  // position time constant (s)
@@ -567,15 +567,17 @@ static void load_config() {
     g_w_orbit = config::get_int(INI_SECTION, "shot_orbit", g_w_orbit);
     g_w_cockpit = config::get_int(INI_SECTION, "shot_cockpit", g_w_cockpit);
     g_w_trackside = config::get_int(INI_SECTION, "shot_trackside", g_w_trackside);
-    g_trackside_ahead = config::get_float(INI_SECTION, "trackside_ahead", g_trackside_ahead);
     g_trackside_side = config::get_float(INI_SECTION, "trackside_side", g_trackside_side);
     g_trackside_height = config::get_float(INI_SECTION, "trackside_height", g_trackside_height);
-    g_trackside_past = config::get_float(INI_SECTION, "trackside_past", g_trackside_past);
-    g_trackside_max_s = config::get_float(INI_SECTION, "trackside_max_s", g_trackside_max_s);
     const int stored_version = config::get_int(INI_SECTION, "cfg_version", 1);
-    if (stored_version >= CFG_VERSION) {// v2: lower / closer drone defaults replace the old ones
+    if (stored_version >= 2) {// v2: lower / closer drone defaults replace the old ones
         g_drone_height = config::get_float(INI_SECTION, "drone_height", g_drone_height);
         g_drone_back = config::get_float(INI_SECTION, "drone_back", g_drone_back);
+    }
+    if (stored_version >= CFG_VERSION) {// v3: further / longer trackside defaults
+        g_trackside_ahead = config::get_float(INI_SECTION, "trackside_ahead", g_trackside_ahead);
+        g_trackside_past = config::get_float(INI_SECTION, "trackside_past", g_trackside_past);
+        g_trackside_max_s = config::get_float(INI_SECTION, "trackside_max_s", g_trackside_max_s);
     }
     g_drone_ahead = config::get_float(INI_SECTION, "drone_ahead", g_drone_ahead);
     g_drone_smooth = config::get_float(INI_SECTION, "drone_smooth", g_drone_smooth);
@@ -652,10 +654,10 @@ static void panel_director() {
     ImGui::SeparatorText("Cockpit");
     changed |= ImGui::SliderFloat("Max duration (s)", &g_cockpit_max_s, 2.0f, 30.0f, "%.0f");
     ImGui::SeparatorText("Trackside");
-    changed |= ImGui::SliderFloat("Plant ahead (world units)", &g_trackside_ahead, 50.0f, 1200.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Plant ahead (world units)", &g_trackside_ahead, 50.0f, 2000.0f, "%.0f");
     changed |= ImGui::SliderFloat("Beside the track", &g_trackside_side, 0.0f, 300.0f, "%.0f");
     changed |= ImGui::SliderFloat("Height##trackside", &g_trackside_height, 0.0f, 200.0f, "%.0f");
-    changed |= ImGui::SliderFloat("Release when past by", &g_trackside_past, 20.0f, 1000.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Release when past by", &g_trackside_past, 20.0f, 1500.0f, "%.0f");
     changed |= ImGui::SliderFloat("Max duration (s)##trackside", &g_trackside_max_s, 3.0f, 40.0f, "%.0f");
     if (changed)
         save_config();
