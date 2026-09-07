@@ -45,3 +45,5 @@ bool overlay_NameplatesSuppressed();
 // Per-racer filter for the overhead names: the followed racer always, plus its nearest
 // neighbours within range ([broadcast] nameplate_neighbors / nameplate_max_dist).
 bool overlay_NameplateVisible(int score_slot);
+// Label glyph scale (0.5 = the stock "~F" half-size text) and vertical nudge in screen px.
+void overlay_NameplateStyle(float *scale, int *offset_y);

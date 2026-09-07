@@ -1,6 +1,7 @@
 #include "swrPlayerHUD_delta.h"
 
 #include <cstdio>
+#include <windows.h>
 #include <cmath>
 
 extern "C" {
@@ -113,8 +114,13 @@ void swrPlayerHUD_RenderDistanceText_delta(void *viewport, bool secondaryPass) {
             if (podIndex >= 0 && podIndex < HUD_NAME_MAX_PODS) {
                 char podName[32];
                 swrText_FormatPodName(podIndex, podName, sizeof(podName));
-                snprintf(g_slotName[slot], sizeof(g_slotName[slot]), "~F%d~c~s%s", HUD_NAME_FONT,
-                         podName);
+                const int pos = (short) swrScores[player].results_P1_Position;
+                if (pos > 0)
+                    snprintf(g_slotName[slot], sizeof(g_slotName[slot]), "~F%d~c~s%d. %s",
+                             HUD_NAME_FONT, pos, podName);
+                else
+                    snprintf(g_slotName[slot], sizeof(g_slotName[slot]), "~F%d~c~s%s",
+                             HUD_NAME_FONT, podName);
             }
         } else if (name && name[0]) {
             snprintf(g_slotName[slot], sizeof(g_slotName[slot]), "~F%d~c~s%s", HUD_NAME_FONT, name);
@@ -152,10 +158,15 @@ void swrText_CreateTextEntry2_delta(int16_t screen_x, int16_t screen_y, char r, 
                 continue;
             if (!g_slotName[slot][0])
                 return;// filtered out (overlay_NameplateVisible): no name, and no stock number either
-            // Scale the draw position by pos_pct (200% undoes the ~F 0.5 position scale); "~c"
-            // in the string handles centring. Then apply the fine-tune offsets.
-            screen_x = (int16_t) ((int) screen_x * HUD_NAME_POS_PCT / 100 + HUD_NAME_OFFSET_X);
-            screen_y = (int16_t) ((int) screen_y * HUD_NAME_POS_PCT / 100 + HUD_NAME_OFFSET_Y);
+            // The "~F" text is drawn at the half-scale factor (swrText_halfScale -> the float at
+            // 0x004ac64c, swapped for the overlay's nameplate scale during swrText_RenderEntries1),
+            // which scales the position too: pre-divide so the label lands on the pod, then nudge
+            // it up by the configured screen px. "~c" in the string handles centring.
+            float scale;
+            int offset_y;
+            overlay_NameplateStyle(&scale, &offset_y);
+            screen_x = (int16_t) lroundf((float) screen_x / scale + HUD_NAME_OFFSET_X);
+            screen_y = (int16_t) lroundf(((float) screen_y + (float) offset_y) / scale);
             screenText = g_slotName[slot];
             break;
         }
@@ -172,8 +183,30 @@ void swrText_CreateTextEntry2_delta(int16_t screen_x, int16_t screen_y, char r, 
                        r, g, b, a, screenText);
 }
 
+// The 0.5 the "~F" code scales glyphs (and positions) by. Swapped for the nameplate scale around
+// the batch that renders our labels; anything else drawn with "~F" in that batch shrinks with them.
+static float *const g_half_scale_factor = (float *) 0x004ac64c;
+static const float HALF_SCALE_STOCK = 0.5f;
+
+static void set_half_scale_factor(float v) {
+    DWORD old;
+    if (VirtualProtect(g_half_scale_factor, sizeof(float), PAGE_READWRITE, &old)) {
+        *g_half_scale_factor = v;
+        VirtualProtect(g_half_scale_factor, sizeof(float), old, &old);
+    }
+}
+
 void swrText_RenderEntries1_delta(void) {
+    float scale = HALF_SCALE_STOCK;
+    int offset_y;
+    if (imgui_state.show_pod_names && overlay_NameplatesActive())
+        overlay_NameplateStyle(&scale, &offset_y);
+    const bool swap = scale != HALF_SCALE_STOCK;
+    if (swap)
+        set_half_scale_factor(scale);
     hook_call_original((swrText_RenderEntries1_t *) swrText_RenderEntries1_ADDR);
+    if (swap)
+        set_half_scale_factor(HALF_SCALE_STOCK);
     // Our half-size labels use the "~F" code, which leaves swrText_halfScale set after the last one
     // renders (swrText_RenderString only resets it per string). Clear it so the minimap text drawn
     // after this batch -- which doesn't go through RenderString -- isn't shrunk too.

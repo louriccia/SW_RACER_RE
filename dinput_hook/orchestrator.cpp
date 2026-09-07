@@ -52,7 +52,8 @@ static bool g_ai_repair =
 static float g_repair_start = 0.5f;
 static float g_repair_stop = 0.2f;
 static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
-static int g_hero_count = 3;// grid hold: cut to this many random racers with announcer lines (0 = off)
+static int g_hero_count = 5;// grid hold: cut to this many random racers with announcer lines (0 = off)
+static const int CFG_VERSION = 2;// bump when a default should override a stored value
 static bool g_shuffle_grid = true; // random starting grid (stock: roster order, favourite up front)
 static bool g_no_blue_flash = true;// keep the respawn light override off the shared AI light bank
 static float g_snapshot_s = 20.0f; // periodic field snapshot to hook.log (0 = off)
@@ -812,7 +813,8 @@ static void load_config() {
     g_repair_start = config::get_float(INI_SECTION, "repair_start", g_repair_start);
     g_repair_stop = config::get_float(INI_SECTION, "repair_stop", g_repair_stop);
     g_ai_lighting = config::get_int(INI_SECTION, "ai_lighting", g_ai_lighting) != 0;
-    g_hero_count = config::get_int(INI_SECTION, "hero_count", g_hero_count);
+    if (config::get_int(INI_SECTION, "cfg_version", 1) >= CFG_VERSION)// v2: 5 heroes
+        g_hero_count = config::get_int(INI_SECTION, "hero_count", g_hero_count);
     g_shuffle_grid = config::get_int(INI_SECTION, "shuffle_grid", g_shuffle_grid) != 0;
     g_no_blue_flash =
         config::get_int(INI_SECTION, "no_blue_flash", g_no_blue_flash) != 0;
@@ -837,6 +839,7 @@ static void save_config() {
     config::set_float(INI_SECTION, "repair_stop", g_repair_stop);
     config::set_int(INI_SECTION, "ai_lighting", g_ai_lighting);
     config::set_int(INI_SECTION, "hero_count", g_hero_count);
+    config::set_int(INI_SECTION, "cfg_version", CFG_VERSION);
     config::set_int(INI_SECTION, "shuffle_grid", g_shuffle_grid);
     config::set_int(INI_SECTION, "no_blue_flash", g_no_blue_flash);
     config::set_float(INI_SECTION, "snapshot_s", g_snapshot_s);
@@ -876,7 +879,7 @@ static void panel_orchestrator() {
         changed |= ImGui::SliderFloat("stop##rep", &g_repair_stop, 0.0f, 0.5f, "%.2f");
     }
     changed |= ImGui::Checkbox("Light AI pods from the followed pod's light bank", &g_ai_lighting);
-    changed |= ImGui::SliderInt("Grid showcase: racers introduced by the announcer", &g_hero_count, 0, 6);
+    changed |= ImGui::SliderInt("Grid showcase: racers introduced by the announcer", &g_hero_count, 0, 10);
     changed |= ImGui::Checkbox("Random starting grid", &g_shuffle_grid);
     changed |= ImGui::Checkbox("No respawn blue flash on the shared AI lighting", &g_no_blue_flash);
     ImGui::SetNextItemWidth(120.0f);

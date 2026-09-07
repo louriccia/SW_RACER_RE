@@ -36,6 +36,8 @@ static int g_anchor = 0;         // 0 left, 1 right
 static bool g_nameplates = false;// names over pods (SP / all-AI)
 static int g_nameplate_neighbors = 2;      // besides the followed racer, name this many nearest pods
 static float g_nameplate_max_dist = 400.0f;// ... within this many world units of it
+static float g_nameplate_scale = 0.35f;    // glyph scale (stock "~F" half-size text = 0.5)
+static int g_nameplate_offset_y = -14;     // screen px; negative = above the pod
 static bool g_nameplates_forced = false;
 static bool g_nameplates_suppressed = false;
 static bool g_pod_status =
@@ -76,6 +78,11 @@ bool overlay_NameplatesSuppressed() {
 // With a camera target, only the followed racer and its nearest neighbours are named, so the
 // labels read as "who is in this shot" instead of a wall of text. No target (a human race, or the
 // director off): everyone.
+void overlay_NameplateStyle(float *scale, int *offset_y) {
+    *scale = std::clamp(g_nameplate_scale, 0.15f, 1.0f);
+    *offset_y = g_nameplate_offset_y;
+}
+
 bool overlay_NameplateVisible(int score_slot) {
     const int followed = director_FollowedSlot();
     if (followed < 0 || swrScoresPtr == NULL || score_slot < 0 || score_slot >= RACE_TELEMETRY_MAX_ROWS)
@@ -450,6 +457,8 @@ static void load_config() {
     g_nameplates = config::get_int(INI_SECTION, "nameplates", g_nameplates) != 0;
     g_nameplate_neighbors = config::get_int(INI_SECTION, "nameplate_neighbors", g_nameplate_neighbors);
     g_nameplate_max_dist = config::get_float(INI_SECTION, "nameplate_max_dist", g_nameplate_max_dist);
+    g_nameplate_scale = config::get_float(INI_SECTION, "nameplate_scale", g_nameplate_scale);
+    g_nameplate_offset_y = config::get_int(INI_SECTION, "nameplate_offset_y", g_nameplate_offset_y);
     g_pod_status = config::get_int(INI_SECTION, "pod_status", g_pod_status) != 0;
     g_game_gauges = config::get_int(INI_SECTION, "game_gauges", g_game_gauges) != 0;
     g_scale = config::get_float(INI_SECTION, "scale", g_scale);
@@ -465,6 +474,8 @@ static void save_config() {
     config::set_int(INI_SECTION, "nameplates", g_nameplates);
     config::set_int(INI_SECTION, "nameplate_neighbors", g_nameplate_neighbors);
     config::set_float(INI_SECTION, "nameplate_max_dist", g_nameplate_max_dist);
+    config::set_float(INI_SECTION, "nameplate_scale", g_nameplate_scale);
+    config::set_int(INI_SECTION, "nameplate_offset_y", g_nameplate_offset_y);
     config::set_int(INI_SECTION, "pod_status", g_pod_status);
     config::set_int(INI_SECTION, "game_gauges", g_game_gauges);
     config::set_float(INI_SECTION, "scale", g_scale);
@@ -489,6 +500,8 @@ static void panel_broadcast() {
     changed |= ImGui::Checkbox("Names over pods (instead of position numbers)", &g_nameplates);
     changed |= ImGui::SliderInt("Named neighbours of the followed racer", &g_nameplate_neighbors, 0, 19);
     changed |= ImGui::SliderFloat("... within (world units)", &g_nameplate_max_dist, 50.0f, 3000.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Nameplate size (0.5 = stock small text)", &g_nameplate_scale, 0.15f, 1.0f, "%.2f");
+    changed |= ImGui::SliderInt("Nameplate height above the pod (px)", &g_nameplate_offset_y, -80, 40);
     changed |= ImGui::Checkbox("Game gauges for the followed racer (timer, speedo, engines)",
                                &g_game_gauges);
     changed |= ImGui::Checkbox("Followed racer card (ImGui speed + engines)", &g_pod_status);
