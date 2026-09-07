@@ -60,6 +60,8 @@ static float g_orbit_height = 18.0f;
 static float g_orbit_smooth = 0.4f;
 static float g_cockpit_max_s = 8.0f;// cockpit shots are short
 static float g_occlusion_s = 1.2f;  // free camera blocked by the track this long -> back to chase
+static float g_intro_height = 380.0f;// grid intro: the drone starts this far above its normal height
+static float g_intro_s = 4.5f;       // ... and descends onto the grid over this long
 static float g_finish_lock_s = 10.0f;// cut to the leader this long before the win and hold through it
 
 // ---------------------------------------------------------------------------------------------
@@ -72,8 +74,8 @@ static DWORD g_manual_until_ms = 0;
 static const char *g_last_rule = "";
 static int g_cuts = 0;
 
-enum Shot { SHOT_CHASE = 0, SHOT_DRONE, SHOT_ORBIT, SHOT_COCKPIT, SHOT_TRACKSIDE };
-static const char *SHOT_NAMES[] = {"chase", "drone", "orbit", "cockpit", "trackside"};
+enum Shot { SHOT_CHASE = 0, SHOT_DRONE, SHOT_ORBIT, SHOT_COCKPIT, SHOT_TRACKSIDE, SHOT_INTRO };
+static const char *SHOT_NAMES[] = {"chase", "drone", "orbit", "cockpit", "trackside", "intro"};
 static Shot g_shot = SHOT_CHASE;
 static DWORD g_shot_start_ms = 0;
 static bool g_cam_seeded = false;
@@ -89,6 +91,7 @@ static bool g_trackside_planted = false;
 static DWORD g_blend_until_ms = 0;// drone -> drone: the camera flies rather than cuts until then
 static DWORD g_blocked_since_ms = 0;// free-camera line of sight to the pod lost at (0 = clear)
 static DWORD g_win_seen_ms = 0;     // the winner crossed the line at (0 = not yet)
+static DWORD g_intro_start_ms = 0;
 
 static swrObjcMan *camera_man() {
     return (swrObjcMan *) swrEvent_FindObjectById('cMan', 0);
@@ -335,6 +338,8 @@ void director_Service() {
 
     const RaceTelemetryRow *cur = row_for_slot(t, g_target_slot);
     const bool manual_hold = now < g_manual_until_ms;
+    if (g_shot == SHOT_INTRO)
+        set_shot(SHOT_DRONE);
 
     // The win is never off screen: once the leader is within g_finish_lock_s of the line, cut to
     // it and hold every other cut until a beat after it has crossed.
@@ -429,6 +434,16 @@ void director_Service() {
 
 void director_Showcase(int slot) {
     cut_to(slot, "showcase");
+}
+
+float director_GridIntroSeconds() {
+    return g_intro_s;
+}
+
+void director_GridIntro(int slot) {
+    cut_to(slot, "showcase");
+    set_shot(SHOT_INTRO);
+    g_intro_start_ms = GetTickCount();
 }
 
 void director_FollowSlot(int slot) {
@@ -545,6 +560,22 @@ static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *riva
     write_camera(cman);
 }
 
+// Grid intro: the first shot of a race. A drone high above the grid pans down onto the pack over
+// g_intro_s, then holds the normal drone framing until the showcase cuts take over.
+static void shot_intro(swrObjcMan *cman, const swrRace *pod) {
+    float fx, fy;
+    heading_xy(pod, &fx, &fy);
+    const float t = std::min(1.0f, (GetTickCount() - g_intro_start_ms) / (g_intro_s * 1000.0f));
+    const float ease = 1.0f - (1.0f - t) * (1.0f - t);// ease-out
+    const float extra = g_intro_height * (1.0f - ease);
+    const rdVector3 p = {pod->transform.vD.x, pod->transform.vD.y, pod->transform.vD.z};
+    const rdVector3 pos = {p.x - fx * (g_drone_back + extra * 0.35f), p.y - fy * (g_drone_back + extra * 0.35f),
+                           p.z + g_drone_height + extra};
+    const rdVector3 aim = {p.x + fx * g_drone_ahead * 0.5f, p.y + fy * g_drone_ahead * 0.5f, p.z};
+    ease_to(pos, aim, 0.0f);
+    write_camera(cman);
+}
+
 // Trackside: walk a copy of the pod's spline cursor forward until it is g_trackside_ahead world
 // units away, plant the camera beside that point (spline right vector, random side) and leave it
 // there; only the aim follows the pod. Released by the upkeep once the pod is past the camera.
@@ -631,6 +662,9 @@ static bool camera_override(swrObjcMan *cman) {
         case SHOT_TRACKSIDE:
             shot_trackside(cman, pod);
             return true;
+        case SHOT_INTRO:
+            shot_intro(cman, pod);
+            return true;
         default:
             return false;
     }
@@ -687,6 +721,8 @@ static void load_config() {
         g_occlusion_s = config::get_float(INI_SECTION, "occlusion_s", g_occlusion_s);
     }
     g_finish_lock_s = config::get_float(INI_SECTION, "finish_lock_s", g_finish_lock_s);
+    g_intro_height = config::get_float(INI_SECTION, "intro_height", g_intro_height);
+    g_intro_s = config::get_float(INI_SECTION, "intro_s", g_intro_s);
     if (stored_version >= 6) {// v6: orbit weight 2 -> 4
         g_w_orbit = config::get_int(INI_SECTION, "shot_orbit", g_w_orbit);
     }
@@ -744,6 +780,8 @@ static void save_config() {
     config::set_float(INI_SECTION, "cockpit_max_s", g_cockpit_max_s);
     config::set_float(INI_SECTION, "occlusion_s", g_occlusion_s);
     config::set_float(INI_SECTION, "finish_lock_s", g_finish_lock_s);
+    config::set_float(INI_SECTION, "intro_height", g_intro_height);
+    config::set_float(INI_SECTION, "intro_s", g_intro_s);
     config::save();
 }
 
@@ -771,6 +809,9 @@ static void panel_director() {
     changed |= ImGui::SliderInt("Trackside", &g_w_trackside, 0, 10);
     changed |= ImGui::SliderFloat("Cut when the track blocks the view for (s)", &g_occlusion_s, 0.2f, 5.0f, "%.1f");
     changed |= ImGui::SliderFloat("Cut to the leader this long before the win (s)", &g_finish_lock_s, 0.0f, 30.0f, "%.0f");
+    ImGui::SeparatorText("Grid intro");
+    changed |= ImGui::SliderFloat("Start height above the drone view", &g_intro_height, 0.0f, 1500.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Descent (s)", &g_intro_s, 1.0f, 15.0f, "%.1f");
     ImGui::SeparatorText("Drone");
     changed |= ImGui::SliderFloat("Height", &g_drone_height, 20.0f, 800.0f, "%.0f");
     changed |= ImGui::SliderFloat("Behind", &g_drone_back, 0.0f, 600.0f, "%.0f");

@@ -13,6 +13,7 @@
 
 #include <windows.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -101,6 +102,7 @@ static DWORD g_last_snapshot_ms = 0;
 static DWORD g_first_finish_ms = 0;
 static const int MAX_RACERS = 20;
 static int g_heroes_shown = 0;// grid showcase progress
+static int g_countdown_beat = -1;// last 3-2-1 beat that got its own racer
 static DWORD g_hero_next_ms = 0;
 static DWORD g_hero_hold_until_ms = 0;// keep the grid until the last intro has finished
 static bool g_hero_used[MAX_RACERS];
@@ -241,6 +243,7 @@ static void reset_race_watch() {
     g_cooldown_end_ms = 0;
     g_grid_hold_start_ms = 0;
     g_heroes_shown = 0;
+    g_countdown_beat = -1;
     g_hero_next_ms = 0;
     g_hero_hold_until_ms = 0;
     memset(g_hero_used, 0, sizeof(g_hero_used));
@@ -249,13 +252,43 @@ static void reset_race_watch() {
 // Grid showcase: while the grid is held, cut to a few random racers in turn and play the
 // announcer's pre-race lines for them (swrObjJdge_F0 does this once, for the local pilot only,
 // 2 s into the pre-race orbit).
+// 3-2-1: a different racer on each beat of the countdown.
+static void countdown_cuts(const swrObjJdge *jdge) {
+    if (!director_IsEnabled())
+        return;
+    const int beat = (int) ceilf(jdge->raceTimer_ms);
+    if (beat == g_countdown_beat || beat < 1 || beat > 3)
+        return;
+    g_countdown_beat = beat;
+    int candidates[MAX_RACERS], n = 0;
+    const int current = director_FollowedSlot();
+    for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++)
+        if (i != current && swrScoresPtr[i].obj_test_ptr != NULL)
+            candidates[n++] = i;
+    if (n == 0)
+        return;
+    const int slot = candidates[rand() % n];
+    director_Showcase(slot);
+    overlay_SetHighlightSlot(slot);
+}
+
 static void showcase_heroes(const swrObjJdge *jdge, DWORD now) {
     if (g_hero_count <= 0 || g_heroes_shown >= g_hero_count || !director_IsEnabled())
         return;
     if (g_hero_next_ms == 0) {
         // Suppress the stock line for the stale local pilot id; it uses this one-shot flag.
         swrSound_SetSfxFlag(0, 0x200000);
-        g_hero_next_ms = now + 1500;
+        // Opening shot: a drone high over the grid pans down onto the pack; the introductions
+        // start once it has landed.
+        int slot = -1;
+        for (int i = 0; i < jdge->num_players && i < MAX_RACERS && slot < 0; i++)
+            if (swrScoresPtr[i].obj_test_ptr != NULL)
+                slot = i;
+        if (slot >= 0) {
+            director_GridIntro(slot);
+            overlay_SetHighlightSlot(slot);
+        }
+        g_hero_next_ms = now + (DWORD) (director_GridIntroSeconds() * 1000.0f) + 500;
         return;
     }
     if (now < g_hero_next_ms)
@@ -665,13 +698,8 @@ void orchestrator_Service() {
     overlay_ForceNameplates(true);
     director_SetEnabled(true);
     overlay_SetHighlightSlot(director_FollowedSlot());
-    const bool on_grid = g_grid_hold_start_ms != 0 && !g_cooldown_active;
     char title[32];
-    snprintf(title, sizeof(title), "%s %d",
-             g_cooldown_active ? "RESULTS"
-             : on_grid         ? "GRID"
-                               : "RACE",
-             g_races_started);
+    snprintf(title, sizeof(title), "RACE %d", g_races_started);
     overlay_SetTitle(title);
     if (g_cooldown_active) {
         const DWORD now_ms = GetTickCount();
@@ -682,15 +710,6 @@ void orchestrator_Service() {
         snprintf(footer, sizeof(footer), "NEXT: %s\n%d racers, %d lap%s  |  starts in %d:%02d",
                  track_name(track), g_racers, g_laps, g_laps == 1 ? "" : "s", (int) left / 60,
                  (int) left % 60);
-        overlay_SetFooter(footer);
-    } else if (on_grid) {
-        const DWORD now_ms = GetTickCount();
-        const DWORD end = std::max(g_grid_hold_start_ms + (DWORD) ((g_grid_hold_s + 3.5f) * 1000.0f),
-                                   g_hero_hold_until_ms + 3500);
-        const float left = now_ms >= end ? 0.0f : (end - now_ms) / 1000.0f;
-        char footer[96];
-        snprintf(footer, sizeof(footer), "Place your bets  |  race starts in %d:%02d",
-                 (int) left / 60, (int) left % 60);
         overlay_SetFooter(footer);
     } else {
         overlay_SetFooter("");
@@ -736,6 +755,8 @@ void orchestrator_Service() {
                 jdge->raceTimer_ms = 3.5f;
             if (holding && state == 0)
                 showcase_heroes(jdge, now);
+            else if (state == 0)
+                countdown_cuts(jdge);
         }
         if (state == 1 || state == 2) {
             log_snapshot(jdge, now);

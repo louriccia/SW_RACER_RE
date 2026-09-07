@@ -22,6 +22,10 @@ bool director_IsEnabled();
 void director_FollowSlot(int slot);
 // Cut to a racer on the stock chase view without the manual hold (pre-race grid showcase).
 void director_Showcase(int slot);
+// First shot of a race: a drone high over `slot` pans down onto the grid (Director > Grid intro).
+void director_GridIntro(int slot);
+// Length of that descent in seconds (so the caller can schedule what follows).
+float director_GridIntroSeconds();
 
 // Slot currently followed by camera-man 0, or -1.
 int director_FollowedSlot();
