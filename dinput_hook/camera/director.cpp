@@ -60,6 +60,7 @@ static float g_orbit_height = 18.0f;
 static float g_orbit_smooth = 0.4f;
 static float g_cockpit_max_s = 8.0f;// cockpit shots are short
 static float g_occlusion_s = 1.2f;  // free camera blocked by the track this long -> back to chase
+static float g_finish_lock_s = 10.0f;// cut to the leader this long before the win and hold through it
 
 // ---------------------------------------------------------------------------------------------
 // State
@@ -87,6 +88,7 @@ static rdVector3 g_trackside_fwd;// spline tangent at the camera (pass-by test)
 static bool g_trackside_planted = false;
 static DWORD g_blend_until_ms = 0;// drone -> drone: the camera flies rather than cuts until then
 static DWORD g_blocked_since_ms = 0;// free-camera line of sight to the pod lost at (0 = clear)
+static DWORD g_win_seen_ms = 0;     // the winner crossed the line at (0 = not yet)
 
 static swrObjcMan *camera_man() {
     return (swrObjcMan *) swrEvent_FindObjectById('cMan', 0);
@@ -335,6 +337,28 @@ void director_Service() {
     const RaceTelemetryRow *cur = row_for_slot(t, g_target_slot);
     const bool manual_hold = now < g_manual_until_ms;
 
+    // The win is never off screen: once the leader is within g_finish_lock_s of the line, cut to
+    // it and hold every other cut until a beat after it has crossed.
+    bool finish_lock = false;
+    if (!t->leader_finished) {
+        g_win_seen_ms = 0;
+        const RaceTelemetryRow *lead = t->n > 0 ? &t->rows[0] : NULL;
+        if (lead != NULL && !lead->finished && !lead->dead && t->leader_pace_lps > 0.0f) {
+            const float remaining_s = ((float) t->num_laps - lead->progress) / t->leader_pace_lps;
+            if (remaining_s <= g_finish_lock_s) {
+                finish_lock = true;
+                if (lead->slot != g_target_slot) {
+                    cut_to(lead->slot, "finish");
+                    cur = row_for_slot(t, g_target_slot);
+                }
+            }
+        }
+    } else {
+        if (g_win_seen_ms == 0)
+            g_win_seen_ms = now;
+        finish_lock = cur != NULL && cur->finished && now - g_win_seen_ms < 3000;
+    }
+
     // A followed racer who finishes stays on screen (the finish is the shot) and is simply never
     // picked again. A dead racer is shown for a beat, then cut away from.
     if (cur != NULL && cur->dead) {
@@ -394,7 +418,7 @@ void director_Service() {
         }
     }
 
-    if (!must_cut && (manual_hold || !g_auto || !dwell_over))
+    if (!must_cut && (finish_lock || manual_hold || !g_auto || !dwell_over))
         return;
     const char *rule = "";
     const int next = pick_auto(t, &rule);
@@ -665,6 +689,7 @@ static void load_config() {
         g_orbit_dist = config::get_float(INI_SECTION, "orbit_dist", g_orbit_dist);
         g_occlusion_s = config::get_float(INI_SECTION, "occlusion_s", g_occlusion_s);
     }
+    g_finish_lock_s = config::get_float(INI_SECTION, "finish_lock_s", g_finish_lock_s);
     if (stored_version >= 6) {// v6: orbit weight 2 -> 4
         g_w_orbit = config::get_int(INI_SECTION, "shot_orbit", g_w_orbit);
     }
@@ -717,6 +742,7 @@ static void save_config() {
     config::set_float(INI_SECTION, "orbit_smooth", g_orbit_smooth);
     config::set_float(INI_SECTION, "cockpit_max_s", g_cockpit_max_s);
     config::set_float(INI_SECTION, "occlusion_s", g_occlusion_s);
+    config::set_float(INI_SECTION, "finish_lock_s", g_finish_lock_s);
     config::save();
 }
 
@@ -743,6 +769,7 @@ static void panel_director() {
     changed |= ImGui::SliderInt("Cockpit", &g_w_cockpit, 0, 10);
     changed |= ImGui::SliderInt("Trackside", &g_w_trackside, 0, 10);
     changed |= ImGui::SliderFloat("Cut when the track blocks the view for (s)", &g_occlusion_s, 0.2f, 5.0f, "%.1f");
+    changed |= ImGui::SliderFloat("Cut to the leader this long before the win (s)", &g_finish_lock_s, 0.0f, 30.0f, "%.0f");
     ImGui::SeparatorText("Drone");
     changed |= ImGui::SliderFloat("Height", &g_drone_height, 20.0f, 800.0f, "%.0f");
     changed |= ImGui::SliderFloat("Behind", &g_drone_back, 0.0f, 600.0f, "%.0f");

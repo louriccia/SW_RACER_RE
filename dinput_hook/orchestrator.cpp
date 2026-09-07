@@ -100,6 +100,7 @@ static DWORD g_first_finish_ms = 0;
 static const int MAX_RACERS = 20;
 static int g_heroes_shown = 0;// grid showcase progress
 static DWORD g_hero_next_ms = 0;
+static DWORD g_hero_hold_until_ms = 0;// keep the grid until the last intro has finished
 static bool g_hero_used[MAX_RACERS];
 static const int SHARED_AI_BANK =
     10;// the one light bank every AI pod reads (see apply_ai_lighting)
@@ -237,6 +238,7 @@ static void reset_race_watch() {
     g_grid_hold_start_ms = 0;
     g_heroes_shown = 0;
     g_hero_next_ms = 0;
+    g_hero_hold_until_ms = 0;
     memset(g_hero_used, 0, sizeof(g_hero_used));
 }
 
@@ -264,9 +266,12 @@ static void showcase_heroes(const swrObjJdge *jdge, DWORD now) {
     g_hero_used[slot] = true;
     director_Showcase(slot);
     overlay_SetHighlightSlot(slot);
-    voice_AnnounceRacer(slot, g_heroes_shown);
+    const int line_ms = voice_AnnounceRacer(slot, g_heroes_shown);
     g_heroes_shown++;
-    g_hero_next_ms = now + (DWORD) (g_grid_hold_s * 1000.0f / (float) (g_hero_count + 1));
+    // next hero once this intro has played out (plus a beat); the grid waits for the last one
+    const DWORD gap = std::max((DWORD) 3000, (DWORD) line_ms + 900);
+    g_hero_next_ms = now + gap;
+    g_hero_hold_until_ms = now + gap + 1500;
 }
 
 // Configure the hangar for an all-AI race and jump straight into the loading screen, the way the
@@ -654,7 +659,8 @@ void orchestrator_Service() {
         overlay_SetFooter(footer);
     } else if (on_grid) {
         const DWORD now_ms = GetTickCount();
-        const DWORD end = g_grid_hold_start_ms + (DWORD) ((g_grid_hold_s + 3.5f) * 1000.0f);
+        const DWORD end = std::max(g_grid_hold_start_ms + (DWORD) ((g_grid_hold_s + 3.5f) * 1000.0f),
+                                   g_hero_hold_until_ms + 3500);
         const float left = now_ms >= end ? 0.0f : (end - now_ms) / 1000.0f;
         char footer[96];
         snprintf(footer, sizeof(footer), "Place your bets  |  race starts in %d:%02d",
@@ -698,7 +704,8 @@ void orchestrator_Service() {
         if ((state == 5 || state == 0) && !any_racing) {
             if (g_grid_hold_start_ms == 0)
                 g_grid_hold_start_ms = now;
-            const bool holding = now - g_grid_hold_start_ms < (DWORD) (g_grid_hold_s * 1000.0f);
+            const bool holding = now - g_grid_hold_start_ms < (DWORD) (g_grid_hold_s * 1000.0f) ||
+                                 now < g_hero_hold_until_ms;
             if (holding && state == 0 && jdge->raceTimer_ms < 3.5f)
                 jdge->raceTimer_ms = 3.5f;
             if (holding && state == 0)

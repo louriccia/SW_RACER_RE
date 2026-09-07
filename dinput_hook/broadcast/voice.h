@@ -16,6 +16,6 @@ void voice_Service();
 // Panel registration.
 void voice_RegisterPanel();
 
-// Announcer commentary for one racer (the pre-race Fode & Beed lines the game plays for the local
-// pilot): `variant` alternates between the intro line and the pilot's second line.
-void voice_AnnounceRacer(int slot, int variant);
+// Announcer introduction for one racer (the pre-race Fode & Beed line the game plays for the local
+// pilot). `variant` is only logged. Returns the line length in ms (0 = nothing played).
+int voice_AnnounceRacer(int slot, int variant);

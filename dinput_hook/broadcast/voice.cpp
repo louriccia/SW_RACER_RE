@@ -30,6 +30,7 @@ static bool g_overtakes = true;// positional taunts (swrObjJdge_UpdateOvertakeSo
 static bool g_status = true;   // death, respawn, engine fire, engine blown, boost
 static bool g_finish = true;   // win / lose line + crowd
 static bool g_announcer = true;// pre-race commentary for the showcased racers
+static float g_boost_line_gap_s = 15.0f;// AI boost far more than a human; space the boost lines out
 
 static const char *INI_SECTION = "voice";
 
@@ -74,6 +75,7 @@ struct LocalPlayerLend {
 };
 
 static DWORD g_last_taunt_roll_ms = 0;
+static DWORD g_last_boost_line_ms = 0;
 static const DWORD TAUNT_ROLL_GAP_MS = 1500;// 'Hitt' arrives every frame of a scrape; roll once per gap
 
 static bool applies(const RaceTelemetry *t) {
@@ -93,10 +95,16 @@ static int pilot_of(const swrRace *pod) {
     return *pod->score_ptr->pilotId;
 }
 
-static void say(swrRace *pod, int a, int b, int c, int d, int e, const char *why) {
+// swrSound_MarkSfxPlayed arms a per-pilot cooldown (swrSound_sfxVariantCooldown, the line's length
+// minus a margin) after every category-1 line, and swrSound_IsSfxOnCooldown then drops the next
+// one. A death or engine line must not lose to a boost quip that started a second earlier.
+static void say(swrRace *pod, int a, int b, int c, int d, int e, const char *why,
+                bool priority = false) {
     const int pilot = pilot_of(pod);
     if (pilot < 0)
         return;
+    if (priority && pilot < 23)
+        swrSound_sfxVariantCooldown[pilot] = 0.0f;
     {
         LocalPlayerLend lend;
         swrSound_PlayRandomSfx(1, pilot, a, b, c, d, e, (rdVector3 *) &pod->transform.vD);
@@ -109,16 +117,16 @@ static void say(swrRace *pod, int a, int b, int c, int d, int e, const char *why
 // ---------------------------------------------------------------------------------------------
 // Hooks
 
-// Collision taunts. swrObjTest_F4's 'Hitt' (wall / object) and 'VhLt' (pod contact) handlers roll
-// a 15% taunt only for LOCAL pods within camera range; the followed pod is always in range.
+// Contact taunts. swrObjTest_F4's 'VhLt' (pod-on-pod contact) handler rolls a 15% taunt only for
+// LOCAL pods within camera range; the followed pod is always in range. (The 'Hitt' wall-scrape
+// taunt is left off: a wall rub is not worth a line.)
 typedef int(__cdecl *swrObjTest_F4_t)(swrRace *player, int *subEvent, int ghost);
 
 static int __cdecl swrObjTest_F4_delta(swrRace *player, int *subEvent, int ghost) {
     const int r = hook_call_original((swrObjTest_F4_t) swrObjTest_F4_ADDR, player, subEvent, ghost);
     if (!g_taunts || player == NULL || subEvent == NULL)
         return r;
-    const int id = subEvent[0];
-    if (id != 'Hitt' && id != 'VhLt')
+    if (subEvent[0] != 'VhLt')
         return r;
     if ((player->flags0 & swrObjTest_FLAG0_LOCAL) != 0 || player != followed_pod() ||
         !applies(race_telemetry_Get()))
@@ -129,10 +137,7 @@ static int __cdecl swrObjTest_F4_delta(swrRace *player, int *subEvent, int ghost
     g_last_taunt_roll_ms = now;
     if (frand() >= HIT_TAUNT_CHANCE)
         return r;
-    if (id == 'VhLt')
-        say(player, 1, 6, 5, 6, 5, "pod contact taunt");
-    else
-        say(player, 5, 6, 5, 6, 7, "collision taunt");
+    say(player, 1, 6, 5, 6, 5, "pod contact taunt");
     return r;
 }
 
@@ -209,15 +214,18 @@ void voice_Service() {
     const int pilot = pilot_of(pod);
     if (g_status) {
         if (r->dead && !g_dead)
-            say(pod, 0xe, 0xe, 0xe, 0xe, 0xe, "death");// swrRace_HandleDeathExplosion
+            say(pod, 0xe, 0xe, 0xe, 0xe, 0xe, "death", true);// swrRace_HandleDeathExplosion
         else if (!r->dead && g_dead)
-            say(pod, 0xe, 0xe, 0xe, 0xe, 0xe, "respawn");// swrRace_HandleRespawnFlag
+            say(pod, 0xe, 0xe, 0xe, 0xe, 0xe, "respawn", true);// swrRace_HandleRespawnFlag
         if (r->on_fire && !g_fire)
-            say(pod, 0xc, 0xc, 0xc, 0xc, 0xc, "engine fire");// swrRace_ApplyEngineDamage
+            say(pod, 0xc, 0xc, 0xc, 0xc, 0xc, "engine fire", true);// swrRace_ApplyEngineDamage
         const int blown = blown_engines(r);
         if (blown > g_blown && !r->dead)
-            say(pod, 0xd, 0xe, 0xd, 0xe, 0xd, "engine blown");// swrRace_Explode
-        if (r->boosting && !g_boosting) {// swrRace_UpdatePlayerControl boost start
+            say(pod, 0xd, 0xe, 0xd, 0xe, 0xd, "engine blown", true);// swrRace_Explode
+        const DWORD now = GetTickCount();
+        if (r->boosting && !g_boosting &&
+            now - g_last_boost_line_ms >= (DWORD) (g_boost_line_gap_s * 1000.0f)) {
+            g_last_boost_line_ms = now;// swrRace_UpdatePlayerControl boost start
             if (frand() < BOOST_TAUNT_SPLIT)
                 say(pod, 0x15, 0x16, 0x17, 0x18, 0x19, "boost");
             else if (pilot == PILOT_NEVA_KEE)
@@ -228,6 +236,8 @@ void voice_Service() {
     }
     if (g_finish && r->finished && !g_finished && pilot >= 0) {// swrObjJdge_F2 lap-complete
         LocalPlayerLend lend;
+        if (pilot < 23)
+            swrSound_sfxVariantCooldown[pilot] = 0.0f;
         if (r->rank == 1)
             swrSound_PlaySfxThenDelayed(1, pilot, 0xf, 6, 0, 0x27);
         else if (r->rank < 5)
@@ -244,27 +254,44 @@ void voice_Service() {
 // ---------------------------------------------------------------------------------------------
 // Announcer
 
-void voice_AnnounceRacer(int slot, int variant) {
+static int sfx_length_ms(int category, int id) {
+    const int idx = swrSound_ResolveSfxId(category, 0, id);
+    if (idx < 0)
+        return 0;
+    const swrSoundDescriptor *e = (const swrSoundDescriptor *) swrSound_GetEntry(idx);
+    return e != NULL ? (int) e->durationMs : 0;
+}
+
+// Pre-race introduction for one racer. The second table holds the full "and here is ..." intro
+// (positive: category 5, negative: category 7); the first table is the name-only call the game
+// appends to its "current record holder for this track is" lead-in, used only as a fallback.
+// Returns the line length in ms so the caller can pace the next one.
+int voice_AnnounceRacer(int slot, int variant) {
     if (!g_enabled || !g_announcer || swrScoresPtr == NULL || slot < 0)
-        return;
+        return 0;
     const int pilot = pilot_of(swrScoresPtr[slot].obj_test_ptr);
     if (pilot < 0 || pilot >= PILOT_COUNT)
-        return;
+        return 0;
     const int alt = ANNOUNCER_ALT[pilot];
-    LocalPlayerLend lend;
-    if ((variant & 1) != 0 && alt != 0) {
-        if (alt > 0)
-            swrSound_PlaySfxThrottled(5, 0, alt, NULL);
-        else
-            swrSound_PlaySfxThrottled(7, 0, -alt, NULL);
-    } else if (variant == 0) {
-        swrSound_PlaySfxThenDelayed(5, 0, 1, 5, 0, ANNOUNCER_INTRO[pilot]);
-    } else {
-        swrSound_PlaySfxThrottled(5, 0, ANNOUNCER_INTRO[pilot], NULL);
+    int category = 5, id = ANNOUNCER_INTRO[pilot];
+    if (alt > 0) {
+        id = alt;
+    } else if (alt < 0) {
+        category = 7;
+        id = -alt;
     }
+    if (id <= 0)
+        return 0;
+    {
+        LocalPlayerLend lend;
+        swrSound_PlaySfxThrottled(category, 0, id, NULL);
+    }
+    const int ms = sfx_length_ms(category, id);
     g_lines++;
-    fprintf(hook_log, "[voice] announcer: pilot %d (variant %d)\n", pilot, variant);
+    fprintf(hook_log, "[voice] announcer: pilot %d (hero %d) cat %d id %d, %d ms\n", pilot, variant,
+            category, id, ms);
     fflush(hook_log);
+    return ms;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -277,6 +304,7 @@ static void load_config() {
     g_status = config::get_int(INI_SECTION, "status", g_status) != 0;
     g_finish = config::get_int(INI_SECTION, "finish", g_finish) != 0;
     g_announcer = config::get_int(INI_SECTION, "announcer", g_announcer) != 0;
+    g_boost_line_gap_s = config::get_float(INI_SECTION, "boost_line_gap_s", g_boost_line_gap_s);
 }
 
 static void save_config() {
@@ -286,17 +314,19 @@ static void save_config() {
     config::set_bool(INI_SECTION, "status", g_status);
     config::set_bool(INI_SECTION, "finish", g_finish);
     config::set_bool(INI_SECTION, "announcer", g_announcer);
+    config::set_float(INI_SECTION, "boost_line_gap_s", g_boost_line_gap_s);
     config::save();
 }
 
 static void panel_voice() {
     bool changed = false;
     changed |= ImGui::Checkbox("Voice lines for the followed racer (all-AI races)", &g_enabled);
-    changed |= ImGui::Checkbox("Collision / contact taunts", &g_taunts);
+    changed |= ImGui::Checkbox("Pod contact taunts", &g_taunts);
     changed |= ImGui::Checkbox("Overtake taunts (rival speaks)", &g_overtakes);
     changed |= ImGui::Checkbox("Death, fire, engine blown, boost", &g_status);
     changed |= ImGui::Checkbox("Finish: win / lose + crowd", &g_finish);
     changed |= ImGui::Checkbox("Pre-race announcer for showcased racers", &g_announcer);
+    changed |= ImGui::SliderFloat("Boost line no more than every (s)", &g_boost_line_gap_s, 0.0f, 60.0f, "%.0f");
     ImGui::Text("Lines played: %d", g_lines);
     if (changed)
         save_config();
