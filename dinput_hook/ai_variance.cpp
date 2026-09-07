@@ -40,17 +40,20 @@ static float g_clamp_lo = 0.5f, g_clamp_hi = 1.6f;// same envelope as the stock 
 // Boost. Humans charge by holding throttle + nose-down at > 75% top speed for 1 s, then fire;
 // boosting drains engineTemp (100 = cool, 0 = overheated -> a random engine catches fire).
 static bool g_boost = true;
-static float g_boost_start_per_s = 0.35f;// chance per second to begin charging when eligible
-static float g_boost_min_s = 2.0f, g_boost_max_s = 4.5f;// boost duration
-static float g_boost_release_temp = 35.0f;  // let go of the boost when engineTemp falls to this
-static float g_boost_min_start_temp = 70.0f;// only start charging when reasonably cool
-static float g_boost_turn_limit = 60.0f;    // |turnRateTarget| above this = cornering, no boost
-static float g_boost_cooldown_s = 4.0f;
-static float g_boost_p_overheat = 0.12f;// chance a boost is held until the engines catch fire
+static float g_boost_start_per_s = 1.2f;// chance per second to begin charging when eligible
+static float g_boost_min_s = 3.0f, g_boost_max_s = 7.0f;// boost duration
+static float g_boost_release_temp = 15.0f;  // let go of the boost when engineTemp falls to this
+static float g_boost_min_start_temp = 40.0f;// only start charging when reasonably cool
+static float g_boost_turn_limit = 150.0f;   // |turnRateTarget| above this = cornering, no boost
+static float g_boost_cooldown_s = 1.5f;
+static float g_boost_p_overheat = 0.3f;// chance a boost is held until the engines catch fire
 static bool g_boost_sound = true;
-static float g_boost_steer_scale = 0.6f;     // steering authority while boosting (risky in corners)
+static bool g_wall_damage = true;// AI take the player's wall scrape / impact path (damage, sparks)
+static bool g_impact_death =
+    true;// AI explode on a death-speed impact like a human (stock: quiet respawn)
+static const int CFG_VERSION = 2;            // bump when a default should override a stored value
+static float g_boost_steer_scale = 0.55f;    // steering authority while boosting (risky in corners)
 static const float BOOST_CHARGE_PITCH = 0.8f;// nose-down held while charging, like the player
-static const float BOOST_SFX_PITCH = -0.13f; // swrRace_BoostCharge: rand * 0.1 - 0.18
 
 // ---------------------------------------------------------------------------------------------
 // Per-race state (indexed by swrScoresPtr slot)
@@ -129,13 +132,14 @@ static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const c
     const bool boosting = (pod->flags0 & swrObjTest_FLAG0_BOOSTING) != 0;
     const bool can_charge = (pod->flags0 & swrObjTest_FLAG0_CAN_CHARGE_BOOST) != 0;
     const bool straight = fabsf(pod->turnRateTarget) < g_boost_turn_limit;
+    const bool hard_corner = fabsf(pod->turnRateTarget) > g_boost_turn_limit * 2.0f;
     if (boosting) {
         // Boosting narrows what the pilot can do with the stick: scale the autopilot's steering
         // demand so a boost carried into a corner is a real gamble.
         pod->turnRateTarget *= g_boost_steer_scale;
         const bool timed_out = now >= g_boost_until_ms[slot];
         const bool too_hot = !g_boost_hold_to_fire[slot] && pod->engineTemp <= g_boost_release_temp;
-        if (timed_out || too_hot || !straight) {
+        if (timed_out || too_hot || hard_corner) {
             pod->flags0 = (swrObjTest_FLAG0) (pod->flags0 & ~swrObjTest_FLAG0_BOOSTING);
             g_boost_cooldown_ms[slot] = now + (DWORD) (g_boost_cooldown_s * 1000.0f);
         }
@@ -174,9 +178,9 @@ static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const c
                 g_boost_hold_to_fire[slot] = frand() < g_boost_p_overheat;
                 g_boosts_total++;
                 if (g_boost_sound)
-                    swrSound_PlaySpatialRange(BOOST_SFX_ID, 7, BOOST_SFX_PITCH, 1.0f,
-                                              (rdVector3 *) &pod->transform.vD, 0, 1, 10.0f,
-                                              500.0f);
+                    swrSound_PlaySpatialRange(
+                        BOOST_SFX_ID, 7, frand() * 0.1f - 0.18f /* swrRace_BoostCharge's pitch */,
+                        1.0f, (rdVector3 *) &pod->transform.vD, 0, 1, 10.0f, 500.0f);
                 fprintf(hook_log, "[ai_variance] slot %d (%s) boost%s\n", slot, name,
                         g_boost_hold_to_fire[slot] ? " (holding to overheat)" : "");
                 fflush(hook_log);
@@ -189,6 +193,29 @@ static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const c
 }
 
 typedef void(__cdecl *swrRace_UpdateCatchup_t)(swrRace *player);
+
+// Wall contact. swrRace_UpdateWallContact routes only LOCAL pods through swrRace_DetectWallScrape +
+// swrRace_ApplyWallCollision (scrape sparks, impact speed clamp, 'Hitt' damage events); everyone
+// else gets the plain block-move collision, so an AI can rub a wall all race without a scratch. Run
+// the player path for AI by lending them the LOCAL bit for the call (nothing in that path plays
+// force feedback or player-only sound).
+typedef float(__cdecl *swrRace_UpdateWallContact_t)(swrRace *player, float *a, float *b,
+                                                    rdVector3 *c);
+
+static float __cdecl swrRace_UpdateWallContact_delta(swrRace *player, float *a, float *b,
+                                                     rdVector3 *c) {
+    const bool lend =
+        g_wall_damage && player != NULL && (player->flags0 & swrObjTest_FLAG0_AI) != 0 &&
+        (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 && applies(race_telemetry_Get());
+    if (lend)
+        player->flags0 = (swrObjTest_FLAG0) (player->flags0 | swrObjTest_FLAG0_LOCAL);
+    const float r = hook_call_original((swrRace_UpdateWallContact_t) swrRace_UpdateWallContact_ADDR,
+                                       player, a, b, c);
+    if (lend)
+        player->flags0 = (swrObjTest_FLAG0) (player->flags0 & ~swrObjTest_FLAG0_LOCAL);
+    return r;
+}
+
 
 static void __cdecl swrRace_UpdateCatchup_delta(swrRace *player) {
     hook_call_original((swrRace_UpdateCatchup_t) swrRace_UpdateCatchup_ADDR, player);
@@ -272,9 +299,29 @@ static void __cdecl swrRace_UpdateCatchup_delta(swrRace *player) {
     g_last_mult[slot] = player->speedMultiplier;
 }
 
+// Impact deaths. swrRace_DeathSpeed applies the same DeathSpeedMin / DeathSpeedDrop thresholds to
+// every pod, but only a non-AI pod explodes (swrRace_Explode); an AI is merely flagged to respawn.
+// Hide the AI bit for the call so a hard enough hit blows an AI up like a human.
+typedef void(__cdecl *swrRace_DeathSpeed_t)(swrRace *player, float a, float b);
+
+static void __cdecl swrRace_DeathSpeed_delta(swrRace *player, float a, float b) {
+    const bool lend =
+        g_impact_death && player != NULL && (player->flags0 & swrObjTest_FLAG0_AI) != 0 &&
+        (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 && applies(race_telemetry_Get());
+    if (lend)
+        player->flags0 = (swrObjTest_FLAG0) (player->flags0 & ~swrObjTest_FLAG0_AI);
+    hook_call_original((swrRace_DeathSpeed_t) swrRace_DeathSpeed_ADDR, player, a, b);
+    if (lend)
+        player->flags0 = (swrObjTest_FLAG0) (player->flags0 | swrObjTest_FLAG0_AI);
+}
+
 void ai_variance_RegisterHooks() {
     hook_function("swrRace_UpdateCatchup", (uint32_t) swrRace_UpdateCatchup_ADDR,
                   (uint8_t *) swrRace_UpdateCatchup_delta);
+    hook_function("swrRace_UpdateWallContact", (uint32_t) swrRace_UpdateWallContact_ADDR,
+                  (uint8_t *) swrRace_UpdateWallContact_delta);
+    hook_function("swrRace_DeathSpeed", (uint32_t) swrRace_DeathSpeed_ADDR,
+                  (uint8_t *) swrRace_DeathSpeed_delta);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -305,6 +352,8 @@ static void load_config() {
     g_with_humans = GetPrivateProfileIntW(INI_SECTION, L"with_humans", g_with_humans, ini) != 0;
     g_replace_stock =
         GetPrivateProfileIntW(INI_SECTION, L"replace_stock", g_replace_stock, ini) != 0;
+    g_wall_damage = GetPrivateProfileIntW(INI_SECTION, L"wall_damage", g_wall_damage, ini) != 0;
+    g_impact_death = GetPrivateProfileIntW(INI_SECTION, L"impact_death", g_impact_death, ini) != 0;
     g_form_amp = ini_get_float(ini, L"form_amp", g_form_amp);
     g_swing_amp = ini_get_float(ini, L"swing_amp", g_swing_amp);
     g_swing_tau_s = ini_get_float(ini, L"swing_tau_s", g_swing_tau_s);
@@ -316,23 +365,30 @@ static void load_config() {
     g_blunder_max_s = ini_get_float(ini, L"blunder_max_s", g_blunder_max_s);
     g_blunder_depth = ini_get_float(ini, L"blunder_depth", g_blunder_depth);
     g_boost = GetPrivateProfileIntW(INI_SECTION, L"boost", g_boost, ini) != 0;
-    g_boost_start_per_s = ini_get_float(ini, L"boost_start_per_s", g_boost_start_per_s);
-    g_boost_min_s = ini_get_float(ini, L"boost_min_s", g_boost_min_s);
-    g_boost_max_s = ini_get_float(ini, L"boost_max_s", g_boost_max_s);
-    g_boost_release_temp = ini_get_float(ini, L"boost_release_temp", g_boost_release_temp);
-    g_boost_min_start_temp = ini_get_float(ini, L"boost_min_start_temp", g_boost_min_start_temp);
-    g_boost_turn_limit = ini_get_float(ini, L"boost_turn_limit", g_boost_turn_limit);
-    g_boost_cooldown_s = ini_get_float(ini, L"boost_cooldown_s", g_boost_cooldown_s);
-    g_boost_p_overheat = ini_get_float(ini, L"boost_p_overheat", g_boost_p_overheat);
-    g_boost_sound = GetPrivateProfileIntW(INI_SECTION, L"boost_sound", g_boost_sound, ini) != 0;
-    g_boost_steer_scale = ini_get_float(ini, L"boost_steer_scale", g_boost_steer_scale);
+    if ((int) GetPrivateProfileIntW(INI_SECTION, L"cfg_version", 1, ini) >= CFG_VERSION) {
+        // v2: the more aggressive boost defaults replace whatever an older build stored
+        g_boost_start_per_s = ini_get_float(ini, L"boost_start_per_s", g_boost_start_per_s);
+        g_boost_min_s = ini_get_float(ini, L"boost_min_s", g_boost_min_s);
+        g_boost_max_s = ini_get_float(ini, L"boost_max_s", g_boost_max_s);
+        g_boost_release_temp = ini_get_float(ini, L"boost_release_temp", g_boost_release_temp);
+        g_boost_min_start_temp =
+            ini_get_float(ini, L"boost_min_start_temp", g_boost_min_start_temp);
+        g_boost_turn_limit = ini_get_float(ini, L"boost_turn_limit", g_boost_turn_limit);
+        g_boost_cooldown_s = ini_get_float(ini, L"boost_cooldown_s", g_boost_cooldown_s);
+        g_boost_p_overheat = ini_get_float(ini, L"boost_p_overheat", g_boost_p_overheat);
+        g_boost_sound = GetPrivateProfileIntW(INI_SECTION, L"boost_sound", g_boost_sound, ini) != 0;
+        g_boost_steer_scale = ini_get_float(ini, L"boost_steer_scale", g_boost_steer_scale);
+    }
 }
 
 static void save_config() {
     const wchar_t *ini = settings_ini_path();
+    ini_set_int(ini, L"cfg_version", CFG_VERSION);
     ini_set_int(ini, L"enabled", g_enabled);
     ini_set_int(ini, L"with_humans", g_with_humans);
     ini_set_int(ini, L"replace_stock", g_replace_stock);
+    ini_set_int(ini, L"wall_damage", g_wall_damage);
+    ini_set_int(ini, L"impact_death", g_impact_death);
     ini_set_float(ini, L"form_amp", g_form_amp);
     ini_set_float(ini, L"swing_amp", g_swing_amp);
     ini_set_float(ini, L"swing_tau_s", g_swing_tau_s);
@@ -366,6 +422,9 @@ static void panel_ai_variance() {
     changed |= ImGui::Checkbox("Also in races a human drives", &g_with_humans);
     changed |= ImGui::Checkbox("Replace stock pacing (equal speed + steering, no pace-setter)",
                                &g_replace_stock);
+    changed |= ImGui::Checkbox("AI take wall damage (player scrape / impact path)", &g_wall_damage);
+    changed |=
+        ImGui::Checkbox("AI explode on death-speed impacts (like the player)", &g_impact_death);
     ImGui::SeparatorText("Form + swings");
     changed |= ImGui::SliderFloat("Form amplitude (per race)", &g_form_amp, 0.0f, 0.15f, "%.3f");
     changed |= ImGui::SliderFloat("Swing amplitude", &g_swing_amp, 0.0f, 0.15f, "%.3f");
@@ -438,6 +497,7 @@ static DebugPanel g_panel = {.category = "Race",
 
 void ai_variance_RegisterPanel() {
     load_config();
+    save_config();// stamps cfg_version so the one-time default override does not repeat
     srand((unsigned) GetTickCount());
     debug_ui_register(&g_panel);
 }

@@ -561,7 +561,7 @@ void orchestrator_Service() {
         overlay_SetFooter(footer);
     } else if (on_grid) {
         const DWORD now_ms = GetTickCount();
-        const DWORD end = g_grid_hold_start_ms + (DWORD) ((g_grid_hold_s + 9.0f) * 1000.0f);
+        const DWORD end = g_grid_hold_start_ms + (DWORD) ((g_grid_hold_s + 3.5f) * 1000.0f);
         const float left = now_ms >= end ? 0.0f : (end - now_ms) / 1000.0f;
         char footer[96];
         snprintf(footer, sizeof(footer), "Place your bets  |  race starts in %d:%02d",
@@ -599,12 +599,15 @@ void orchestrator_Service() {
         for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++)
             if ((swrScoresPtr[i].flag & 1) != 0)
                 any_racing = true;
-        if (state == 5 && !any_racing) {
+        // The orbit (state 5) may be skipped by the cutscene toggles, so the hold lives in the
+        // countdown (state 0): its timer is pinned above the 3-2-1 light windows until the hold
+        // elapses, then runs out normally.
+        if ((state == 5 || state == 0) && !any_racing) {
             if (g_grid_hold_start_ms == 0)
                 g_grid_hold_start_ms = now;
-            if (now - g_grid_hold_start_ms < (DWORD) (g_grid_hold_s * 1000.0f) &&
-                jdge->raceTimer_ms < 1.0f)
-                jdge->raceTimer_ms = 1.0f;
+            const bool holding = now - g_grid_hold_start_ms < (DWORD) (g_grid_hold_s * 1000.0f);
+            if (holding && state == 0 && jdge->raceTimer_ms < 3.5f)
+                jdge->raceTimer_ms = 3.5f;
         }
         if (state == 1 || state == 2) {
             log_snapshot(jdge, now);
