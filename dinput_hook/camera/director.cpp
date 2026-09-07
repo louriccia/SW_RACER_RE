@@ -4,6 +4,8 @@
 #include "../debug_ui.h"
 #include "../imgui_utils.h"// settings_ini_path
 #include "../hook_helper.h"
+#include "player_camera.h"
+#include <cmath>
 
 #include <imgui.h>
 
@@ -12,11 +14,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
+#include <cstring>
 
 extern "C" {
 #include <Swr/swrObj.h>
 #include <Swr/swrRace.h>
 #include <Swr/swrEvent.h>
+#include <Swr/swrModel.h>// BuildLookAtTransform
 #include <globals.h>
 }
 
@@ -28,6 +32,12 @@ static float g_dwell_s = 12.0f;      // seconds on a target before auto consider
 static float g_manual_hold_s = 45.0f;// a manual pick holds this long before auto resumes
 static int g_w_leader = 3, g_w_battle = 3, g_w_random = 1;// pick weights
 static float g_battle_gap_s = 1.5f;                       // two racers this close are a "battle"
+// Drone shot: a high, smoothed camera above and behind the followed pod, aimed ahead of it.
+static float g_p_drone = 0.35f;      // probability a cut is a drone shot instead of the chase cam
+static float g_drone_height = 220.0f;// world units above the pod
+static float g_drone_back = 160.0f;  // behind the pod along its horizontal heading
+static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
+static float g_drone_smooth = 0.5f;  // position time constant (s)
 
 // ---------------------------------------------------------------------------------------------
 // State
@@ -38,6 +48,12 @@ static DWORD g_last_cut_ms = 0;
 static DWORD g_manual_until_ms = 0;
 static const char *g_last_rule = "";
 static int g_cuts = 0;
+
+enum Shot { SHOT_CHASE = 0, SHOT_DRONE = 1 };
+static Shot g_shot = SHOT_CHASE;
+static bool g_drone_seeded = false;
+static rdVector3 g_drone_pos;
+static rdVector3 g_drone_aim;
 
 static swrObjcMan *camera_man() {
     return (swrObjcMan *) swrEvent_FindObjectById('cMan', 0);
@@ -75,8 +91,13 @@ static void cut_to(int slot, const char *rule) {
     g_last_cut_ms = GetTickCount();
     g_last_rule = rule;
     g_cuts++;
+    // Shot type: manual picks always get the plain chase; auto cuts roll for the drone.
+    const bool manual = strcmp(rule, "manual") == 0;
+    g_shot = (!manual && (float) rand() / (float) RAND_MAX < g_p_drone) ? SHOT_DRONE : SHOT_CHASE;
+    g_drone_seeded = false;
     const RaceTelemetryRow *r = row_for_slot(race_telemetry_Get(), slot);
-    fprintf(hook_log, "[director] cut -> slot %d (%s) by %s\n", slot, r ? r->name : "?", rule);
+    fprintf(hook_log, "[director] cut -> slot %d (%s) by %s, %s shot\n", slot, r ? r->name : "?",
+            rule, g_shot == SHOT_DRONE ? "drone" : "chase");
     fflush(hook_log);
 }
 
@@ -129,8 +150,7 @@ static int pick_auto(const RaceTelemetry *t, const char **rule) {
         *rule = "battle";
         return battle;
     }
-    *rule = "random";
-    // random: avoid re-picking the current target when there is a choice
+    *rule = "random";// random: avoid re-picking the current target when there is a choice
     for (int tries = 0; tries < 8; tries++) {
         const int s = pool[rand() % count];
         if (s != g_target_slot || count == 1)
@@ -175,12 +195,67 @@ void director_FollowSlot(int slot) {
     g_manual_until_ms = GetTickCount() + (DWORD) (g_manual_hold_s * 1000.0f);
 }
 
+// Drone shot: runs right after swrObjcMan_UpdateCamera for every camera-man; only rewrites the one
+// that follows our target while a drone shot is active. Camera position is eased so pod bounces do
+// not shake the shot; the aim point leads the pod along its heading.
+static bool drone_override(swrObjcMan *cman) {
+    if (!g_enabled || g_shot != SHOT_DRONE || cman == NULL)
+        return false;
+    swrRace *pod = cman->unkf4_objTest;
+    if (pod == NULL || swrScoresPtr == NULL || g_target_slot < 0 ||
+        swrScoresPtr[g_target_slot].obj_test_ptr != pod)
+        return false;
+    const RaceTelemetry *t = race_telemetry_Get();
+    if (!t->valid || t->source != RACE_SOURCE_ALL_AI)
+        return false;
+
+    const rdVector3 pos = {pod->transform.vD.x, pod->transform.vD.y, pod->transform.vD.z};
+    // horizontal heading from the pod's forward axis (world is Z-up)
+    float fx = pod->transform.vB.x, fy = pod->transform.vB.y;
+    const float fl = sqrtf(fx * fx + fy * fy);
+    if (fl < 1e-3f) {
+        fx = 0.0f;
+        fy = 1.0f;
+    } else {
+        fx /= fl;
+        fy /= fl;
+    }
+    const rdVector3 want_pos = {pos.x - fx * g_drone_back, pos.y - fy * g_drone_back,
+                                pos.z + g_drone_height};
+    const rdVector3 want_aim = {pos.x + fx * g_drone_ahead, pos.y + fy * g_drone_ahead, pos.z};
+    if (!g_drone_seeded) {
+        g_drone_pos = want_pos;
+        g_drone_aim = want_aim;
+        g_drone_seeded = true;
+    } else {
+        const float dt = (float) swrRace_deltaTimeSecs;
+        const float a = g_drone_smooth > 0.0f ? 1.0f - expf(-dt / g_drone_smooth) : 1.0f;
+        g_drone_pos.x += (want_pos.x - g_drone_pos.x) * a;
+        g_drone_pos.y += (want_pos.y - g_drone_pos.y) * a;
+        g_drone_pos.z += (want_pos.z - g_drone_pos.z) * a;
+        g_drone_aim.x += (want_aim.x - g_drone_aim.x) * a * 2.0f;
+        g_drone_aim.y += (want_aim.y - g_drone_aim.y) * a * 2.0f;
+        g_drone_aim.z += (want_aim.z - g_drone_aim.z) * a * 2.0f;
+    }
+    swrTranslationRotation tr;
+    rdMatrix44 out;
+    rdVector3 from = g_drone_pos, to = g_drone_aim;
+    BuildLookAtTransform(&from, &to, &out, &tr, 0.0f);
+    cman->unk20_mat = out;
+    cman->focusTransform_mat.vD.x = to.x;
+    cman->focusTransform_mat.vD.y = to.y;
+    cman->focusTransform_mat.vD.z = to.z;
+    return true;
+}
+
 void director_SetEnabled(bool on) {
     if (on == g_enabled)
         return;
     g_enabled = on;
     g_manual_until_ms = 0;
+    g_shot = SHOT_CHASE;
     overlay_SetRowClickHandler(on ? director_FollowSlot : NULL);
+    playercam_SetCameraOverride(on ? drone_override : NULL);
     if (!on)
         overlay_SetHighlightSlot(-1);
 }
@@ -220,6 +295,11 @@ static void load_config() {
     g_w_battle = GetPrivateProfileIntW(INI_SECTION, L"w_battle", g_w_battle, ini);
     g_w_random = GetPrivateProfileIntW(INI_SECTION, L"w_random", g_w_random, ini);
     g_battle_gap_s = ini_get_float(ini, L"battle_gap_s", g_battle_gap_s);
+    g_p_drone = ini_get_float(ini, L"p_drone", g_p_drone);
+    g_drone_height = ini_get_float(ini, L"drone_height", g_drone_height);
+    g_drone_back = ini_get_float(ini, L"drone_back", g_drone_back);
+    g_drone_ahead = ini_get_float(ini, L"drone_ahead", g_drone_ahead);
+    g_drone_smooth = ini_get_float(ini, L"drone_smooth", g_drone_smooth);
 }
 
 static void save_config() {
@@ -231,6 +311,11 @@ static void save_config() {
     ini_set_int(ini, L"w_battle", g_w_battle);
     ini_set_int(ini, L"w_random", g_w_random);
     ini_set_float(ini, L"battle_gap_s", g_battle_gap_s);
+    ini_set_float(ini, L"p_drone", g_p_drone);
+    ini_set_float(ini, L"drone_height", g_drone_height);
+    ini_set_float(ini, L"drone_back", g_drone_back);
+    ini_set_float(ini, L"drone_ahead", g_drone_ahead);
+    ini_set_float(ini, L"drone_smooth", g_drone_smooth);
 }
 
 static void panel_director() {
@@ -245,6 +330,21 @@ static void panel_director() {
     changed |= ImGui::SliderInt("Weight: battle", &g_w_battle, 0, 10);
     changed |= ImGui::SliderInt("Weight: random", &g_w_random, 0, 10);
     changed |= ImGui::SliderFloat("Battle gap (s)", &g_battle_gap_s, 0.2f, 5.0f, "%.1f");
+    ImGui::SeparatorText("Drone shot");
+    changed |= ImGui::SliderFloat("Drone probability per cut", &g_p_drone, 0.0f, 1.0f, "%.2f");
+    changed |= ImGui::SliderFloat("Height", &g_drone_height, 20.0f, 800.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Behind", &g_drone_back, 0.0f, 600.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Aim ahead", &g_drone_ahead, 0.0f, 400.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Smoothing (s)", &g_drone_smooth, 0.0f, 2.0f, "%.2f");
+    if (ImGui::Button("Drone now")) {
+        g_shot = SHOT_DRONE;
+        g_drone_seeded = false;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Chase now"))
+        g_shot = SHOT_CHASE;
+    ImGui::SameLine();
+    ImGui::Text("current: %s", g_shot == SHOT_DRONE ? "drone" : "chase");
     if (changed)
         save_config();
 

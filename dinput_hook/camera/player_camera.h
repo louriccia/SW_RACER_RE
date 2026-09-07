@@ -19,3 +19,10 @@ bool playercam_ShowPodInFirstPerson();// draw it even where its own camera hides
 
 // Multiplier on the GL near plane (< 1 while the true cockpit is active, so the cockpit isn't clipped).
 float playercam_NearClipScale();
+
+// External camera driver (e.g. the broadcast director's drone shot). Called right after the game's
+// swrObjcMan_UpdateCamera for every camera-man; return true after rewriting unk20_mat (camera-to-
+// world) and focusTransform_mat.vD (aim point) to skip the player-camera post-processing. NULL clears.
+struct swrObjcMan;
+typedef bool (*PlayerCamOverrideFn)(swrObjcMan *cman);
+void playercam_SetCameraOverride(PlayerCamOverrideFn fn);
