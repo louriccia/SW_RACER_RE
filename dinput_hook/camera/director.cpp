@@ -446,8 +446,11 @@ static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *riva
 // there; only the aim follows the pod. Released by the upkeep once the pod is past the camera.
 static bool plant_trackside(const swrRace *pod) {
     swrSplineCursor c = pod->splineCursor;
-    if (c.spline == NULL)
+    if (c.spline == NULL) {
+        fprintf(hook_log, "[director] trackside: pod has no spline cursor\n");
+        fflush(hook_log);
         return false;
+    }
     c.velocity = 0.0f;
     rdMatrix44 m;
     const rdVector3 start = {pod->transform.vD.x, pod->transform.vD.y, pod->transform.vD.z};
@@ -474,6 +477,13 @@ static bool plant_trackside(const swrRace *pod) {
         g_trackside_fwd.y /= l;
     }
     g_trackside_planted = true;
+    {
+        const float dx = g_trackside_pos.x - start.x, dy = g_trackside_pos.y - start.y,
+                    dz = g_trackside_pos.z - start.z;
+        fprintf(hook_log, "[director] trackside planted %.0f units from the pod (side %+.0f)\n",
+                sqrtf(dx * dx + dy * dy + dz * dz), side);
+        fflush(hook_log);
+    }
     return true;
 }
 
