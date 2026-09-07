@@ -44,14 +44,14 @@ static float g_trackside_height = 25.0f;
 static float g_trackside_past = 450.0f; // release once the pod is this far past the camera
 static float g_trackside_max_s = 22.0f; // or after this long (pod stalled / went the other way)
 static float g_trackside_aim_smooth = 0.15f;
-static float g_drone_height = 120.0f;// world units above the pod
-static const int CFG_VERSION = 7;    // bump when a default should override a stored value
-static float g_drone_back = 110.0f;  // behind the pod along its horizontal heading
+static float g_drone_height = 95.0f; // world units above the pod
+static const int CFG_VERSION = 8;    // bump when a default should override a stored value
+static float g_drone_back = 85.0f;   // behind the pod along its horizontal heading
 static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
 static float g_drone_smooth = 0.5f;  // position time constant (s)
 static float g_drone_blend_s = 1.6f; // drone -> drone cut: fly to the new pod over this long
 static float g_drone_blend_tau = 0.55f;
-static float g_drone_blend_max = 5000.0f;// further than this and the drone cuts instead of flying
+static float g_drone_blend_max = 2500.0f;// further than this and the drone cuts instead of flying
 static float g_orbit_dist = 180.0f;  // rival within this many world units -> orbit shot possible
 static float g_orbit_rate = 0.35f;   // orbit sweep rate (rad/s)
 static float g_orbit_sweep = 0.6f;// sweep amplitude (rad) either side of the "away from rival" line
@@ -683,8 +683,6 @@ static void load_config() {
         g_orbit_height = config::get_float(INI_SECTION, "orbit_height", g_orbit_height);
     }
     if (stored_version >= 5) {// v5: closer drone, wider orbit range, occlusion cut
-        g_drone_height = config::get_float(INI_SECTION, "drone_height", g_drone_height);
-        g_drone_back = config::get_float(INI_SECTION, "drone_back", g_drone_back);
         g_orbit_dist = config::get_float(INI_SECTION, "orbit_dist", g_orbit_dist);
         g_occlusion_s = config::get_float(INI_SECTION, "occlusion_s", g_occlusion_s);
     }
@@ -692,11 +690,15 @@ static void load_config() {
     if (stored_version >= 6) {// v6: orbit weight 2 -> 4
         g_w_orbit = config::get_int(INI_SECTION, "shot_orbit", g_w_orbit);
     }
-    if (stored_version >= CFG_VERSION) {// v7: chase weight 2 -> 1
+    if (stored_version >= 7) {// v7: chase weight 2 -> 1
         g_w_chase = config::get_int(INI_SECTION, "shot_chase", g_w_chase);
     }
+    if (stored_version >= CFG_VERSION) {// v8: closer drone, fly-over cap halved
+        g_drone_height = config::get_float(INI_SECTION, "drone_height", g_drone_height);
+        g_drone_back = config::get_float(INI_SECTION, "drone_back", g_drone_back);
+        g_drone_blend_max = config::get_float(INI_SECTION, "drone_blend_max", g_drone_blend_max);
+    }
     g_min_shot_s = config::get_float(INI_SECTION, "min_shot_s", g_min_shot_s);
-    g_drone_blend_max = config::get_float(INI_SECTION, "drone_blend_max", g_drone_blend_max);
     g_drone_blend_s = config::get_float(INI_SECTION, "drone_blend_s", g_drone_blend_s);
     g_drone_blend_tau = config::get_float(INI_SECTION, "drone_blend_tau", g_drone_blend_tau);
     g_drone_ahead = config::get_float(INI_SECTION, "drone_ahead", g_drone_ahead);
