@@ -178,6 +178,10 @@ static void __cdecl swrRace_UpdateCatchup_delta(swrRace *player) {
     const float ours = g_form[slot] * (1.0f + g_swing[slot]) * pack * blunder;
     const float base = g_replace_stock ? 1.0f : player->speedMultiplier;
     player->speedMultiplier = std::clamp(base * ours, g_clamp_lo, g_clamp_hi);
+    // The pace-setter's rubberband also scales AI steering (AutopilotSteer scales turnRateTarget
+    // and its clamp by paceMultiplier), which is the favourite's remaining edge. Equalize it.
+    if (g_replace_stock)
+        player->paceMultiplier = 1.0f;
     g_last_mult[slot] = player->speedMultiplier;
 }
 
@@ -251,7 +255,8 @@ static void panel_ai_variance() {
     bool changed = false;
     changed |= ImGui::Checkbox("Enabled", &g_enabled);
     changed |= ImGui::Checkbox("Also in races a human drives", &g_with_humans);
-    changed |= ImGui::Checkbox("Replace stock pacing (all AI start equal)", &g_replace_stock);
+    changed |= ImGui::Checkbox("Replace stock pacing (equal speed + steering, no pace-setter)",
+                               &g_replace_stock);
     ImGui::SeparatorText("Form + swings");
     changed |= ImGui::SliderFloat("Form amplitude (per race)", &g_form_amp, 0.0f, 0.15f, "%.3f");
     changed |= ImGui::SliderFloat("Swing amplitude", &g_swing_amp, 0.0f, 0.15f, "%.3f");

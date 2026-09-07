@@ -26,3 +26,10 @@ float playercam_NearClipScale();
 struct swrObjcMan;
 typedef bool (*PlayerCamOverrideFn)(swrObjcMan *cman);
 void playercam_SetCameraOverride(PlayerCamOverrideFn fn);
+
+// True-cockpit camera for any pod (the director's cockpit shot): writes the cockpit transform + the
+// per-pilot eye offset into the camera-man. While an external cockpit shot is active the near clip
+// scale applies as for the player's true cockpit.
+struct swrRace;
+void playercam_ApplyTrueCockpit(swrObjcMan *cman, swrRace *racer);
+void playercam_SetExternalCockpit(bool active);

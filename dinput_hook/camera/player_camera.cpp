@@ -512,8 +512,18 @@ bool playercam_ShowPodInFirstPerson() {
     return g_cfg.show_pod_first_person || g_cockpit_cman != nullptr;
 }
 
+static bool g_external_cockpit = false;
+void playercam_SetExternalCockpit(bool active) {
+    g_external_cockpit = active;
+}
+void playercam_ApplyTrueCockpit(swrObjcMan *cman, swrRace *racer) {
+    apply_true_cockpit(cman, racer);
+}
+
 float playercam_NearClipScale() {
-    return g_cockpit_cman != nullptr ? std::clamp(g_cfg.cockpit_near_scale, 0.02f, 1.0f) : 1.0f;
+    return (g_cockpit_cman != nullptr || g_external_cockpit)
+               ? std::clamp(g_cfg.cockpit_near_scale, 0.02f, 1.0f)
+               : 1.0f;
 }
 
 void playercam_RegisterPanel() {

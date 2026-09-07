@@ -320,6 +320,8 @@ swrText_timedMessageTimer 0x004c3e40 float
 swrText_timedMessageAlpha 0x004c3e44 float
 
 swrObjcMan_SpectatorCamModes 0x004c3ef0 int16_t[7] # auto-cycle spectator cam: mode = table[rand % 7]
+swrObjcMan_spectatorCycleTimer 0x0050c8a0 float # auto-cycle spectator cam countdown (swrObjcMan_UpdateCamera, non-local followed pod); re-rolls the mode when it reaches 0
+swrObjcMan_spectatorCycleIndex 0x0050c8a4 int # current index into swrObjcMan_SpectatorCamModes
 
 numEnabledLights 0x00004C3BA0 int[12]
 
