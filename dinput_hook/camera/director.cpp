@@ -43,18 +43,19 @@ static float g_trackside_height = 25.0f;
 static float g_trackside_past = 450.0f; // release once the pod is this far past the camera
 static float g_trackside_max_s = 22.0f; // or after this long (pod stalled / went the other way)
 static float g_trackside_aim_smooth = 0.15f;
-static float g_drone_height = 150.0f;// world units above the pod
-static const int CFG_VERSION = 4;    // bump when a default should override a stored value
-static float g_drone_back = 130.0f;  // behind the pod along its horizontal heading
+static float g_drone_height = 120.0f;// world units above the pod
+static const int CFG_VERSION = 5;    // bump when a default should override a stored value
+static float g_drone_back = 110.0f;  // behind the pod along its horizontal heading
 static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
 static float g_drone_smooth = 0.5f;  // position time constant (s)
-static float g_orbit_dist = 120.0f;  // rival within this many world units -> orbit shot possible
+static float g_orbit_dist = 180.0f;  // rival within this many world units -> orbit shot possible
 static float g_orbit_rate = 0.35f;   // orbit sweep rate (rad/s)
 static float g_orbit_sweep = 0.6f;// sweep amplitude (rad) either side of the "away from rival" line
 static float g_orbit_radius = 60.0f;// camera distance from the followed pod
 static float g_orbit_height = 18.0f;
 static float g_orbit_smooth = 0.4f;
 static float g_cockpit_max_s = 8.0f;// cockpit shots are short
+static float g_occlusion_s = 1.2f;  // free camera blocked by the track this long -> back to chase
 
 // ---------------------------------------------------------------------------------------------
 // State
@@ -80,6 +81,7 @@ static bool g_orbit_ang_seeded = false;
 static rdVector3 g_trackside_pos;// fixed camera position
 static rdVector3 g_trackside_fwd;// spline tangent at the camera (pass-by test)
 static bool g_trackside_planted = false;
+static DWORD g_blocked_since_ms = 0;// free-camera line of sight to the pod lost at (0 = clear)
 
 static swrObjcMan *camera_man() {
     return (swrObjcMan *) swrEvent_FindObjectById('cMan', 0);
@@ -118,6 +120,33 @@ static float pod_distance(int a, int b) {
     return sqrtf(dx * dx + dy * dy + dz * dz);
 }
 
+// Line of sight from the free camera to the pod against the track collision model. Ray record as
+// swrRace_RaycastGround builds it: origin, unit direction, max length; RaycastModel returns the hit
+// distance or -1. The facing filter is off so back faces (tunnel roofs, cliff undersides) count.
+static bool view_blocked(const swrRace *pod) {
+    if (!g_cam_seeded || pod->collisionModel == NULL)
+        return false;
+    float ray[7] = {g_cam_pos.x, g_cam_pos.y, g_cam_pos.z, 0.0f, 0.0f, 0.0f, 0.0f};
+    const float dx = pod->transform.vD.x - g_cam_pos.x, dy = pod->transform.vD.y - g_cam_pos.y,
+                dz = pod->transform.vD.z + 3.0f - g_cam_pos.z;
+    const float len = sqrtf(dx * dx + dy * dy + dz * dz);
+    if (len < 10.0f)
+        return false;
+    ray[3] = dx / len;
+    ray[4] = dy / len;
+    ray[5] = dz / len;
+    ray[6] = len - 6.0f;// stop short of the pod itself
+    rdVector3 hit, normal;
+    // declared in swrObj.h but not reimplemented: call the game's routine by address
+    typedef void(__cdecl * SetRaycastIgnoreFacing_t)(int);
+    const SetRaycastIgnoreFacing_t set_ignore_facing =
+        (SetRaycastIgnoreFacing_t) swrModel_SetRaycastIgnoreFacing_ADDR;
+    set_ignore_facing(1);
+    const float d = swrRace_RaycastModel(pod->collisionModel, ray, &hit, &normal);
+    set_ignore_facing(0);
+    return d >= 0.0f;
+}
+
 // Nearest racer to `slot` in the world (ahead or behind) within `max_dist`, or -1. Progress gaps
 // in seconds put pods a corner apart in "range"; the orbit needs them in the same shot.
 static int nearest_rival(const RaceTelemetry *t, int slot, float max_dist) {
@@ -147,6 +176,7 @@ static void set_shot(Shot s) {
     g_orbit_ang_seeded = false;
     overlay_SuppressNameplates(s == SHOT_DRONE);
     g_trackside_planted = false;
+    g_blocked_since_ms = 0;
     if (s == SHOT_COCKPIT)
         playercam_SetExternalCockpit(true);
 }
@@ -290,8 +320,24 @@ void director_Service() {
         cur == NULL || (g_dead_since_ms != 0 && now - g_dead_since_ms >= DEAD_HOLD_MS);
     const bool dwell_over = now - g_last_cut_ms >= (DWORD) (g_dwell_s * 1000.0f);
 
-    // Shot upkeep: orbit needs its rival in range; cockpit shots are short.
+    // Shot upkeep: orbit needs its rival in range; cockpit shots are short; a free camera that
+    // loses sight of the pod behind the track for a while drops back to the chase view.
     if (!must_cut) {
+        if (g_shot == SHOT_DRONE || g_shot == SHOT_ORBIT || g_shot == SHOT_TRACKSIDE) {
+            const swrRace *pod = swrScoresPtr[g_target_slot].obj_test_ptr;
+            if (pod != NULL && view_blocked(pod)) {
+                if (g_blocked_since_ms == 0)
+                    g_blocked_since_ms = now;
+                else if (now - g_blocked_since_ms > (DWORD) (g_occlusion_s * 1000.0f)) {
+                    fprintf(hook_log, "[director] %s shot blocked by the track, back to chase\n",
+                            SHOT_NAMES[g_shot]);
+                    fflush(hook_log);
+                    set_shot(SHOT_CHASE);
+                }
+            } else {
+                g_blocked_since_ms = 0;
+            }
+        }
         if (g_shot == SHOT_ORBIT) {
             const RaceTelemetryRow *rv = row_for_slot(t, g_orbit_rival);
             const bool keep = rv != NULL && followable(*rv) &&
@@ -569,23 +615,24 @@ static void load_config() {
     g_trackside_side = config::get_float(INI_SECTION, "trackside_side", g_trackside_side);
     g_trackside_height = config::get_float(INI_SECTION, "trackside_height", g_trackside_height);
     const int stored_version = config::get_int(INI_SECTION, "cfg_version", 1);
-    if (stored_version >= 2) {// v2: lower / closer drone defaults replace the old ones
-        g_drone_height = config::get_float(INI_SECTION, "drone_height", g_drone_height);
-        g_drone_back = config::get_float(INI_SECTION, "drone_back", g_drone_back);
-    }
     if (stored_version >= 3) {// v3: further / longer trackside defaults
         g_trackside_ahead = config::get_float(INI_SECTION, "trackside_ahead", g_trackside_ahead);
         g_trackside_past = config::get_float(INI_SECTION, "trackside_past", g_trackside_past);
         g_trackside_max_s = config::get_float(INI_SECTION, "trackside_max_s", g_trackside_max_s);
     }
-    if (stored_version >= CFG_VERSION) {// v4: pod-anchored orbit, narrower sweep
+    if (stored_version >= 4) {// v4: pod-anchored orbit, narrower sweep
         g_orbit_sweep = config::get_float(INI_SECTION, "orbit_sweep", g_orbit_sweep);
         g_orbit_radius = config::get_float(INI_SECTION, "orbit_radius", g_orbit_radius);
         g_orbit_height = config::get_float(INI_SECTION, "orbit_height", g_orbit_height);
     }
+    if (stored_version >= CFG_VERSION) {// v5: closer drone, wider orbit range, occlusion cut
+        g_drone_height = config::get_float(INI_SECTION, "drone_height", g_drone_height);
+        g_drone_back = config::get_float(INI_SECTION, "drone_back", g_drone_back);
+        g_orbit_dist = config::get_float(INI_SECTION, "orbit_dist", g_orbit_dist);
+        g_occlusion_s = config::get_float(INI_SECTION, "occlusion_s", g_occlusion_s);
+    }
     g_drone_ahead = config::get_float(INI_SECTION, "drone_ahead", g_drone_ahead);
     g_drone_smooth = config::get_float(INI_SECTION, "drone_smooth", g_drone_smooth);
-    g_orbit_dist = config::get_float(INI_SECTION, "orbit_dist", g_orbit_dist);
     g_orbit_rate = config::get_float(INI_SECTION, "orbit_rate", g_orbit_rate);
     g_orbit_smooth = config::get_float(INI_SECTION, "orbit_smooth", g_orbit_smooth);
     g_cockpit_max_s = config::get_float(INI_SECTION, "cockpit_max_s", g_cockpit_max_s);
@@ -621,6 +668,7 @@ static void save_config() {
     config::set_float(INI_SECTION, "orbit_height", g_orbit_height);
     config::set_float(INI_SECTION, "orbit_smooth", g_orbit_smooth);
     config::set_float(INI_SECTION, "cockpit_max_s", g_cockpit_max_s);
+    config::set_float(INI_SECTION, "occlusion_s", g_occlusion_s);
     config::save();
 }
 
@@ -645,6 +693,7 @@ static void panel_director() {
     changed |= ImGui::SliderInt("Orbit (needs a rival in range)", &g_w_orbit, 0, 10);
     changed |= ImGui::SliderInt("Cockpit", &g_w_cockpit, 0, 10);
     changed |= ImGui::SliderInt("Trackside", &g_w_trackside, 0, 10);
+    changed |= ImGui::SliderFloat("Cut when the track blocks the view for (s)", &g_occlusion_s, 0.2f, 5.0f, "%.1f");
     ImGui::SeparatorText("Drone");
     changed |= ImGui::SliderFloat("Height", &g_drone_height, 20.0f, 800.0f, "%.0f");
     changed |= ImGui::SliderFloat("Behind", &g_drone_back, 0.0f, 600.0f, "%.0f");
