@@ -118,6 +118,7 @@ static void set_shot(Shot s) {
     g_shot_start_ms = GetTickCount();
     g_cam_seeded = false;
     g_orbit_ang_seeded = false;
+    overlay_SuppressNameplates(s == SHOT_DRONE);
     if (s == SHOT_COCKPIT)
         playercam_SetExternalCockpit(true);
 }
@@ -242,8 +243,9 @@ void director_Service() {
         g_target_slot = followed;// something else (respawn, spawn) moved the camera
 
     const RaceTelemetryRow *cur = row_for_slot(t, g_target_slot);
-    const bool manual_hold = now < g_manual_until_ms;
-    // A followed racer who finishes or crashes is left on screen (the finish / crash is the
+    const bool manual_hold =
+        now <
+        g_manual_until_ms;// A followed racer who finishes or crashes is left on screen (the finish / crash is the
     // shot); they are simply never picked again (followable), so the next cut moves on.
     const bool must_cut = cur == NULL;
     const bool dwell_over =
@@ -364,8 +366,9 @@ static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *riva
     const float t = (GetTickCount() - g_shot_start_ms) / 1000.0f;
     const float phase = g_orbit_sweep * sinf(t * g_orbit_rate);
     const float want_ang = atan2f(dy, dx) + phase;
-    const float want_radius = std::clamp(sep * 0.8f + 40.0f, 50.0f, 180.0f);
-    // The pair line flips 180 degrees when the pods swap order: ease the angle itself along the
+    const float want_radius = std::clamp(
+        sep * 0.8f + 40.0f, 50.0f,
+        180.0f);// The pair line flips 180 degrees when the pods swap order: ease the angle itself along the
     // shortest arc so the camera swings around rather than jumping.
     const float dt = (float) swrRace_deltaTimeSecs;
     const float a = g_orbit_smooth > 0.0f ? 1.0f - expf(-dt / g_orbit_smooth) : 1.0f;
@@ -427,6 +430,7 @@ void director_SetEnabled(bool on) {
     g_enabled = on;
     g_manual_until_ms = 0;
     set_shot(SHOT_CHASE);
+    overlay_SuppressNameplates(false);
     overlay_SetRowClickHandler(on ? director_FollowSlot : NULL);
     playercam_SetCameraOverride(on ? camera_override : NULL);
     if (!on)

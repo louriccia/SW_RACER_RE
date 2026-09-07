@@ -23,6 +23,8 @@ static float g_opacity = 0.6f;
 static int g_anchor = 0;         // 0 left, 1 right
 static bool g_nameplates = false;// names over pods (SP / all-AI)
 static bool g_nameplates_forced = false;
+static bool g_nameplates_suppressed = false;
+static bool g_pod_status = true;// followed racer's speed + engine health card
 static float g_margin_x = 10.0f;
 static float g_margin_y = 60.0f;// Consumer overrides
 static bool g_forced = false;
@@ -44,6 +46,12 @@ bool overlay_NameplatesActive() {
 }
 void overlay_ForceNameplates(bool on) {
     g_nameplates_forced = on;
+}
+void overlay_SuppressNameplates(bool suppress) {
+    g_nameplates_suppressed = suppress;
+}
+bool overlay_NameplatesSuppressed() {
+    return g_nameplates_suppressed;
 }
 
 static void (*g_row_click)(int slot) = NULL;
@@ -186,7 +194,11 @@ static void draw_leaderboard(const RaceTelemetry *t) {
             g_dragging = false;
             save_config();
         }
-        ImGui::Text("%s  |  %s", g_title[0] ? g_title : "RACE", track_name(t->track_index));
+        if (t->leader_finished || t->n == 0)
+            ImGui::Text("%s  |  %s", g_title[0] ? g_title : "RACE", track_name(t->track_index));
+        else
+            ImGui::Text("%s  |  %s  |  LAP %d/%d", g_title[0] ? g_title : "RACE",
+                        track_name(t->track_index), t->rows[0].lap, t->num_laps);
         ImGui::Separator();
 
         float gap_w = 0.0f;
@@ -245,6 +257,57 @@ static void draw_leaderboard(const RaceTelemetry *t) {
     ImGui::End();
 }
 
+// Followed racer's card: speed bar + the six engines (left column / right column), colored by
+// damage, flame marker when burning. Bottom-right, same scale as the board.
+static void draw_pod_status(const RaceTelemetry *t) {
+    const RaceTelemetryRow *r = NULL;
+    for (int k = 0; k < t->n; k++)
+        if (t->rows[k].slot == g_highlight_slot)
+            r = &t->rows[k];
+    if (r == NULL)
+        return;
+    const ImGuiIO &io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - g_margin_x, io.DisplaySize.y - g_margin_y),
+                            ImGuiCond_Always, ImVec2(1.0f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(g_opacity);
+    if (ImGui::Begin("##broadcast_podstatus", NULL, OVERLAY_FLAGS | ImGuiWindowFlags_NoInputs)) {
+        ImGui::SetWindowFontScale(g_scale);
+        ImGui::Text("%s%s", r->name, r->boosting ? "   BOOST" : "");
+        const float h = ImGui::GetTextLineHeight();
+        const float w = h * 9.0f;
+        const float frac =
+            r->max_speed > 0.0f ? std::clamp(r->speed / r->max_speed, 0.0f, 1.3f) : 0.0f;
+        char label[32];
+        snprintf(label, sizeof(label), "%.0f", r->speed);
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, r->boosting ? ImVec4(1.0f, 0.55f, 0.1f, 1.0f)
+                                                                  : ImVec4(0.3f, 0.7f, 1.0f, 1.0f));
+        ImGui::ProgressBar(std::min(1.0f, frac / 1.3f), ImVec2(w, h * 0.8f), label);
+        ImGui::PopStyleColor();
+        // engines: two columns of three (left top/mid/bot | right top/mid/bot)
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float cell_w = w * 0.48f, cell_h = h * 0.45f, gap = h * 0.12f;
+        for (int e = 0; e < 6; e++) {
+            const int col = e / 3, row = e % 3;
+            const ImVec2 a(p.x + col * (cell_w + w * 0.04f), p.y + row * (cell_h + gap));
+            const ImVec2 b(a.x + cell_w, a.y + cell_h);
+            const float d = r->engine_damage[e];
+            const ImU32 fill =
+                IM_COL32((int) (60 + 195 * d), (int) (200 * (1.0f - d) + 40), 40, 230);
+            dl->AddRectFilled(a, b, IM_COL32(40, 40, 40, 200));
+            dl->AddRectFilled(a, ImVec2(a.x + cell_w * (1.0f - d), b.y), fill);
+            dl->AddRect(a, b, IM_COL32(220, 220, 220, 180));
+            if (r->engine_fire[e]) {
+                const float fx = b.x - cell_h * 0.6f, fy = a.y + cell_h * 0.1f, s = cell_h * 0.8f;
+                dl->AddTriangleFilled(ImVec2(fx + s * 0.5f, fy), ImVec2(fx + s, fy + s),
+                                      ImVec2(fx, fy + s), IM_COL32(255, 140, 20, 255));
+            }
+        }
+        ImGui::Dummy(ImVec2(w, 3 * cell_h + 2 * gap));
+    }
+    ImGui::End();
+}
+
 void overlay_Service() {
     race_telemetry_Update();
 }
@@ -256,6 +319,8 @@ void overlay_Draw() {
     if (!t->valid || t->n == 0)
         return;
     draw_leaderboard(t);
+    if (g_pod_status && g_highlight_slot >= 0)
+        draw_pod_status(t);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -285,6 +350,7 @@ static void load_config() {
     g_leaderboard = GetPrivateProfileIntW(INI_SECTION, L"leaderboard", g_leaderboard, ini) != 0;
     g_show_tags = GetPrivateProfileIntW(INI_SECTION, L"show_tags", g_show_tags, ini) != 0;
     g_nameplates = GetPrivateProfileIntW(INI_SECTION, L"nameplates", g_nameplates, ini) != 0;
+    g_pod_status = GetPrivateProfileIntW(INI_SECTION, L"pod_status", g_pod_status, ini) != 0;
     g_scale = ini_get_float(ini, L"scale", g_scale);
     g_opacity = ini_get_float(ini, L"opacity", g_opacity);
     g_anchor = std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"anchor", g_anchor, ini), 0, 1);
@@ -297,6 +363,7 @@ static void save_config() {
     ini_set_int(ini, L"leaderboard", g_leaderboard);
     ini_set_int(ini, L"show_tags", g_show_tags);
     ini_set_int(ini, L"nameplates", g_nameplates);
+    ini_set_int(ini, L"pod_status", g_pod_status);
     ini_set_float(ini, L"scale", g_scale);
     ini_set_float(ini, L"opacity", g_opacity);
     ini_set_int(ini, L"anchor", g_anchor);
@@ -316,6 +383,7 @@ static void panel_broadcast() {
     }
     changed |= ImGui::Checkbox("Status icons (finished / crashed / on fire)", &g_show_tags);
     changed |= ImGui::Checkbox("Names over pods (instead of position numbers)", &g_nameplates);
+    changed |= ImGui::Checkbox("Followed racer card (speed + engines)", &g_pod_status);
     if (g_nameplates_forced) {
         ImGui::SameLine();
         ImGui::TextDisabled("(forced on)");

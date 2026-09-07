@@ -28,8 +28,12 @@ struct RaceTelemetryRow {
     float gap_leader_s;// seconds behind the leader: time gap for finishers, pace-derived otherwise
     float total_time_s;// finishers: final time; others: running race clock
     float speed;
+    float max_speed;
     bool dead;
     bool on_fire;
+    bool boosting;
+    float engine_damage[6];// 0 clean .. 1 destroyed (left top/mid/bot, right top/mid/bot)
+    bool engine_fire[6];
 };
 
 struct RaceTelemetry {

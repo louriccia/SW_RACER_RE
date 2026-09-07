@@ -28,3 +28,6 @@ void overlay_SetHighlightSlot(int slot);
 // already shows player names). User toggle in the Broadcast panel, or forced by a consumer.
 bool overlay_NameplatesActive();
 void overlay_ForceNameplates(bool on);
+// Temporarily hide the labels (e.g. during a wide drone shot) without changing the toggles.
+void overlay_SuppressNameplates(bool suppress);
+bool overlay_NameplatesSuppressed();

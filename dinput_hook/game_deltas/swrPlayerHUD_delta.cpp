@@ -76,6 +76,8 @@ void swrPlayerHUD_RenderDistanceText_delta(void *viewport, bool secondaryPass) {
         return;
     }
 
+    if (overlay_NameplatesActive() && overlay_NameplatesSuppressed())
+        return;// e.g. the director's drone shot: labels off for the wide view
     if (multiplayer_enabled == 0 && !overlay_NameplatesActive()) {
         // Single-player: position numbers over AI, unchanged.
         hook_call_original(
