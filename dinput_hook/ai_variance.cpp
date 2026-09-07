@@ -16,6 +16,7 @@
 extern "C" {
 #include <Swr/swrObj.h>
 #include <Swr/swrRace.h>
+#include <Swr/swrSound.h>
 #include <globals.h>
 void hook_function(const char *function_name, uint32_t original_address, uint8_t *hook_address);
 }
@@ -36,6 +37,17 @@ static float g_blunder_per_min = 0.6f;// blunders per racer per minute
 static float g_blunder_min_s = 1.5f, g_blunder_max_s = 3.0f;
 static float g_blunder_depth = 0.65f;             // multiplier during a blunder
 static float g_clamp_lo = 0.5f, g_clamp_hi = 1.6f;// same envelope as the stock AI
+// Boost. Humans charge by holding throttle + nose-down at > 75% top speed for 1 s, then fire;
+// boosting drains engineTemp (100 = cool, 0 = overheated -> a random engine catches fire).
+static bool g_boost = true;
+static float g_boost_start_per_s = 0.35f;// chance per second to begin charging when eligible
+static float g_boost_min_s = 2.0f, g_boost_max_s = 4.5f;// boost duration
+static float g_boost_release_temp = 35.0f;  // let go of the boost when engineTemp falls to this
+static float g_boost_min_start_temp = 70.0f;// only start charging when reasonably cool
+static float g_boost_turn_limit = 60.0f;    // |turnRateTarget| above this = cornering, no boost
+static float g_boost_cooldown_s = 4.0f;
+static float g_boost_p_overheat = 0.12f;// chance a boost is held until the engines catch fire
+static bool g_boost_sound = true;
 
 // ---------------------------------------------------------------------------------------------
 // Per-race state (indexed by swrScoresPtr slot)
@@ -46,6 +58,10 @@ static float g_form[MAX_SLOTS];
 static float g_swing[MAX_SLOTS];
 static DWORD g_blunder_until_ms[MAX_SLOTS];
 static float g_last_mult[MAX_SLOTS];
+static DWORD g_boost_until_ms[MAX_SLOTS];
+static DWORD g_boost_cooldown_ms[MAX_SLOTS];
+static bool g_boost_hold_to_fire[MAX_SLOTS];
+static int g_boosts_total = 0;
 static int g_seeded_track = -2;
 static int g_seeded_state0_seen = 0;
 static int g_blunders_total = 0;
@@ -67,6 +83,9 @@ static void reseed(DWORD now) {
         g_swing[i] = 0.0f;
         g_blunder_until_ms[i] = 0;
         g_last_mult[i] = 1.0f;
+        g_boost_until_ms[i] = 0;
+        g_boost_cooldown_ms[i] = 0;
+        g_boost_hold_to_fire[i] = false;
     }
     fprintf(hook_log, "[ai_variance] reseeded form:");
     for (int i = 0; i < MAX_SLOTS; i++)
@@ -94,6 +113,72 @@ static bool applies(const RaceTelemetry *t) {
     if (t->source == RACE_SOURCE_ALL_AI)
         return true;
     return g_with_humans && t->source == RACE_SOURCE_SINGLE_PLAYER;
+}
+
+// AI boost: drive the same boostIndicatorStatus / boostChargeTimer machine the human path uses
+// (0 idle -> 1 charging for 1 s -> 2 ready -> fire), gated on CAN_CHARGE_BOOST (the game sets it at
+// > 75% top speed), a straight, and enough engine coolness. A boost lasts a few seconds or until
+// engineTemp reaches the release point; with a small chance it is held until the engines ignite.
+static const float BOOST_CHARGE_S = 1.0f;// _DAT_004ad7f4
+static const int BOOST_SFX_ID = 0x72;    // swrRace_BoostCharge's fire sound
+
+static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const char *name) {
+    const bool boosting = (pod->flags0 & swrObjTest_FLAG0_BOOSTING) != 0;
+    const bool can_charge = (pod->flags0 & swrObjTest_FLAG0_CAN_CHARGE_BOOST) != 0;
+    const bool straight = fabsf(pod->turnRateTarget) < g_boost_turn_limit;
+    if (boosting) {
+        const bool timed_out = now >= g_boost_until_ms[slot];
+        const bool too_hot = !g_boost_hold_to_fire[slot] && pod->engineTemp <= g_boost_release_temp;
+        if (timed_out || too_hot || !straight) {
+            pod->flags0 = (swrObjTest_FLAG0) (pod->flags0 & ~swrObjTest_FLAG0_BOOSTING);
+            g_boost_cooldown_ms[slot] = now + (DWORD) (g_boost_cooldown_s * 1000.0f);
+        }
+        return;
+    }
+    switch (pod->boostIndicatorStatus) {
+        case 0:
+            if (can_charge && straight && now >= g_boost_cooldown_ms[slot] &&
+                pod->engineTemp >= g_boost_min_start_temp && frand() < g_boost_start_per_s * dt) {
+                pod->boostIndicatorStatus = 1;
+                pod->boostChargeTimer = 0.0f;
+            }
+            break;
+        case 1:
+            if (!can_charge) {
+                pod->boostIndicatorStatus = 0;
+                break;
+            }
+            pod->boostChargeTimer += dt;
+            if (pod->boostChargeTimer > BOOST_CHARGE_S)
+                pod->boostIndicatorStatus = 2;
+            break;
+        case 2:
+            if (!can_charge) {
+                pod->boostIndicatorStatus = 0;
+                break;
+            }
+            if (straight) {
+                pod->boostIndicatorStatus = 0;
+                pod->flags0 = (swrObjTest_FLAG0) (pod->flags0 | swrObjTest_FLAG0_BOOSTING);
+                g_boost_until_ms[slot] =
+                    now + (DWORD) ((g_boost_min_s +
+                                    frand() * std::max(0.0f, g_boost_max_s - g_boost_min_s)) *
+                                   1000.0f);
+                g_boost_hold_to_fire[slot] = frand() < g_boost_p_overheat;
+                g_boosts_total++;
+                if (g_boost_sound)
+                    swrSound_PlaySpatialRange(BOOST_SFX_ID, 7, 1.0f, 1.0f,
+                                              (rdVector3 *) &pod->transform.vD, 0, 1, 10.0f,
+                                              500.0f);
+                fprintf(hook_log, "[ai_variance] slot %d (%s) boost%s\n", slot, name,
+                        g_boost_hold_to_fire[slot] ? " (holding to overheat)" : "");
+                fflush(hook_log);
+            }
+            break;
+        default:
+            pod->boostIndicatorStatus = 0;
+            break;
+    }
 }
 
 typedef void(__cdecl *swrRace_UpdateCatchup_t)(swrRace *player);
@@ -167,6 +252,9 @@ static void __cdecl swrRace_UpdateCatchup_delta(swrRace *player) {
         }
     }
 
+    if (g_boost)
+        supervise_boost(player, slot, dt, now, row ? row->name : "?");
+
     const float ours = g_form[slot] * (1.0f + g_swing[slot]) * pack * blunder;
     const float base = g_replace_stock ? 1.0f : player->speedMultiplier;
     player->speedMultiplier = std::clamp(base * ours, g_clamp_lo, g_clamp_hi);
@@ -220,6 +308,16 @@ static void load_config() {
     g_blunder_min_s = ini_get_float(ini, L"blunder_min_s", g_blunder_min_s);
     g_blunder_max_s = ini_get_float(ini, L"blunder_max_s", g_blunder_max_s);
     g_blunder_depth = ini_get_float(ini, L"blunder_depth", g_blunder_depth);
+    g_boost = GetPrivateProfileIntW(INI_SECTION, L"boost", g_boost, ini) != 0;
+    g_boost_start_per_s = ini_get_float(ini, L"boost_start_per_s", g_boost_start_per_s);
+    g_boost_min_s = ini_get_float(ini, L"boost_min_s", g_boost_min_s);
+    g_boost_max_s = ini_get_float(ini, L"boost_max_s", g_boost_max_s);
+    g_boost_release_temp = ini_get_float(ini, L"boost_release_temp", g_boost_release_temp);
+    g_boost_min_start_temp = ini_get_float(ini, L"boost_min_start_temp", g_boost_min_start_temp);
+    g_boost_turn_limit = ini_get_float(ini, L"boost_turn_limit", g_boost_turn_limit);
+    g_boost_cooldown_s = ini_get_float(ini, L"boost_cooldown_s", g_boost_cooldown_s);
+    g_boost_p_overheat = ini_get_float(ini, L"boost_p_overheat", g_boost_p_overheat);
+    g_boost_sound = GetPrivateProfileIntW(INI_SECTION, L"boost_sound", g_boost_sound, ini) != 0;
 }
 
 static void save_config() {
@@ -237,6 +335,16 @@ static void save_config() {
     ini_set_float(ini, L"blunder_min_s", g_blunder_min_s);
     ini_set_float(ini, L"blunder_max_s", g_blunder_max_s);
     ini_set_float(ini, L"blunder_depth", g_blunder_depth);
+    ini_set_int(ini, L"boost", g_boost);
+    ini_set_float(ini, L"boost_start_per_s", g_boost_start_per_s);
+    ini_set_float(ini, L"boost_min_s", g_boost_min_s);
+    ini_set_float(ini, L"boost_max_s", g_boost_max_s);
+    ini_set_float(ini, L"boost_release_temp", g_boost_release_temp);
+    ini_set_float(ini, L"boost_min_start_temp", g_boost_min_start_temp);
+    ini_set_float(ini, L"boost_turn_limit", g_boost_turn_limit);
+    ini_set_float(ini, L"boost_cooldown_s", g_boost_cooldown_s);
+    ini_set_float(ini, L"boost_p_overheat", g_boost_p_overheat);
+    ini_set_int(ini, L"boost_sound", g_boost_sound);
 }
 
 static void panel_ai_variance() {
@@ -262,11 +370,28 @@ static void panel_ai_variance() {
     changed |= ImGui::SliderFloat("Min duration (s)", &g_blunder_min_s, 0.5f, 5.0f, "%.1f");
     changed |= ImGui::SliderFloat("Max duration (s)", &g_blunder_max_s, 0.5f, 8.0f, "%.1f");
     changed |= ImGui::SliderFloat("Depth (multiplier)", &g_blunder_depth, 0.2f, 1.0f, "%.2f");
+    ImGui::SeparatorText("Boost");
+    changed |= ImGui::Checkbox("AI boost", &g_boost);
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("sound", &g_boost_sound);
+    changed |= ImGui::SliderFloat("Start chance per s (when eligible)", &g_boost_start_per_s, 0.0f,
+                                  2.0f, "%.2f");
+    changed |= ImGui::SliderFloat("Min duration (s)##boost", &g_boost_min_s, 0.5f, 8.0f, "%.1f");
+    changed |= ImGui::SliderFloat("Max duration (s)##boost", &g_boost_max_s, 0.5f, 12.0f, "%.1f");
+    changed |=
+        ImGui::SliderFloat("Release at engine temp", &g_boost_release_temp, 0.0f, 90.0f, "%.0f");
+    changed |=
+        ImGui::SliderFloat("Start only above temp", &g_boost_min_start_temp, 0.0f, 100.0f, "%.0f");
+    changed |=
+        ImGui::SliderFloat("Straight: |turn| below", &g_boost_turn_limit, 5.0f, 400.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Cooldown (s)", &g_boost_cooldown_s, 0.0f, 20.0f, "%.1f");
+    changed |= ImGui::SliderFloat("Chance to hold until overheat", &g_boost_p_overheat, 0.0f, 1.0f,
+                                  "%.2f");
     if (changed)
         save_config();
 
     ImGui::Separator();
-    ImGui::Text("Blunders so far: %d", g_blunders_total);
+    ImGui::Text("Blunders so far: %d, boosts %d", g_blunders_total, g_boosts_total);
     if (ImGui::Button("Reseed form now"))
         reseed(GetTickCount());
     const RaceTelemetry *t = race_telemetry_Get();
