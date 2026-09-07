@@ -265,6 +265,14 @@ static int __cdecl swrObjHang_F4_delta(swrObjHang *hang, int *subEvents, int *p3
     const int r = hook_call_original((swrObjHang_F4_t) swrObjHang_F4_ADDR, hang, subEvents, p3);
     if (g_armed && swrMultiplayer_IsMultiplayerEnabled() == 0 &&
         (event == 'Fini' || event == 'Abrt')) {
+        if (!g_fini_fired) {
+            // We did not end this race (pause-menu quit, or an accept press in state 2): the user is
+            // leaving, so stop the loop instead of chaining straight into the next race.
+            orchestrator_ToggleArmed();
+            set_status("race %d ended by the user (%s); loop disarmed", g_races_started,
+                       event == 'Fini' ? "Fini" : "Abrt");
+            return r;
+        }
         if (g_races_started == 0) {// the first race was started from the menu by hand
             g_races_started = 1;
             remember_track(hang->track_index);

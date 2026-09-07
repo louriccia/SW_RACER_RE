@@ -4,6 +4,7 @@
 #include "../imgui_utils.h"             // settings_ini_path
 #include "../game_deltas/tracks_delta.h"// swrUI_GetTrackNameFromId_delta
 #include "../hook_helper.h"
+#include "../ui_transform.h"
 
 extern "C" {
 #include <Swr/swrObj.h>
@@ -346,25 +347,20 @@ void __cdecl swrObjJdge_F3_delta(swrObjJdge *jdge) {
         swrObjJdge_HideEngineUI(score);
         return;
     }
+    // The speed-dial fill ratio comes from swrRace_GetBoostBarColor, which reads the pod's
+    // boostIndicatorStatus: 0 = speed / max speed, 1 = charge timer, 2 = full. AI pods never run the
+    // boost-charge state machine and sit at 1 with a zero timer, which draws an empty dial; present
+    // them as state 0 for the draw only.
+    swrRace *pod = score->obj_test_ptr;
+    const uint32_t boost_status = pod->boostIndicatorStatus;
+    pod->boostIndicatorStatus = 0;
+    // Same anchoring scope swrObjJdge_UpdatePlayerHUD_delta uses, so the resolution-independent UI
+    // pins the header / speedometer / engine readout to the screen edges as in a player's race.
+    ui_in_race_hud++;
     swrRace_InRaceTimer(score, jdge);
     swrRace_InRaceEngineUI(score, 0);
-
-    // Diagnostic (temporary): the speed-dial fill is not showing for followed AI. Log the ratio the
-    // dial drawer wrote and the fill sprite's state every 2 s.
-    static DWORD last_ms = 0;
-    const DWORD now = GetTickCount();
-    if (now - last_ms > 2000) {
-        last_ms = now;
-        const swrSprite *fill = &swrSprite_array[0xf];
-        const void *tex = *(void *const *) ((const char *) fill + 0x1c);
-        fprintf(hook_log,
-                "[overlay] dial: ratio %.3f  fill(0xf) flags %08x pos %d,%d size %.2fx%.2f tex %p  "
-                "gradient %p  pod speed %.1f max %.1f\n",
-                speedDialPosition1, fill->flags, fill->x, fill->y, fill->width, fill->height, tex,
-                (void *) swrSpriteTexture_dial_gradient_rgb, score->obj_test_ptr->speedValue,
-                score->obj_test_ptr->podStats.maxSpeed);
-        fflush(hook_log);
-    }
+    ui_in_race_hud--;
+    pod->boostIndicatorStatus = boost_status;
 }
 
 void overlay_RegisterHooks() {
