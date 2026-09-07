@@ -58,6 +58,24 @@ static float frand() {
     return (float) rand() / (float) RAND_MAX;
 }
 
+// swrSound_PlaySfxThrottled (the sink for every pilot / announcer line) returns before playing
+// when there are pods but NumLocalPlayers() == 0, and that counts the firstLocalPlayer /
+// secondLocalPlayer / thirdLocalPlayer pointers. Point the first at a score for the duration of a
+// play call; nothing else on that path reads it.
+struct LocalPlayerLend {
+    swrScore *saved;
+    LocalPlayerLend() : saved(firstLocalPlayer) {
+        if (firstLocalPlayer == NULL && swrScoresPtr != NULL)
+            firstLocalPlayer = swrScoresPtr;
+    }
+    ~LocalPlayerLend() {
+        firstLocalPlayer = saved;
+    }
+};
+
+static DWORD g_last_taunt_roll_ms = 0;
+static const DWORD TAUNT_ROLL_GAP_MS = 1500;// 'Hitt' arrives every frame of a scrape; roll once per gap
+
 static bool applies(const RaceTelemetry *t) {
     return g_enabled && t->valid && t->source == RACE_SOURCE_ALL_AI && firstLocalPlayer == NULL;
 }
@@ -79,7 +97,10 @@ static void say(swrRace *pod, int a, int b, int c, int d, int e, const char *why
     const int pilot = pilot_of(pod);
     if (pilot < 0)
         return;
-    swrSound_PlayRandomSfx(1, pilot, a, b, c, d, e, (rdVector3 *) &pod->transform.vD);
+    {
+        LocalPlayerLend lend;
+        swrSound_PlayRandomSfx(1, pilot, a, b, c, d, e, (rdVector3 *) &pod->transform.vD);
+    }
     g_lines++;
     fprintf(hook_log, "[voice] pilot %d: %s\n", pilot, why);
     fflush(hook_log);
@@ -102,6 +123,10 @@ static int __cdecl swrObjTest_F4_delta(swrRace *player, int *subEvent, int ghost
     if ((player->flags0 & swrObjTest_FLAG0_LOCAL) != 0 || player != followed_pod() ||
         !applies(race_telemetry_Get()))
         return r;
+    const DWORD now = GetTickCount();
+    if (now - g_last_taunt_roll_ms < TAUNT_ROLL_GAP_MS)
+        return r;
+    g_last_taunt_roll_ms = now;
     if (frand() >= HIT_TAUNT_CHANCE)
         return r;
     if (id == 'VhLt')
@@ -121,8 +146,11 @@ static void __cdecl swrObjJdge_UpdateOvertakeSounds_delta(swrObjJdge *jdge) {
                       (pod->flags0 & swrObjTest_FLAG0_LOCAL) == 0 && applies(race_telemetry_Get());
     if (lend)
         pod->flags0 = (swrObjTest_FLAG0) (pod->flags0 | swrObjTest_FLAG0_LOCAL);
-    hook_call_original((swrObjJdge_UpdateOvertakeSounds_t) swrObjJdge_UpdateOvertakeSounds_ADDR,
-                       jdge);
+    {
+        LocalPlayerLend players;
+        hook_call_original(
+            (swrObjJdge_UpdateOvertakeSounds_t) swrObjJdge_UpdateOvertakeSounds_ADDR, jdge);
+    }
     if (lend)
         pod->flags0 = (swrObjTest_FLAG0) (pod->flags0 & ~swrObjTest_FLAG0_LOCAL);
 }
@@ -199,6 +227,7 @@ void voice_Service() {
         }
     }
     if (g_finish && r->finished && !g_finished && pilot >= 0) {// swrObjJdge_F2 lap-complete
+        LocalPlayerLend lend;
         if (r->rank == 1)
             swrSound_PlaySfxThenDelayed(1, pilot, 0xf, 6, 0, 0x27);
         else if (r->rank < 5)
@@ -222,6 +251,7 @@ void voice_AnnounceRacer(int slot, int variant) {
     if (pilot < 0 || pilot >= PILOT_COUNT)
         return;
     const int alt = ANNOUNCER_ALT[pilot];
+    LocalPlayerLend lend;
     if ((variant & 1) != 0 && alt != 0) {
         if (alt > 0)
             swrSound_PlaySfxThrottled(5, 0, alt, NULL);
