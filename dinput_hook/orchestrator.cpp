@@ -93,8 +93,9 @@ static int g_snaps[MAX_RACERS];
 static bool g_dnf_marked[MAX_RACERS];
 static int g_snaps_total = 0;
 static int g_dnf_total = 0;
-static int g_ai_explosions =
-    0;// Track pick: uniform over the 25 tracks, never one of the last TRACK_HISTORY played.
+static int g_ai_explosions = 0;
+
+// Track pick: uniform over the 25 tracks, never one of the last TRACK_HISTORY played.
 static const int TRACK_COUNT = 25;
 static const int TRACK_HISTORY = 10;
 static int g_track_history[TRACK_HISTORY];
@@ -253,10 +254,9 @@ static void start_race(swrObjHang *hang) {
 // ---------------------------------------------------------------------------------------------
 // Hooks
 
-typedef int(__cdecl *swrObjHang_F4_t)(
-    swrObjHang *hang, int *subEvents,
-    int *
-        p3);// Race-end events reach the hangar here ('Fini' after a race, 'Abrt' on a bail-out). Chain the next
+typedef int(__cdecl *swrObjHang_F4_t)(swrObjHang *hang, int *subEvents, int *p3);
+
+// Race-end events reach the hangar here ('Fini' after a race, 'Abrt' on a bail-out). Chain the next
 // race right here, exactly where the retail demo loop calls LoadScreen, so the holotable results
 // screen is never shown: the results / betting window already happened on the track.
 // swrObjHang_F4 is a reverse-hooked HANG stub, so hook the raw game address (see hook_mechanism).
@@ -290,8 +290,9 @@ static int __cdecl swrObjHang_F4_delta(swrObjHang *hang, int *subEvents, int *p3
 // progress then stops validating -- the "stuck" pods). CalcTargetTurnRate is F0's very next call after
 // the store, so clamping here covers the autopilot and everything downstream. 90 keeps the hover-pad
 // detail refresh (gate at 100) on too.
-static const int FULL_PHYSICS_LOD =
-    90;// Engine damage has no effect on an AI pod in vanilla: the steering pull lives in the player control
+static const int FULL_PHYSICS_LOD = 90;
+
+// Engine damage has no effect on an AI pod in vanilla: the steering pull lives in the player control
 // path and the explosion check lives in swrRace_Repair, which only humans (and the post-finish
 // FORCE_GROUND pod) ever run. The human path (swrRace_UpdatePlayerControl) also ticks
 // swrRace_ApplyEngineDamage every frame: each engine on fire (engineStatus bit 8, lit by
@@ -518,7 +519,9 @@ void orchestrator_Service() {
 
     swrObjHang *hang = get_hang();
     if (hang == NULL)
-        return;// Keep the all-AI roster flag up while armed; BuildRosterSinglePlayer reads it at race start
+        return;
+
+    // Keep the all-AI roster flag up while armed; BuildRosterSinglePlayer reads it at race start
     // (covers the first race, started from the menu by hand).
     hang->demo_mode = 1;
 
@@ -568,9 +571,9 @@ void orchestrator_Service() {
         if (state == 1 || state == 2) {
             log_snapshot(jdge, now);
             if (g_unstick)
-                supervise_stuck(
-                    jdge,
-                    now);// Winner in -> open the results / betting window and pre-pick the next track so the
+                supervise_stuck(jdge, now);
+
+            // Winner in -> open the results / betting window and pre-pick the next track so the
             // overlay can announce it. The rest of the field keeps racing underneath.
             if (!g_cooldown_active && any_finished(jdge)) {
                 g_cooldown_active = true;

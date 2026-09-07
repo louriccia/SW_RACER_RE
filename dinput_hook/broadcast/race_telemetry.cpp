@@ -14,15 +14,17 @@ extern "C" {
 #include <globals.h>
 }
 
-static RaceTelemetry
-    g_t;// Rank hysteresis: two pods trading places every frame make the board flicker, so the published
+static RaceTelemetry g_t;
+
+// Rank hysteresis: two pods trading places every frame make the board flicker, so the published
 // order only changes when a racer is clearly ahead of the one in front (by RANK_HYSTERESIS_LAPS of
 // progress). Finishers are always ordered by time and always ahead of anyone still racing.
 static const float RANK_HYSTERESIS_LAPS = 0.0012f;
 static int g_prev_order[RACE_TELEMETRY_MAX_ROWS];// slots in published order
 static int g_prev_order_n = 0;
-static const swrObjJdge *g_order_jdge =
-    NULL;// Leader pace: sampled once a second and smoothed, so progress deficits can be shown as seconds.
+static const swrObjJdge *g_order_jdge = NULL;
+
+// Leader pace: sampled once a second and smoothed, so progress deficits can be shown as seconds.
 static float g_pace_prev_prog = -1.0f;
 static DWORD g_pace_prev_ms = 0;
 static float g_pace = 0.0f;
@@ -146,7 +148,9 @@ void race_telemetry_Update() {
     }
     g_t.n = n;
     if (n == 0)
-        return;// Start from the previously published order (new slots appended), then bubble only the
+        return;
+
+    // Start from the previously published order (new slots appended), then bubble only the
     // swaps that clear the hysteresis margin.
     if (jdge != g_order_jdge || g_t.judge_state == 0) {
         g_order_jdge = jdge;

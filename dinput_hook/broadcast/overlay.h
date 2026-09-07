@@ -13,6 +13,10 @@ void overlay_Draw();
 // Panel registration (after register_builtin_debug_panels).
 void overlay_RegisterPanel();
 
+// Detours (from init_renderer_hooks): swrObjJdge_F3 post-hook that draws the game's own lap timer,
+// speedometer and engine gauges for the highlighted (followed) racer when nobody local is racing.
+void overlay_RegisterHooks();
+
 // A consumer (e.g. the race orchestrator) can force the leaderboard on regardless of the user's
 // toggle, retitle it, and add a footer line. Empty strings clear.
 void overlay_ForceLeaderboard(bool on);

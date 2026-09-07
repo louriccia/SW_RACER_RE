@@ -3,6 +3,13 @@
 #include "../debug_ui.h"
 #include "../imgui_utils.h"             // settings_ini_path
 #include "../game_deltas/tracks_delta.h"// swrUI_GetTrackNameFromId_delta
+#include "../hook_helper.h"
+
+extern "C" {
+#include <Swr/swrObj.h>
+#include <Swr/swrRace.h>
+#include <globals.h>
+}
 
 #include <imgui.h>
 
@@ -24,9 +31,14 @@ static int g_anchor = 0;         // 0 left, 1 right
 static bool g_nameplates = false;// names over pods (SP / all-AI)
 static bool g_nameplates_forced = false;
 static bool g_nameplates_suppressed = false;
-static bool g_pod_status = true;// followed racer's speed + engine health card
+static bool g_pod_status =
+    false;// followed racer's ImGui speed + engine card (game gauges preferred)
+static bool g_game_gauges =
+    true;// game's own lap timer / speedometer / engines for the followed racer
 static float g_margin_x = 10.0f;
-static float g_margin_y = 60.0f;// Consumer overrides
+static float g_margin_y = 60.0f;
+
+// Consumer overrides
 static bool g_forced = false;
 static char g_title[32] = "";
 static char g_footer[160] = "";
@@ -179,8 +191,9 @@ static void draw_leaderboard(const RaceTelemetry *t) {
     }
     ImGui::SetNextWindowBgAlpha(g_opacity);
     if (ImGui::Begin("##broadcast_leaderboard", NULL, OVERLAY_FLAGS)) {
-        ImGui::SetWindowFontScale(
-            g_scale);// Drag to move: while the window is being dragged, fold its position back into the
+        ImGui::SetWindowFontScale(g_scale);
+
+        // Drag to move: while the window is being dragged, fold its position back into the
         // margins; persist once the button is released.
         const bool held = ImGui::IsWindowFocused() && ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
                           ImGui::IsMouseDragging(ImGuiMouseButton_Left);
@@ -282,8 +295,8 @@ static void draw_pod_status(const RaceTelemetry *t) {
         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, r->boosting ? ImVec4(1.0f, 0.55f, 0.1f, 1.0f)
                                                                   : ImVec4(0.3f, 0.7f, 1.0f, 1.0f));
         ImGui::ProgressBar(std::min(1.0f, frac / 1.3f), ImVec2(w, h * 0.8f), label);
-        ImGui::PopStyleColor();
-        // engines: two columns of three (left top/mid/bot | right top/mid/bot)
+        ImGui::
+            PopStyleColor();// engines: two columns of three (left top/mid/bot | right top/mid/bot)
         ImDrawList *dl = ImGui::GetWindowDrawList();
         const ImVec2 p = ImGui::GetCursorScreenPos();
         const float cell_w = w * 0.48f, cell_h = h * 0.45f, gap = h * 0.12f;
@@ -310,6 +323,35 @@ static void draw_pod_status(const RaceTelemetry *t) {
 
 void overlay_Service() {
     race_telemetry_Update();
+}
+
+// The vanilla per-player HUD (swrObjJdge_UpdatePlayerHUD) runs only for local players, so an
+// all-AI race has no gauges. After F3 has drawn its frame, draw the same lap timer + engine UI
+// (speedometer, engine health) for the highlighted racer with the game's own routines, in the
+// single-screen slot. Finished racers get the vanilla hide, as the player would.
+void __cdecl swrObjJdge_F3_delta(swrObjJdge *jdge) {
+    hook_call_original(swrObjJdge_F3, jdge);
+    if (!g_game_gauges || jdge == NULL || firstLocalPlayer != NULL || swrScoresPtr == NULL)
+        return;
+    if (!(g_leaderboard || g_forced) || g_highlight_slot < 0 ||
+        g_highlight_slot >= RACE_TELEMETRY_MAX_ROWS)
+        return;
+    const int state = jdge->flag & 0xf;
+    if (state == 3 || state == 4 || state == 5)
+        return;
+    swrScore *score = &swrScoresPtr[g_highlight_slot];
+    if (score->obj_test_ptr == NULL)
+        return;
+    if ((score->flag & 2) != 0) {
+        swrObjJdge_HideEngineUI(score);
+        return;
+    }
+    swrRace_InRaceTimer(score, jdge);
+    swrRace_InRaceEngineUI(score, 0);
+}
+
+void overlay_RegisterHooks() {
+    hook_replace(swrObjJdge_F3, swrObjJdge_F3_delta);
 }
 
 void overlay_Draw() {
@@ -351,6 +393,7 @@ static void load_config() {
     g_show_tags = GetPrivateProfileIntW(INI_SECTION, L"show_tags", g_show_tags, ini) != 0;
     g_nameplates = GetPrivateProfileIntW(INI_SECTION, L"nameplates", g_nameplates, ini) != 0;
     g_pod_status = GetPrivateProfileIntW(INI_SECTION, L"pod_status", g_pod_status, ini) != 0;
+    g_game_gauges = GetPrivateProfileIntW(INI_SECTION, L"game_gauges", g_game_gauges, ini) != 0;
     g_scale = ini_get_float(ini, L"scale", g_scale);
     g_opacity = ini_get_float(ini, L"opacity", g_opacity);
     g_anchor = std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"anchor", g_anchor, ini), 0, 1);
@@ -364,6 +407,7 @@ static void save_config() {
     ini_set_int(ini, L"show_tags", g_show_tags);
     ini_set_int(ini, L"nameplates", g_nameplates);
     ini_set_int(ini, L"pod_status", g_pod_status);
+    ini_set_int(ini, L"game_gauges", g_game_gauges);
     ini_set_float(ini, L"scale", g_scale);
     ini_set_float(ini, L"opacity", g_opacity);
     ini_set_int(ini, L"anchor", g_anchor);
@@ -383,7 +427,9 @@ static void panel_broadcast() {
     }
     changed |= ImGui::Checkbox("Status icons (finished / crashed / on fire)", &g_show_tags);
     changed |= ImGui::Checkbox("Names over pods (instead of position numbers)", &g_nameplates);
-    changed |= ImGui::Checkbox("Followed racer card (speed + engines)", &g_pod_status);
+    changed |= ImGui::Checkbox("Game gauges for the followed racer (timer, speedo, engines)",
+                               &g_game_gauges);
+    changed |= ImGui::Checkbox("Followed racer card (ImGui speed + engines)", &g_pod_status);
     if (g_nameplates_forced) {
         ImGui::SameLine();
         ImGui::TextDisabled("(forced on)");

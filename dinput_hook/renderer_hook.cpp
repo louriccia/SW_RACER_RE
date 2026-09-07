@@ -15,6 +15,7 @@
 #include "camera/player_camera.h"
 #include "orchestrator.h"
 #include "ai_variance.h"
+#include "broadcast/overlay.h"
 
 extern "C" {
 #include "./game_deltas/DirectX_delta.h"
@@ -2144,6 +2145,7 @@ extern "C" void init_renderer_hooks() {
     playercam_RegisterHooks();
     orchestrator_RegisterHooks();
     ai_variance_RegisterHooks();
+    overlay_RegisterHooks();
 
 #if ENABLE_GAMEPAD_NAV
     // Feed the gamepad's D-pad / START / BACK into the game's menu + in-race input.

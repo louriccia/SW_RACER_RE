@@ -59,6 +59,8 @@ static const char *SHOT_NAMES[] = {"chase", "drone", "orbit", "cockpit"};
 static Shot g_shot = SHOT_CHASE;
 static DWORD g_shot_start_ms = 0;
 static bool g_cam_seeded = false;
+static DWORD g_dead_since_ms = 0;      // followed racer died at (0 = alive)
+static const DWORD DEAD_HOLD_MS = 1200;// show the wreck for a beat, then cut
 static rdVector3 g_cam_pos, g_cam_aim;
 static int g_orbit_rival = -1;
 static float g_orbit_ang = 0.0f;// eased, unwrapped camera angle around the pair
@@ -157,6 +159,7 @@ static void cut_to(int slot, const char *rule) {
     g_target_slot = slot;
     g_last_cut_ms = GetTickCount();
     g_last_rule = rule;
+    g_dead_since_ms = 0;
     g_cuts++;
     const RaceTelemetry *t = race_telemetry_Get();
     set_shot(strcmp(rule, "manual") == 0 ? SHOT_CHASE : pick_shot(t, slot));
@@ -229,8 +232,9 @@ void director_Service() {
     if (t->judge_state == 0)// countdown: leave the assigned camera alone
         return;
     const DWORD now = GetTickCount();
-    swrObjcMan *cman =
-        camera_man();// Our shots replace the stock spectator cycle (random chase / first-person / spline-cam modes
+    swrObjcMan *cman = camera_man();
+
+    // Our shots replace the stock spectator cycle (random chase / first-person / spline-cam modes
     // on a timer): keep its countdown from ever expiring, and hold the chase mode under our shots.
     swrObjcMan_spectatorCycleTimer = 1.0e9f;
     if (cman != NULL && cman->mode_type != 1 && cman->mode_type != 8 && cman->mode_type != 9) {
@@ -243,15 +247,21 @@ void director_Service() {
         g_target_slot = followed;// something else (respawn, spawn) moved the camera
 
     const RaceTelemetryRow *cur = row_for_slot(t, g_target_slot);
-    const bool manual_hold =
-        now <
-        g_manual_until_ms;// A followed racer who finishes or crashes is left on screen (the finish / crash is the
-    // shot); they are simply never picked again (followable), so the next cut moves on.
-    const bool must_cut = cur == NULL;
-    const bool dwell_over =
-        now - g_last_cut_ms >=
-        (DWORD) (g_dwell_s *
-                 1000.0f);// Shot upkeep: orbit needs its rival in range; cockpit shots are short.
+    const bool manual_hold = now < g_manual_until_ms;
+
+    // A followed racer who finishes stays on screen (the finish is the shot) and is simply never
+    // picked again. A dead racer is shown for a beat, then cut away from.
+    if (cur != NULL && cur->dead) {
+        if (g_dead_since_ms == 0)
+            g_dead_since_ms = now;
+    } else {
+        g_dead_since_ms = 0;
+    }
+    const bool must_cut =
+        cur == NULL || (g_dead_since_ms != 0 && now - g_dead_since_ms >= DEAD_HOLD_MS);
+    const bool dwell_over = now - g_last_cut_ms >= (DWORD) (g_dwell_s * 1000.0f);
+
+    // Shot upkeep: orbit needs its rival in range; cockpit shots are short.
     if (!must_cut) {
         if (g_shot == SHOT_ORBIT) {
             const RaceTelemetryRow *rv = row_for_slot(t, g_orbit_rival);
@@ -366,9 +376,9 @@ static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *riva
     const float t = (GetTickCount() - g_shot_start_ms) / 1000.0f;
     const float phase = g_orbit_sweep * sinf(t * g_orbit_rate);
     const float want_ang = atan2f(dy, dx) + phase;
-    const float want_radius = std::clamp(
-        sep * 0.8f + 40.0f, 50.0f,
-        180.0f);// The pair line flips 180 degrees when the pods swap order: ease the angle itself along the
+    const float want_radius = std::clamp(sep * 0.8f + 40.0f, 50.0f, 180.0f);
+
+    // The pair line flips 180 degrees when the pods swap order: ease the angle itself along the
     // shortest arc so the camera swings around rather than jumping.
     const float dt = (float) swrRace_deltaTimeSecs;
     const float a = g_orbit_smooth > 0.0f ? 1.0f - expf(-dt / g_orbit_smooth) : 1.0f;
