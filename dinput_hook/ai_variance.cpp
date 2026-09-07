@@ -256,13 +256,21 @@ typedef void(__cdecl *swrRace_UpdateCatchup_t)(swrRace *player);
 // else gets the plain block-move collision, so an AI can rub a wall all race without a scratch. Run
 // the player path for AI by lending them the LOCAL bit for the call (nothing in that path plays
 // force feedback or player-only sound).
+// swrObjTest_UpdatePhysicsContact_delta hides the AI bit for the whole original call, and the wall
+// contact / death-speed hooks run nested inside it, so they must still recognise that pod as AI.
+static swrRace *g_ai_bit_hidden = NULL;
+
+static bool is_ai(const swrRace *player) {
+    return (player->flags0 & swrObjTest_FLAG0_AI) != 0 || player == g_ai_bit_hidden;
+}
+
 typedef float(__cdecl *swrRace_UpdateWallContact_t)(swrRace *player, float *a, float *b,
                                                     rdVector3 *c);
 
 static float __cdecl swrRace_UpdateWallContact_delta(swrRace *player, float *a, float *b,
                                                      rdVector3 *c) {
     const bool lend =
-        g_wall_damage && player != NULL && (player->flags0 & swrObjTest_FLAG0_AI) != 0 &&
+        g_wall_damage && player != NULL && is_ai(player) &&
         (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 && applies(race_telemetry_Get());
     if (lend)
         player->flags0 = (swrObjTest_FLAG0) (player->flags0 | swrObjTest_FLAG0_LOCAL);
@@ -365,17 +373,20 @@ typedef void(__cdecl *swrRace_DeathSpeed_t)(swrRace *player, float a, float b);
 
 static void __cdecl swrRace_DeathSpeed_delta(swrRace *player, float a, float b) {
     const bool lend =
-        g_impact_death && player != NULL && (player->flags0 & swrObjTest_FLAG0_AI) != 0 &&
+        g_impact_death && player != NULL && is_ai(player) &&
         (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 && applies(race_telemetry_Get());
+    const bool hide_bit = lend && (player->flags0 & swrObjTest_FLAG0_AI) != 0;
     const float min_saved = swrRace_DeathSpeedMin, drop_saved = swrRace_DeathSpeedDrop;
     if (lend) {
-        player->flags0 = (swrObjTest_FLAG0) (player->flags0 & ~swrObjTest_FLAG0_AI);
+        if (hide_bit)
+            player->flags0 = (swrObjTest_FLAG0) (player->flags0 & ~swrObjTest_FLAG0_AI);
         swrRace_DeathSpeedMin = min_saved * g_impact_toughness;
         swrRace_DeathSpeedDrop = drop_saved * g_impact_toughness;
     }
     hook_call_original((swrRace_DeathSpeed_t) swrRace_DeathSpeed_ADDR, player, a, b);
     if (lend) {
-        player->flags0 = (swrObjTest_FLAG0) (player->flags0 | swrObjTest_FLAG0_AI);
+        if (hide_bit)
+            player->flags0 = (swrObjTest_FLAG0) (player->flags0 | swrObjTest_FLAG0_AI);
         swrRace_DeathSpeedMin = min_saved;
         swrRace_DeathSpeedDrop = drop_saved;
     }
@@ -417,14 +428,18 @@ typedef void(__cdecl *swrObjTest_UpdatePhysicsContact_t)(swrRace *player);
 
 static void __cdecl swrObjTest_UpdatePhysicsContact_delta(swrRace *player) {
     const bool lend =
-        g_impact_death && player != NULL && (player->flags0 & swrObjTest_FLAG0_AI) != 0 &&
+        g_impact_death && player != NULL && is_ai(player) &&
         (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 && applies(race_telemetry_Get());
-    if (lend)
+    if (lend) {
         player->flags0 = (swrObjTest_FLAG0) (player->flags0 & ~swrObjTest_FLAG0_AI);
+        g_ai_bit_hidden = player;
+    }
     hook_call_original((swrObjTest_UpdatePhysicsContact_t) swrObjTest_UpdatePhysicsContact_ADDR,
                        player);
-    if (lend)
+    if (lend) {
+        g_ai_bit_hidden = NULL;
         player->flags0 = (swrObjTest_FLAG0) (player->flags0 | swrObjTest_FLAG0_AI);
+    }
 }
 
 // Spinout visuals. When an engine blows, swrRace_Explode sets EXPLODING_LEFT/RIGHT and the pod
@@ -434,7 +449,7 @@ static void __cdecl swrObjTest_UpdatePhysicsContact_delta(swrRace *player) {
 typedef void(__cdecl *swrRace_SpinoutVisual_t)(swrRace *player);
 
 static void call_spinout_visual(uint32_t addr, swrRace *player) {
-    const bool lend = player != NULL && (player->flags0 & swrObjTest_FLAG0_AI) != 0 &&
+    const bool lend = player != NULL && is_ai(player) &&
                       (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 &&
                       (player->flags1 & (swrObjTest_FLAG1_EXPLODING_LEFT | swrObjTest_FLAG1_EXPLODING_RIGHT)) != 0 &&
                       applies(race_telemetry_Get());
