@@ -17,6 +17,7 @@ extern "C" {
 #include <Swr/swrObj.h>
 #include <Swr/swrRace.h>
 #include <Swr/swrSound.h>
+#include <Swr/swrEvent.h>
 #include <globals.h>
 void hook_function(const char *function_name, uint32_t original_address, uint8_t *hook_address);
 }
@@ -40,19 +41,21 @@ static float g_clamp_lo = 0.5f, g_clamp_hi = 1.6f;// same envelope as the stock 
 // Boost. Humans charge by holding throttle + nose-down at > 75% top speed for 1 s, then fire;
 // boosting drains engineTemp (100 = cool, 0 = overheated -> a random engine catches fire).
 static bool g_boost = true;
-static float g_boost_start_per_s = 1.2f;// chance per second to begin charging when eligible
+static float g_boost_start_per_s = 0.6f;// chance per second to begin charging when eligible
 static float g_boost_min_s = 3.0f, g_boost_max_s = 7.0f;// boost duration
-static float g_boost_release_temp = 15.0f;  // let go of the boost when engineTemp falls to this
+static float g_boost_release_temp = 20.0f;  // let go of the boost when engineTemp falls to this
 static float g_boost_min_start_temp = 40.0f;// only start charging when reasonably cool
 static float g_boost_turn_limit = 150.0f;   // |turnRateTarget| above this = cornering, no boost
 static float g_boost_cooldown_s = 1.5f;
-static float g_boost_p_overheat = 0.3f;// chance a boost is held until the engines catch fire
+static float g_boost_p_overheat = 0.15f;// chance a boost is held until the engines catch fire
 static bool g_boost_sound = true;
 static bool g_wall_damage = true;// AI take the player's wall scrape / impact path (damage, sparks)
 static bool g_impact_death =
     true;// AI explode on a death-speed impact like a human (stock: quiet respawn)
-static const int CFG_VERSION = 2;            // bump when a default should override a stored value
-static float g_boost_steer_scale = 0.55f;    // steering authority while boosting (risky in corners)
+static float g_impact_toughness =
+    1.5f;// AI death-speed thresholds scaled by this (1 = same as the player)
+static const int CFG_VERSION = 3;            // bump when a default should override a stored value
+static float g_boost_steer_scale = 0.7f;     // steering authority while boosting (risky in corners)
 static const float BOOST_CHARGE_PITCH = 0.8f;// nose-down held while charging, like the player
 
 // ---------------------------------------------------------------------------------------------
@@ -69,6 +72,8 @@ static DWORD g_boost_cooldown_ms[MAX_SLOTS];
 static bool g_boost_hold_to_fire[MAX_SLOTS];
 static int g_boosts_total = 0;
 static int g_explosions_total = 0;
+static DWORD g_dead_since_ms[MAX_SLOTS];
+static int g_respawns_total = 0;
 static int g_seeded_track = -2;
 static int g_seeded_state0_seen = 0;
 static int g_blunders_total = 0;
@@ -93,6 +98,7 @@ static void reseed(DWORD now) {
         g_boost_until_ms[i] = 0;
         g_boost_cooldown_ms[i] = 0;
         g_boost_hold_to_fire[i] = false;
+        g_dead_since_ms[i] = 0;
     }
     fprintf(hook_log, "[ai_variance] reseeded form:");
     for (int i = 0; i < MAX_SLOTS; i++)
@@ -133,7 +139,7 @@ static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const c
     const bool boosting = (pod->flags0 & swrObjTest_FLAG0_BOOSTING) != 0;
     const bool can_charge = (pod->flags0 & swrObjTest_FLAG0_CAN_CHARGE_BOOST) != 0;
     const bool straight = fabsf(pod->turnRateTarget) < g_boost_turn_limit;
-    const bool hard_corner = fabsf(pod->turnRateTarget) > g_boost_turn_limit * 2.0f;
+    const bool hard_corner = fabsf(pod->turnRateTarget) > g_boost_turn_limit * 1.3f;
     if (boosting) {
         // Boosting narrows what the pilot can do with the stick: scale the autopilot's steering
         // demand so a boost carried into a corner is a real gamble.
@@ -196,6 +202,52 @@ static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const c
     }
 }
 
+// Respawn for pods without a camera-man. After an explosion the pod update runs the death snap for
+// every pod (swrRace_HandleDeathSnap: 'Snap' back onto the spline, fires out, engines to 0.1), but
+// the step that clears FLAG0_DEAD and grants respawn invincibility is swrObjcMan_UpdateDeathCamera
+// stage 3 -- the death camera -- and only the followed pod has a camera-man. Everyone else stayed
+// dead with the throttle cut. Emulate that stage after the death camera's ~3 s; the followed pod is
+// left to its camera.
+static const float DEAD_RESPAWN_S = 3.0f;
+
+static void supervise_dead(swrRace *pod, int slot, DWORD now) {
+    const bool dead = (pod->flags0 & swrObjTest_FLAG0_DEAD) != 0;
+    if (!dead) {
+        g_dead_since_ms[slot] = 0;
+        return;
+    }
+    if (g_dead_since_ms[slot] == 0) {
+        g_dead_since_ms[slot] = now;
+        return;
+    }
+    if (now - g_dead_since_ms[slot] < (DWORD) (DEAD_RESPAWN_S * 1000.0f))
+        return;
+    swrObjcMan *cman = (swrObjcMan *) swrEvent_FindObjectById('cMan', 0);
+    if (cman != NULL && cman->unkf4_objTest == pod)
+        return;// the death camera handles the followed pod
+    pod->flags1 = (swrObjTest_FLAG1) (pod->flags1 & ~(swrObjTest_FLAG1_EXPLODING |
+                                                      swrObjTest_FLAG1_EXPLODING_LEFT |
+                                                      swrObjTest_FLAG1_EXPLODING_RIGHT));
+    if ((pod->flags0 & swrObjTest_FLAG0_RESET) != 0) {
+        // death snap never ran (timer still counting): do its work now
+        int snap[1] = {'Snap'};
+        swrEvent_DispatchSubEvents(pod, snap);
+        for (int e = 0; e < 6; e++) {
+            pod->engineStatus[e] &= ~8u;
+            if (pod->engineHealth[e] > 0.1f)
+                pod->engineHealth[e] = 0.1f;
+        }
+        pod->flags0 = (swrObjTest_FLAG0) (pod->flags0 & ~swrObjTest_FLAG0_RESET);
+    }
+    pod->respawnInvincibilityTimer = 3.0f;
+    pod->flags0 = (swrObjTest_FLAG0) ((pod->flags0 & ~swrObjTest_FLAG0_DEAD) |
+                                      swrObjTest_FLAG0_RESPAWN_INVINC);
+    g_dead_since_ms[slot] = 0;
+    g_respawns_total++;
+    fprintf(hook_log, "[ai_variance] slot %d respawned (no camera-man)\n", slot);
+    fflush(hook_log);
+}
+
 typedef void(__cdecl *swrRace_UpdateCatchup_t)(swrRace *player);
 
 // Wall contact. swrRace_UpdateWallContact routes only LOCAL pods through swrRace_DetectWallScrape +
@@ -233,13 +285,15 @@ static void __cdecl swrRace_UpdateCatchup_delta(swrRace *player) {
     maybe_reseed(t, now);
     if (t->judge_state != 1 && t->judge_state != 2)
         return;
-    if ((player->flags0 & swrObjTest_FLAG0_STATE_MASK) != swrObjTest_FLAG0_RACING ||
-        (player->flags1 & swrObjTest_FLAG1_FINISHED) != 0)
-        return;
     if (player->score_ptr == NULL || swrScoresPtr == NULL)
         return;
     const int slot = (int) (player->score_ptr - swrScoresPtr);
     if (slot < 0 || slot >= MAX_SLOTS)
+        return;
+    supervise_dead(player, slot, now);
+    if ((player->flags0 & swrObjTest_FLAG0_STATE_MASK) != swrObjTest_FLAG0_RACING ||
+        (player->flags1 & swrObjTest_FLAG1_FINISHED) != 0 ||
+        (player->flags0 & swrObjTest_FLAG0_DEAD) != 0)
         return;
 
     const float dt = (float) swrRace_deltaTimeSecs;
@@ -312,11 +366,18 @@ static void __cdecl swrRace_DeathSpeed_delta(swrRace *player, float a, float b) 
     const bool lend =
         g_impact_death && player != NULL && (player->flags0 & swrObjTest_FLAG0_AI) != 0 &&
         (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 && applies(race_telemetry_Get());
-    if (lend)
+    const float min_saved = swrRace_DeathSpeedMin, drop_saved = swrRace_DeathSpeedDrop;
+    if (lend) {
         player->flags0 = (swrObjTest_FLAG0) (player->flags0 & ~swrObjTest_FLAG0_AI);
+        swrRace_DeathSpeedMin = min_saved * g_impact_toughness;
+        swrRace_DeathSpeedDrop = drop_saved * g_impact_toughness;
+    }
     hook_call_original((swrRace_DeathSpeed_t) swrRace_DeathSpeed_ADDR, player, a, b);
-    if (lend)
+    if (lend) {
         player->flags0 = (swrObjTest_FLAG0) (player->flags0 | swrObjTest_FLAG0_AI);
+        swrRace_DeathSpeedMin = min_saved;
+        swrRace_DeathSpeedDrop = drop_saved;
+    }
 }
 
 // The explosion itself. swrRace_Explode returns at once unless the pod is LOCAL or FORCE_GROUND
@@ -409,6 +470,7 @@ static void load_config() {
         GetPrivateProfileIntW(INI_SECTION, L"replace_stock", g_replace_stock, ini) != 0;
     g_wall_damage = GetPrivateProfileIntW(INI_SECTION, L"wall_damage", g_wall_damage, ini) != 0;
     g_impact_death = GetPrivateProfileIntW(INI_SECTION, L"impact_death", g_impact_death, ini) != 0;
+    g_impact_toughness = ini_get_float(ini, L"impact_toughness", g_impact_toughness);
     g_form_amp = ini_get_float(ini, L"form_amp", g_form_amp);
     g_swing_amp = ini_get_float(ini, L"swing_amp", g_swing_amp);
     g_swing_tau_s = ini_get_float(ini, L"swing_tau_s", g_swing_tau_s);
@@ -444,6 +506,7 @@ static void save_config() {
     ini_set_int(ini, L"replace_stock", g_replace_stock);
     ini_set_int(ini, L"wall_damage", g_wall_damage);
     ini_set_int(ini, L"impact_death", g_impact_death);
+    ini_set_float(ini, L"impact_toughness", g_impact_toughness);
     ini_set_float(ini, L"form_amp", g_form_amp);
     ini_set_float(ini, L"swing_amp", g_swing_amp);
     ini_set_float(ini, L"swing_tau_s", g_swing_tau_s);
@@ -480,6 +543,8 @@ static void panel_ai_variance() {
     changed |= ImGui::Checkbox("AI take wall damage (player scrape / impact path)", &g_wall_damage);
     changed |=
         ImGui::Checkbox("AI explode on death-speed impacts (like the player)", &g_impact_death);
+    changed |= ImGui::SliderFloat("AI impact toughness (x death-speed thresholds)",
+                                  &g_impact_toughness, 1.0f, 3.0f, "%.2f");
     ImGui::SeparatorText("Form + swings");
     changed |= ImGui::SliderFloat("Form amplitude (per race)", &g_form_amp, 0.0f, 0.15f, "%.3f");
     changed |= ImGui::SliderFloat("Swing amplitude", &g_swing_amp, 0.0f, 0.15f, "%.3f");
@@ -516,8 +581,8 @@ static void panel_ai_variance() {
         save_config();
 
     ImGui::Separator();
-    ImGui::Text("Blunders so far: %d, boosts %d, explosions %d", g_blunders_total, g_boosts_total,
-                g_explosions_total);
+    ImGui::Text("Blunders so far: %d, boosts %d, explosions %d, respawns %d", g_blunders_total,
+                g_boosts_total, g_explosions_total, g_respawns_total);
     if (ImGui::Button("Reseed form now"))
         reseed(GetTickCount());
     const RaceTelemetry *t = race_telemetry_Get();
