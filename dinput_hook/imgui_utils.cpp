@@ -6,6 +6,7 @@
 #include "orchestrator.h"
 #include "broadcast/overlay.h"
 #include "camera/director.h"
+#include "ai_variance.h"
 
 #include <string>
 #include <set>
@@ -797,6 +798,7 @@ void imgui_Update() {
         orchestrator_RegisterPanel();
         overlay_RegisterPanel();
         director_RegisterPanel();
+        ai_variance_RegisterPanel();
         debug_ui_register_builtin_shell_panels();
         debug_ui_load_settings();
     }
