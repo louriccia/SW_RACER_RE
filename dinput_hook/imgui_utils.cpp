@@ -5,6 +5,7 @@
 #include "camera/player_camera.h"
 #include "orchestrator.h"
 #include "broadcast/overlay.h"
+#include "camera/director.h"
 
 #include <string>
 #include <set>
@@ -795,6 +796,7 @@ void imgui_Update() {
         playercam_RegisterPanel();
         orchestrator_RegisterPanel();
         overlay_RegisterPanel();
+        director_RegisterPanel();
         debug_ui_register_builtin_shell_panels();
         debug_ui_load_settings();
     }
@@ -807,6 +809,7 @@ void imgui_Update() {
         // independent of the overlay being open, so the hotkey works during a race.
         service_fast_restart();
         overlay_Service();
+        director_Service();
         orchestrator_Service();
 
         ImGui_ImplOpenGL3_NewFrame();

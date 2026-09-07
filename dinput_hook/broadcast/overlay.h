@@ -18,3 +18,8 @@ void overlay_RegisterPanel();
 void overlay_ForceLeaderboard(bool on);
 void overlay_SetTitle(const char *title);  // replaces the default "RACE" word
 void overlay_SetFooter(const char *footer);// one line under the table
+
+// Rows become clickable when a handler is set (called with the swrScoresPtr slot); the highlighted
+// slot is drawn selected (e.g. the pod the camera follows). -1 / NULL clear.
+void overlay_SetRowClickHandler(void (*handler)(int slot));
+void overlay_SetHighlightSlot(int slot);

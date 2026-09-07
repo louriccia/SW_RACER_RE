@@ -5,6 +5,7 @@
 #include "imgui_utils.h"             // settings_ini_path
 #include "game_deltas/tracks_delta.h"// swrUI_GetTrackNameFromId_delta
 #include "broadcast/overlay.h"
+#include "camera/director.h"
 
 #include <imgui.h>
 
@@ -367,13 +368,16 @@ void orchestrator_RegisterHooks() {
 static const int LIGHT_BANK_COUNT = 12;// numEnabledLights[12]; lightColor1[13] is indexed +1
 
 static void apply_ai_lighting(swrObjJdge *jdge) {
+    // The bank being refreshed is the followed pod's (swrObjcMan_UpdateLighting runs for the pod
+    // the camera-man follows); fall back to the favourite before the camera is assigned.
     int bank = -1;
-    for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++) {
+    const int followed = director_FollowedSlot();
+    if (followed >= 0 && swrScoresPtr[followed].obj_test_ptr != NULL)
+        bank = swrScoresPtr[followed].obj_test_ptr->current_light_index;
+    for (int i = 0; bank < 0 && i < jdge->num_players && i < MAX_RACERS; i++) {
         const swrScore *score = &swrScoresPtr[i];
-        if ((score->flag & 0x20) != 0 && score->obj_test_ptr != NULL) {
+        if ((score->flag & 0x20) != 0 && score->obj_test_ptr != NULL)
             bank = score->obj_test_ptr->current_light_index;
-            break;
-        }
     }
     if (bank < 0 || bank >= LIGHT_BANK_COUNT)
         return;
@@ -501,6 +505,8 @@ void orchestrator_Service() {
     hang->demo_mode = 1;
 
     overlay_ForceLeaderboard(true);
+    director_SetEnabled(true);
+    overlay_SetHighlightSlot(director_FollowedSlot());
     char title[32];
     snprintf(title, sizeof(title), "%s %d", g_cooldown_active ? "RESULTS" : "RACE",
              g_races_started);
@@ -593,6 +599,7 @@ extern "C" void orchestrator_ToggleArmed(void) {
         overlay_ForceLeaderboard(false);
         overlay_SetTitle("");
         overlay_SetFooter("");
+        director_SetEnabled(false);
     }
     set_status(g_armed ? "armed (start a Free Play race, or press Start now)" : "disarmed");
 }

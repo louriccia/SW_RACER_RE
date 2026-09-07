@@ -39,6 +39,16 @@ void overlay_SetFooter(const char *footer) {
     snprintf(g_footer, sizeof(g_footer), "%s", footer ? footer : "");
 }
 
+static void (*g_row_click)(int slot) = NULL;
+static int g_highlight_slot = -1;
+
+void overlay_SetRowClickHandler(void (*handler)(int slot)) {
+    g_row_click = handler;
+}
+void overlay_SetHighlightSlot(int slot) {
+    g_highlight_slot = slot;
+}
+
 // ---------------------------------------------------------------------------------------------
 
 static const char *track_name(int track_index) {
@@ -189,7 +199,18 @@ static void draw_leaderboard(const RaceTelemetry *t) {
                 ImGui::TableNextColumn();
                 ImGui::Text("%2d", r.rank);
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(r.name);
+                if (g_row_click != NULL) {
+                    ImGui::PushID(r.slot);
+                    if (ImGui::Selectable(r.name, r.slot == g_highlight_slot,
+                                          ImGuiSelectableFlags_SpanAllColumns |
+                                              ImGuiSelectableFlags_AllowOverlap))
+                        g_row_click(r.slot);
+                    ImGui::PopID();
+                } else if (r.slot == g_highlight_slot) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", r.name);
+                } else {
+                    ImGui::TextUnformatted(r.name);
+                }
                 ImGui::TableNextColumn();
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + gap_w -
                                      ImGui::CalcTextSize(gaps[k]).x);
