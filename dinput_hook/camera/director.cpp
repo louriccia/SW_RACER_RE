@@ -2,7 +2,8 @@
 #include "../broadcast/race_telemetry.h"
 #include "../broadcast/overlay.h"
 #include "../debug_ui.h"
-#include "../imgui_utils.h"// settings_ini_path
+#include "../imgui_utils.h"
+#include "../config.h"
 #include "../hook_helper.h"
 #include "player_camera.h"
 
@@ -468,78 +469,57 @@ bool director_IsEnabled() {
 // ---------------------------------------------------------------------------------------------
 // Config + panel
 
-static const wchar_t *INI_SECTION = L"director";
-
-static float ini_get_float(const wchar_t *ini, const wchar_t *key, float def) {
-    wchar_t got[48], defbuf[48];
-    swprintf(defbuf, 48, L"%.4f", def);
-    GetPrivateProfileStringW(INI_SECTION, key, defbuf, got, 48, ini);
-    return (float) wcstod(got, NULL);
-}
-static void ini_set_float(const wchar_t *ini, const wchar_t *key, float v) {
-    wchar_t buf[48];
-    swprintf(buf, 48, L"%.4f", v);
-    WritePrivateProfileStringW(INI_SECTION, key, buf, ini);
-}
-static void ini_set_int(const wchar_t *ini, const wchar_t *key, int v) {
-    wchar_t buf[16];
-    swprintf(buf, 16, L"%d", v);
-    WritePrivateProfileStringW(INI_SECTION, key, buf, ini);
-}
-static int ini_get_int(const wchar_t *ini, const wchar_t *key, int def) {
-    return (int) GetPrivateProfileIntW(INI_SECTION, key, def, ini);
-}
+static const char *INI_SECTION = "director";
 
 static void load_config() {
-    const wchar_t *ini = settings_ini_path();
-    g_auto = ini_get_int(ini, L"auto", g_auto) != 0;
-    g_dwell_s = ini_get_float(ini, L"dwell_s", g_dwell_s);
-    g_manual_hold_s = ini_get_float(ini, L"manual_hold_s", g_manual_hold_s);
-    g_w_leader = ini_get_int(ini, L"w_leader", g_w_leader);
-    g_w_battle = ini_get_int(ini, L"w_battle", g_w_battle);
-    g_w_random = ini_get_int(ini, L"w_random", g_w_random);
-    g_battle_gap_s = ini_get_float(ini, L"battle_gap_s", g_battle_gap_s);
-    g_w_chase = ini_get_int(ini, L"shot_chase", g_w_chase);
-    g_w_drone = ini_get_int(ini, L"shot_drone", g_w_drone);
-    g_w_orbit = ini_get_int(ini, L"shot_orbit", g_w_orbit);
-    g_w_cockpit = ini_get_int(ini, L"shot_cockpit", g_w_cockpit);
-    const int stored_version = ini_get_int(ini, L"cfg_version", 1);
+    g_auto = config::get_int(INI_SECTION, "auto", g_auto) != 0;
+    g_dwell_s = config::get_float(INI_SECTION, "dwell_s", g_dwell_s);
+    g_manual_hold_s = config::get_float(INI_SECTION, "manual_hold_s", g_manual_hold_s);
+    g_w_leader = config::get_int(INI_SECTION, "w_leader", g_w_leader);
+    g_w_battle = config::get_int(INI_SECTION, "w_battle", g_w_battle);
+    g_w_random = config::get_int(INI_SECTION, "w_random", g_w_random);
+    g_battle_gap_s = config::get_float(INI_SECTION, "battle_gap_s", g_battle_gap_s);
+    g_w_chase = config::get_int(INI_SECTION, "shot_chase", g_w_chase);
+    g_w_drone = config::get_int(INI_SECTION, "shot_drone", g_w_drone);
+    g_w_orbit = config::get_int(INI_SECTION, "shot_orbit", g_w_orbit);
+    g_w_cockpit = config::get_int(INI_SECTION, "shot_cockpit", g_w_cockpit);
+    const int stored_version = config::get_int(INI_SECTION, "cfg_version", 1);
     if (stored_version >= CFG_VERSION) {// v2: lower / closer drone defaults replace the old ones
-        g_drone_height = ini_get_float(ini, L"drone_height", g_drone_height);
-        g_drone_back = ini_get_float(ini, L"drone_back", g_drone_back);
+        g_drone_height = config::get_float(INI_SECTION, "drone_height", g_drone_height);
+        g_drone_back = config::get_float(INI_SECTION, "drone_back", g_drone_back);
     }
-    g_drone_ahead = ini_get_float(ini, L"drone_ahead", g_drone_ahead);
-    g_drone_smooth = ini_get_float(ini, L"drone_smooth", g_drone_smooth);
-    g_orbit_dist = ini_get_float(ini, L"orbit_dist", g_orbit_dist);
-    g_orbit_rate = ini_get_float(ini, L"orbit_rate", g_orbit_rate);
-    g_orbit_sweep = ini_get_float(ini, L"orbit_sweep", g_orbit_sweep);
-    g_orbit_smooth = ini_get_float(ini, L"orbit_smooth", g_orbit_smooth);
-    g_cockpit_max_s = ini_get_float(ini, L"cockpit_max_s", g_cockpit_max_s);
+    g_drone_ahead = config::get_float(INI_SECTION, "drone_ahead", g_drone_ahead);
+    g_drone_smooth = config::get_float(INI_SECTION, "drone_smooth", g_drone_smooth);
+    g_orbit_dist = config::get_float(INI_SECTION, "orbit_dist", g_orbit_dist);
+    g_orbit_rate = config::get_float(INI_SECTION, "orbit_rate", g_orbit_rate);
+    g_orbit_sweep = config::get_float(INI_SECTION, "orbit_sweep", g_orbit_sweep);
+    g_orbit_smooth = config::get_float(INI_SECTION, "orbit_smooth", g_orbit_smooth);
+    g_cockpit_max_s = config::get_float(INI_SECTION, "cockpit_max_s", g_cockpit_max_s);
 }
 
 static void save_config() {
-    const wchar_t *ini = settings_ini_path();
-    ini_set_int(ini, L"cfg_version", CFG_VERSION);
-    ini_set_int(ini, L"auto", g_auto);
-    ini_set_float(ini, L"dwell_s", g_dwell_s);
-    ini_set_float(ini, L"manual_hold_s", g_manual_hold_s);
-    ini_set_int(ini, L"w_leader", g_w_leader);
-    ini_set_int(ini, L"w_battle", g_w_battle);
-    ini_set_int(ini, L"w_random", g_w_random);
-    ini_set_float(ini, L"battle_gap_s", g_battle_gap_s);
-    ini_set_int(ini, L"shot_chase", g_w_chase);
-    ini_set_int(ini, L"shot_drone", g_w_drone);
-    ini_set_int(ini, L"shot_orbit", g_w_orbit);
-    ini_set_int(ini, L"shot_cockpit", g_w_cockpit);
-    ini_set_float(ini, L"drone_height", g_drone_height);
-    ini_set_float(ini, L"drone_back", g_drone_back);
-    ini_set_float(ini, L"drone_ahead", g_drone_ahead);
-    ini_set_float(ini, L"drone_smooth", g_drone_smooth);
-    ini_set_float(ini, L"orbit_dist", g_orbit_dist);
-    ini_set_float(ini, L"orbit_rate", g_orbit_rate);
-    ini_set_float(ini, L"orbit_sweep", g_orbit_sweep);
-    ini_set_float(ini, L"orbit_smooth", g_orbit_smooth);
-    ini_set_float(ini, L"cockpit_max_s", g_cockpit_max_s);
+    config::set_int(INI_SECTION, "cfg_version", CFG_VERSION);
+    config::set_int(INI_SECTION, "auto", g_auto);
+    config::set_float(INI_SECTION, "dwell_s", g_dwell_s);
+    config::set_float(INI_SECTION, "manual_hold_s", g_manual_hold_s);
+    config::set_int(INI_SECTION, "w_leader", g_w_leader);
+    config::set_int(INI_SECTION, "w_battle", g_w_battle);
+    config::set_int(INI_SECTION, "w_random", g_w_random);
+    config::set_float(INI_SECTION, "battle_gap_s", g_battle_gap_s);
+    config::set_int(INI_SECTION, "shot_chase", g_w_chase);
+    config::set_int(INI_SECTION, "shot_drone", g_w_drone);
+    config::set_int(INI_SECTION, "shot_orbit", g_w_orbit);
+    config::set_int(INI_SECTION, "shot_cockpit", g_w_cockpit);
+    config::set_float(INI_SECTION, "drone_height", g_drone_height);
+    config::set_float(INI_SECTION, "drone_back", g_drone_back);
+    config::set_float(INI_SECTION, "drone_ahead", g_drone_ahead);
+    config::set_float(INI_SECTION, "drone_smooth", g_drone_smooth);
+    config::set_float(INI_SECTION, "orbit_dist", g_orbit_dist);
+    config::set_float(INI_SECTION, "orbit_rate", g_orbit_rate);
+    config::set_float(INI_SECTION, "orbit_sweep", g_orbit_sweep);
+    config::set_float(INI_SECTION, "orbit_smooth", g_orbit_smooth);
+    config::set_float(INI_SECTION, "cockpit_max_s", g_cockpit_max_s);
+    config::save();
 }
 
 static void panel_director() {

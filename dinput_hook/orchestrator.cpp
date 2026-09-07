@@ -2,7 +2,8 @@
 #include "hook_helper.h"
 #include "debug_ui.h"
 #include "patch.h"
-#include "imgui_utils.h"             // settings_ini_path
+#include "imgui_utils.h"
+#include "config.h"
 #include "game_deltas/tracks_delta.h"// swrUI_GetTrackNameFromId_delta
 #include "broadcast/overlay.h"
 #include "camera/director.h"
@@ -743,72 +744,54 @@ extern "C" void orchestrator_ToggleArmed(void) {
 // ---------------------------------------------------------------------------------------------
 // Config: [orchestrator] in SW_RACER_RE.ini (loaded at panel registration, saved on every edit)
 
-static const wchar_t *INI_SECTION = L"orchestrator";
-
-static float ini_get_float(const wchar_t *ini, const wchar_t *key, float def) {
-    wchar_t got[48], defbuf[48];
-    swprintf(defbuf, 48, L"%.4f", def);
-    GetPrivateProfileStringW(INI_SECTION, key, defbuf, got, 48, ini);
-    return (float) wcstod(got, NULL);
-}
-static void ini_set_float(const wchar_t *ini, const wchar_t *key, float v) {
-    wchar_t buf[48];
-    swprintf(buf, 48, L"%.4f", v);
-    WritePrivateProfileStringW(INI_SECTION, key, buf, ini);
-}
-static void ini_set_int(const wchar_t *ini, const wchar_t *key, int v) {
-    wchar_t buf[16];
-    swprintf(buf, 16, L"%d", v);
-    WritePrivateProfileStringW(INI_SECTION, key, buf, ini);
-}
+static const char *INI_SECTION = "orchestrator";
 
 static void load_config() {
-    const wchar_t *ini = settings_ini_path();
-    g_laps = std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"laps", g_laps, ini), 1, 10);
+    g_laps = std::clamp(config::get_int(INI_SECTION, "laps", g_laps), 1, 10);
     g_racers =
-        std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"racers", g_racers, ini), 1, 20);
-    g_cooldown_s = ini_get_float(ini, L"cooldown_s", g_cooldown_s);
-    g_all_done_s = ini_get_float(ini, L"all_done_s", g_all_done_s);
-    g_grid_hold_s = ini_get_float(ini, L"grid_hold_s", g_grid_hold_s);
+        std::clamp(config::get_int(INI_SECTION, "racers", g_racers), 1, 20);
+    g_cooldown_s = config::get_float(INI_SECTION, "cooldown_s", g_cooldown_s);
+    g_all_done_s = config::get_float(INI_SECTION, "all_done_s", g_all_done_s);
+    g_grid_hold_s = config::get_float(INI_SECTION, "grid_hold_s", g_grid_hold_s);
     g_rotate_tracks =
-        GetPrivateProfileIntW(INI_SECTION, L"rotate_tracks", g_rotate_tracks, ini) != 0;
-    g_unstick = GetPrivateProfileIntW(INI_SECTION, L"unstick", g_unstick, ini) != 0;
-    g_stuck_s = ini_get_float(ini, L"stuck_s", g_stuck_s);
-    g_dnf = GetPrivateProfileIntW(INI_SECTION, L"dnf", g_dnf, ini) != 0;
-    g_dnf_s = ini_get_float(ini, L"dnf_s", g_dnf_s);
-    g_full_physics = GetPrivateProfileIntW(INI_SECTION, L"full_physics", g_full_physics, ini) != 0;
-    g_ai_damage = GetPrivateProfileIntW(INI_SECTION, L"ai_damage", g_ai_damage, ini) != 0;
-    g_ai_repair = GetPrivateProfileIntW(INI_SECTION, L"ai_repair", g_ai_repair, ini) != 0;
-    g_repair_start = ini_get_float(ini, L"repair_start", g_repair_start);
-    g_repair_stop = ini_get_float(ini, L"repair_stop", g_repair_stop);
-    g_ai_lighting = GetPrivateProfileIntW(INI_SECTION, L"ai_lighting", g_ai_lighting, ini) != 0;
-    g_shuffle_grid = GetPrivateProfileIntW(INI_SECTION, L"shuffle_grid", g_shuffle_grid, ini) != 0;
+        config::get_int(INI_SECTION, "rotate_tracks", g_rotate_tracks) != 0;
+    g_unstick = config::get_int(INI_SECTION, "unstick", g_unstick) != 0;
+    g_stuck_s = config::get_float(INI_SECTION, "stuck_s", g_stuck_s);
+    g_dnf = config::get_int(INI_SECTION, "dnf", g_dnf) != 0;
+    g_dnf_s = config::get_float(INI_SECTION, "dnf_s", g_dnf_s);
+    g_full_physics = config::get_int(INI_SECTION, "full_physics", g_full_physics) != 0;
+    g_ai_damage = config::get_int(INI_SECTION, "ai_damage", g_ai_damage) != 0;
+    g_ai_repair = config::get_int(INI_SECTION, "ai_repair", g_ai_repair) != 0;
+    g_repair_start = config::get_float(INI_SECTION, "repair_start", g_repair_start);
+    g_repair_stop = config::get_float(INI_SECTION, "repair_stop", g_repair_stop);
+    g_ai_lighting = config::get_int(INI_SECTION, "ai_lighting", g_ai_lighting) != 0;
+    g_shuffle_grid = config::get_int(INI_SECTION, "shuffle_grid", g_shuffle_grid) != 0;
     g_no_blue_flash =
-        GetPrivateProfileIntW(INI_SECTION, L"no_blue_flash", g_no_blue_flash, ini) != 0;
-    g_snapshot_s = ini_get_float(ini, L"snapshot_s", g_snapshot_s);
+        config::get_int(INI_SECTION, "no_blue_flash", g_no_blue_flash) != 0;
+    g_snapshot_s = config::get_float(INI_SECTION, "snapshot_s", g_snapshot_s);
 }
 
 static void save_config() {
-    const wchar_t *ini = settings_ini_path();
-    ini_set_int(ini, L"laps", g_laps);
-    ini_set_int(ini, L"racers", g_racers);
-    ini_set_float(ini, L"cooldown_s", g_cooldown_s);
-    ini_set_float(ini, L"all_done_s", g_all_done_s);
-    ini_set_float(ini, L"grid_hold_s", g_grid_hold_s);
-    ini_set_int(ini, L"rotate_tracks", g_rotate_tracks);
-    ini_set_int(ini, L"unstick", g_unstick);
-    ini_set_float(ini, L"stuck_s", g_stuck_s);
-    ini_set_int(ini, L"dnf", g_dnf);
-    ini_set_float(ini, L"dnf_s", g_dnf_s);
-    ini_set_int(ini, L"full_physics", g_full_physics);
-    ini_set_int(ini, L"ai_damage", g_ai_damage);
-    ini_set_int(ini, L"ai_repair", g_ai_repair);
-    ini_set_float(ini, L"repair_start", g_repair_start);
-    ini_set_float(ini, L"repair_stop", g_repair_stop);
-    ini_set_int(ini, L"ai_lighting", g_ai_lighting);
-    ini_set_int(ini, L"shuffle_grid", g_shuffle_grid);
-    ini_set_int(ini, L"no_blue_flash", g_no_blue_flash);
-    ini_set_float(ini, L"snapshot_s", g_snapshot_s);
+    config::set_int(INI_SECTION, "laps", g_laps);
+    config::set_int(INI_SECTION, "racers", g_racers);
+    config::set_float(INI_SECTION, "cooldown_s", g_cooldown_s);
+    config::set_float(INI_SECTION, "all_done_s", g_all_done_s);
+    config::set_float(INI_SECTION, "grid_hold_s", g_grid_hold_s);
+    config::set_int(INI_SECTION, "rotate_tracks", g_rotate_tracks);
+    config::set_int(INI_SECTION, "unstick", g_unstick);
+    config::set_float(INI_SECTION, "stuck_s", g_stuck_s);
+    config::set_int(INI_SECTION, "dnf", g_dnf);
+    config::set_float(INI_SECTION, "dnf_s", g_dnf_s);
+    config::set_int(INI_SECTION, "full_physics", g_full_physics);
+    config::set_int(INI_SECTION, "ai_damage", g_ai_damage);
+    config::set_int(INI_SECTION, "ai_repair", g_ai_repair);
+    config::set_float(INI_SECTION, "repair_start", g_repair_start);
+    config::set_float(INI_SECTION, "repair_stop", g_repair_stop);
+    config::set_int(INI_SECTION, "ai_lighting", g_ai_lighting);
+    config::set_int(INI_SECTION, "shuffle_grid", g_shuffle_grid);
+    config::set_int(INI_SECTION, "no_blue_flash", g_no_blue_flash);
+    config::set_float(INI_SECTION, "snapshot_s", g_snapshot_s);
+    config::save();
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -8,7 +8,7 @@ extern "C" {
 #include <engine_config.h>
 }
 
-#include "../imgui_utils.h"// settings_ini_path
+#include "../config.h"
 #include "../patch.h"
 
 extern "C" FILE *hook_log;
@@ -30,8 +30,7 @@ static const uint32_t kSizeSites[] = {
 // Read straight from settings.ini: read_settings_ini() has not run this early, the same reason
 // read_hd_font_setting() does it for its own patch-time toggle.
 static uint32_t read_asset_buffer_size() {
-    int mb = (int) GetPrivateProfileIntW(L"settings", L"asset_buffer_mb",
-                                         SWR_ASSET_BUFFER_MB_DEFAULT, settings_ini_path());
+    int mb = config::get_int("settings", "asset_buffer_mb", SWR_ASSET_BUFFER_MB_DEFAULT);
 
     const int retail_mb = (int) (SWR_ASSET_BUFFER_SIZE_RETAIL / (1024u * 1024u));
     if (mb < retail_mb) {

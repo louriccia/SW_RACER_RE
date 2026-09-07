@@ -1,7 +1,8 @@
 #include "ai_variance.h"
 #include "broadcast/race_telemetry.h"
 #include "debug_ui.h"
-#include "imgui_utils.h"// settings_ini_path
+#include "imgui_utils.h"
+#include "config.h"
 #include "hook_helper.h"
 
 #include <imgui.h>
@@ -473,91 +474,73 @@ void ai_variance_RegisterHooks() {
 // ---------------------------------------------------------------------------------------------
 // Config + panel
 
-static const wchar_t *INI_SECTION = L"ai_variance";
-
-static float ini_get_float(const wchar_t *ini, const wchar_t *key, float def) {
-    wchar_t got[48], defbuf[48];
-    swprintf(defbuf, 48, L"%.4f", def);
-    GetPrivateProfileStringW(INI_SECTION, key, defbuf, got, 48, ini);
-    return (float) wcstod(got, NULL);
-}
-static void ini_set_float(const wchar_t *ini, const wchar_t *key, float v) {
-    wchar_t buf[48];
-    swprintf(buf, 48, L"%.4f", v);
-    WritePrivateProfileStringW(INI_SECTION, key, buf, ini);
-}
-static void ini_set_int(const wchar_t *ini, const wchar_t *key, int v) {
-    wchar_t buf[16];
-    swprintf(buf, 16, L"%d", v);
-    WritePrivateProfileStringW(INI_SECTION, key, buf, ini);
-}
+static const char *INI_SECTION = "ai_variance";
 
 static void load_config() {
-    const wchar_t *ini = settings_ini_path();
-    g_enabled = GetPrivateProfileIntW(INI_SECTION, L"enabled", g_enabled, ini) != 0;
-    g_with_humans = GetPrivateProfileIntW(INI_SECTION, L"with_humans", g_with_humans, ini) != 0;
+    g_enabled = config::get_int(INI_SECTION, "enabled", g_enabled) != 0;
+    g_with_humans = config::get_int(INI_SECTION, "with_humans", g_with_humans) != 0;
     g_replace_stock =
-        GetPrivateProfileIntW(INI_SECTION, L"replace_stock", g_replace_stock, ini) != 0;
-    g_wall_damage = GetPrivateProfileIntW(INI_SECTION, L"wall_damage", g_wall_damage, ini) != 0;
-    g_impact_death = GetPrivateProfileIntW(INI_SECTION, L"impact_death", g_impact_death, ini) != 0;
-    g_impact_toughness = ini_get_float(ini, L"impact_toughness", g_impact_toughness);
-    g_form_amp = ini_get_float(ini, L"form_amp", g_form_amp);
-    g_swing_amp = ini_get_float(ini, L"swing_amp", g_swing_amp);
-    g_swing_tau_s = ini_get_float(ini, L"swing_tau_s", g_swing_tau_s);
-    g_pack_gain = ini_get_float(ini, L"pack_gain", g_pack_gain);
-    g_pack_spread_s = ini_get_float(ini, L"pack_spread_s", g_pack_spread_s);
-    g_pack_clamp = ini_get_float(ini, L"pack_clamp", g_pack_clamp);
-    g_blunder_per_min = ini_get_float(ini, L"blunder_per_min", g_blunder_per_min);
-    g_blunder_min_s = ini_get_float(ini, L"blunder_min_s", g_blunder_min_s);
-    g_blunder_max_s = ini_get_float(ini, L"blunder_max_s", g_blunder_max_s);
-    g_blunder_depth = ini_get_float(ini, L"blunder_depth", g_blunder_depth);
-    g_boost = GetPrivateProfileIntW(INI_SECTION, L"boost", g_boost, ini) != 0;
-    if ((int) GetPrivateProfileIntW(INI_SECTION, L"cfg_version", 1, ini) >= CFG_VERSION) {
+        config::get_int(INI_SECTION, "replace_stock", g_replace_stock) != 0;
+    g_wall_damage = config::get_int(INI_SECTION, "wall_damage", g_wall_damage) != 0;
+    g_impact_death = config::get_int(INI_SECTION, "impact_death", g_impact_death) != 0;
+    g_impact_toughness = config::get_float(INI_SECTION, "impact_toughness", g_impact_toughness);
+    g_form_amp = config::get_float(INI_SECTION, "form_amp", g_form_amp);
+    g_swing_amp = config::get_float(INI_SECTION, "swing_amp", g_swing_amp);
+    g_swing_tau_s = config::get_float(INI_SECTION, "swing_tau_s", g_swing_tau_s);
+    g_pack_gain = config::get_float(INI_SECTION, "pack_gain", g_pack_gain);
+    g_pack_spread_s = config::get_float(INI_SECTION, "pack_spread_s", g_pack_spread_s);
+    g_pack_clamp = config::get_float(INI_SECTION, "pack_clamp", g_pack_clamp);
+    g_blunder_per_min = config::get_float(INI_SECTION, "blunder_per_min", g_blunder_per_min);
+    g_blunder_min_s = config::get_float(INI_SECTION, "blunder_min_s", g_blunder_min_s);
+    g_blunder_max_s = config::get_float(INI_SECTION, "blunder_max_s", g_blunder_max_s);
+    g_blunder_depth = config::get_float(INI_SECTION, "blunder_depth", g_blunder_depth);
+    g_boost = config::get_int(INI_SECTION, "boost", g_boost) != 0;
+    if (config::get_int(INI_SECTION, "cfg_version", 1) >= CFG_VERSION) {
         // v2: the more aggressive boost defaults replace whatever an older build stored
-        g_boost_start_per_s = ini_get_float(ini, L"boost_start_per_s", g_boost_start_per_s);
-        g_boost_min_s = ini_get_float(ini, L"boost_min_s", g_boost_min_s);
-        g_boost_max_s = ini_get_float(ini, L"boost_max_s", g_boost_max_s);
-        g_boost_release_temp = ini_get_float(ini, L"boost_release_temp", g_boost_release_temp);
+        g_boost_start_per_s = config::get_float(INI_SECTION, "boost_start_per_s", g_boost_start_per_s);
+        g_boost_min_s = config::get_float(INI_SECTION, "boost_min_s", g_boost_min_s);
+        g_boost_max_s = config::get_float(INI_SECTION, "boost_max_s", g_boost_max_s);
+        g_boost_release_temp = config::get_float(INI_SECTION, "boost_release_temp", g_boost_release_temp);
         g_boost_min_start_temp =
-            ini_get_float(ini, L"boost_min_start_temp", g_boost_min_start_temp);
-        g_boost_turn_limit = ini_get_float(ini, L"boost_turn_limit", g_boost_turn_limit);
-        g_boost_cooldown_s = ini_get_float(ini, L"boost_cooldown_s", g_boost_cooldown_s);
-        g_boost_p_overheat = ini_get_float(ini, L"boost_p_overheat", g_boost_p_overheat);
-        g_boost_sound = GetPrivateProfileIntW(INI_SECTION, L"boost_sound", g_boost_sound, ini) != 0;
-        g_boost_steer_scale = ini_get_float(ini, L"boost_steer_scale", g_boost_steer_scale);
+            config::get_float(INI_SECTION, "boost_min_start_temp", g_boost_min_start_temp);
+        g_boost_turn_limit = config::get_float(INI_SECTION, "boost_turn_limit", g_boost_turn_limit);
+        g_boost_cooldown_s = config::get_float(INI_SECTION, "boost_cooldown_s", g_boost_cooldown_s);
+        g_boost_p_overheat = config::get_float(INI_SECTION, "boost_p_overheat", g_boost_p_overheat);
+        g_boost_sound = config::get_int(INI_SECTION, "boost_sound", g_boost_sound) != 0;
+        g_boost_steer_scale = config::get_float(INI_SECTION, "boost_steer_scale", g_boost_steer_scale);
     }
 }
 
 static void save_config() {
-    const wchar_t *ini = settings_ini_path();
-    ini_set_int(ini, L"cfg_version", CFG_VERSION);
-    ini_set_int(ini, L"enabled", g_enabled);
-    ini_set_int(ini, L"with_humans", g_with_humans);
-    ini_set_int(ini, L"replace_stock", g_replace_stock);
-    ini_set_int(ini, L"wall_damage", g_wall_damage);
-    ini_set_int(ini, L"impact_death", g_impact_death);
-    ini_set_float(ini, L"impact_toughness", g_impact_toughness);
-    ini_set_float(ini, L"form_amp", g_form_amp);
-    ini_set_float(ini, L"swing_amp", g_swing_amp);
-    ini_set_float(ini, L"swing_tau_s", g_swing_tau_s);
-    ini_set_float(ini, L"pack_gain", g_pack_gain);
-    ini_set_float(ini, L"pack_spread_s", g_pack_spread_s);
-    ini_set_float(ini, L"pack_clamp", g_pack_clamp);
-    ini_set_float(ini, L"blunder_per_min", g_blunder_per_min);
-    ini_set_float(ini, L"blunder_min_s", g_blunder_min_s);
-    ini_set_float(ini, L"blunder_max_s", g_blunder_max_s);
-    ini_set_float(ini, L"blunder_depth", g_blunder_depth);
-    ini_set_int(ini, L"boost", g_boost);
-    ini_set_float(ini, L"boost_start_per_s", g_boost_start_per_s);
-    ini_set_float(ini, L"boost_min_s", g_boost_min_s);
-    ini_set_float(ini, L"boost_max_s", g_boost_max_s);
-    ini_set_float(ini, L"boost_release_temp", g_boost_release_temp);
-    ini_set_float(ini, L"boost_min_start_temp", g_boost_min_start_temp);
-    ini_set_float(ini, L"boost_turn_limit", g_boost_turn_limit);
-    ini_set_float(ini, L"boost_cooldown_s", g_boost_cooldown_s);
-    ini_set_float(ini, L"boost_p_overheat", g_boost_p_overheat);
-    ini_set_int(ini, L"boost_sound", g_boost_sound);
-    ini_set_float(ini, L"boost_steer_scale", g_boost_steer_scale);
+    config::set_int(INI_SECTION, "cfg_version", CFG_VERSION);
+    config::set_int(INI_SECTION, "enabled", g_enabled);
+    config::set_int(INI_SECTION, "with_humans", g_with_humans);
+    config::set_int(INI_SECTION, "replace_stock", g_replace_stock);
+    config::set_int(INI_SECTION, "wall_damage", g_wall_damage);
+    config::set_int(INI_SECTION, "impact_death", g_impact_death);
+    config::set_float(INI_SECTION, "impact_toughness", g_impact_toughness);
+    config::set_float(INI_SECTION, "form_amp", g_form_amp);
+    config::set_float(INI_SECTION, "swing_amp", g_swing_amp);
+    config::set_float(INI_SECTION, "swing_tau_s", g_swing_tau_s);
+    config::set_float(INI_SECTION, "pack_gain", g_pack_gain);
+    config::set_float(INI_SECTION, "pack_spread_s", g_pack_spread_s);
+    config::set_float(INI_SECTION, "pack_clamp", g_pack_clamp);
+    config::set_float(INI_SECTION, "blunder_per_min", g_blunder_per_min);
+    config::set_float(INI_SECTION, "blunder_min_s", g_blunder_min_s);
+    config::set_float(INI_SECTION, "blunder_max_s", g_blunder_max_s);
+    config::set_float(INI_SECTION, "blunder_depth", g_blunder_depth);
+    config::set_int(INI_SECTION, "boost", g_boost);
+    config::set_float(INI_SECTION, "boost_start_per_s", g_boost_start_per_s);
+    config::set_float(INI_SECTION, "boost_min_s", g_boost_min_s);
+    config::set_float(INI_SECTION, "boost_max_s", g_boost_max_s);
+    config::set_float(INI_SECTION, "boost_release_temp", g_boost_release_temp);
+    config::set_float(INI_SECTION, "boost_min_start_temp", g_boost_min_start_temp);
+    config::set_float(INI_SECTION, "boost_turn_limit", g_boost_turn_limit);
+    config::set_float(INI_SECTION, "boost_cooldown_s", g_boost_cooldown_s);
+    config::set_float(INI_SECTION, "boost_p_overheat", g_boost_p_overheat);
+    config::set_int(INI_SECTION, "boost_sound", g_boost_sound);
+    config::set_float(INI_SECTION, "boost_steer_scale", g_boost_steer_scale);
+    config::save();
 }
 
 static void panel_ai_variance() {

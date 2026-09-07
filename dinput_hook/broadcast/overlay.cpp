@@ -1,7 +1,8 @@
 #include "overlay.h"
 #include "race_telemetry.h"
 #include "../debug_ui.h"
-#include "../imgui_utils.h"             // settings_ini_path
+#include "../imgui_utils.h"
+#include "../config.h"
 #include "../game_deltas/tracks_delta.h"// swrUI_GetTrackNameFromId_delta
 #include "../hook_helper.h"
 #include "../ui_transform.h"
@@ -390,51 +391,33 @@ void overlay_Draw() {
 // ---------------------------------------------------------------------------------------------
 // Config + panel
 
-static const wchar_t *INI_SECTION = L"broadcast";
-
-static float ini_get_float(const wchar_t *ini, const wchar_t *key, float def) {
-    wchar_t got[48], defbuf[48];
-    swprintf(defbuf, 48, L"%.4f", def);
-    GetPrivateProfileStringW(INI_SECTION, key, defbuf, got, 48, ini);
-    return (float) wcstod(got, NULL);
-}
-static void ini_set_float(const wchar_t *ini, const wchar_t *key, float v) {
-    wchar_t buf[48];
-    swprintf(buf, 48, L"%.4f", v);
-    WritePrivateProfileStringW(INI_SECTION, key, buf, ini);
-}
-static void ini_set_int(const wchar_t *ini, const wchar_t *key, int v) {
-    wchar_t buf[16];
-    swprintf(buf, 16, L"%d", v);
-    WritePrivateProfileStringW(INI_SECTION, key, buf, ini);
-}
+static const char *INI_SECTION = "broadcast";
 
 static void load_config() {
-    const wchar_t *ini = settings_ini_path();
-    g_leaderboard = GetPrivateProfileIntW(INI_SECTION, L"leaderboard", g_leaderboard, ini) != 0;
-    g_show_tags = GetPrivateProfileIntW(INI_SECTION, L"show_tags", g_show_tags, ini) != 0;
-    g_nameplates = GetPrivateProfileIntW(INI_SECTION, L"nameplates", g_nameplates, ini) != 0;
-    g_pod_status = GetPrivateProfileIntW(INI_SECTION, L"pod_status", g_pod_status, ini) != 0;
-    g_game_gauges = GetPrivateProfileIntW(INI_SECTION, L"game_gauges", g_game_gauges, ini) != 0;
-    g_scale = ini_get_float(ini, L"scale", g_scale);
-    g_opacity = ini_get_float(ini, L"opacity", g_opacity);
-    g_anchor = std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"anchor", g_anchor, ini), 0, 1);
-    g_margin_x = ini_get_float(ini, L"margin_x", g_margin_x);
-    g_margin_y = ini_get_float(ini, L"margin_y", g_margin_y);
+    g_leaderboard = config::get_int(INI_SECTION, "leaderboard", g_leaderboard) != 0;
+    g_show_tags = config::get_int(INI_SECTION, "show_tags", g_show_tags) != 0;
+    g_nameplates = config::get_int(INI_SECTION, "nameplates", g_nameplates) != 0;
+    g_pod_status = config::get_int(INI_SECTION, "pod_status", g_pod_status) != 0;
+    g_game_gauges = config::get_int(INI_SECTION, "game_gauges", g_game_gauges) != 0;
+    g_scale = config::get_float(INI_SECTION, "scale", g_scale);
+    g_opacity = config::get_float(INI_SECTION, "opacity", g_opacity);
+    g_anchor = std::clamp(config::get_int(INI_SECTION, "anchor", g_anchor), 0, 1);
+    g_margin_x = config::get_float(INI_SECTION, "margin_x", g_margin_x);
+    g_margin_y = config::get_float(INI_SECTION, "margin_y", g_margin_y);
 }
 
 static void save_config() {
-    const wchar_t *ini = settings_ini_path();
-    ini_set_int(ini, L"leaderboard", g_leaderboard);
-    ini_set_int(ini, L"show_tags", g_show_tags);
-    ini_set_int(ini, L"nameplates", g_nameplates);
-    ini_set_int(ini, L"pod_status", g_pod_status);
-    ini_set_int(ini, L"game_gauges", g_game_gauges);
-    ini_set_float(ini, L"scale", g_scale);
-    ini_set_float(ini, L"opacity", g_opacity);
-    ini_set_int(ini, L"anchor", g_anchor);
-    ini_set_float(ini, L"margin_x", g_margin_x);
-    ini_set_float(ini, L"margin_y", g_margin_y);
+    config::set_int(INI_SECTION, "leaderboard", g_leaderboard);
+    config::set_int(INI_SECTION, "show_tags", g_show_tags);
+    config::set_int(INI_SECTION, "nameplates", g_nameplates);
+    config::set_int(INI_SECTION, "pod_status", g_pod_status);
+    config::set_int(INI_SECTION, "game_gauges", g_game_gauges);
+    config::set_float(INI_SECTION, "scale", g_scale);
+    config::set_float(INI_SECTION, "opacity", g_opacity);
+    config::set_int(INI_SECTION, "anchor", g_anchor);
+    config::set_float(INI_SECTION, "margin_x", g_margin_x);
+    config::set_float(INI_SECTION, "margin_y", g_margin_y);
+    config::save();
 }
 
 static void panel_broadcast() {
