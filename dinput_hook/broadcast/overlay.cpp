@@ -5,6 +5,7 @@
 #include "../config.h"
 #include "../game_deltas/tracks_delta.h"// swrUI_GetTrackNameFromId_delta
 #include "../hook_helper.h"
+#include "../camera/director.h"// director_FollowedSlot (nameplate filter)
 #include "../ui_transform.h"
 
 extern "C" {
@@ -19,6 +20,7 @@ extern "C" {
 #include <windows.h>
 #include <algorithm>
 #include <cstdio>
+#include <cmath>
 #include <cstring>
 #include <cwchar>
 
@@ -32,6 +34,8 @@ static float g_scale = 1.6f;
 static float g_opacity = 0.6f;
 static int g_anchor = 0;         // 0 left, 1 right
 static bool g_nameplates = false;// names over pods (SP / all-AI)
+static int g_nameplate_neighbors = 2;      // besides the followed racer, name this many nearest pods
+static float g_nameplate_max_dist = 400.0f;// ... within this many world units of it
 static bool g_nameplates_forced = false;
 static bool g_nameplates_suppressed = false;
 static bool g_pod_status =
@@ -67,6 +71,42 @@ void overlay_SuppressNameplates(bool suppress) {
 }
 bool overlay_NameplatesSuppressed() {
     return g_nameplates_suppressed;
+}
+
+// With a camera target, only the followed racer and its nearest neighbours are named, so the
+// labels read as "who is in this shot" instead of a wall of text. No target (a human race, or the
+// director off): everyone.
+bool overlay_NameplateVisible(int score_slot) {
+    const int followed = director_FollowedSlot();
+    if (followed < 0 || swrScoresPtr == NULL || score_slot < 0 || score_slot >= RACE_TELEMETRY_MAX_ROWS)
+        return true;
+    if (score_slot == followed)
+        return true;
+    const swrRace *me = swrScoresPtr[followed].obj_test_ptr;
+    const swrRace *pod = swrScoresPtr[score_slot].obj_test_ptr;
+    if (me == NULL || pod == NULL || g_nameplate_neighbors <= 0)
+        return false;
+    auto dist = [&](const swrRace *o) {
+        const float dx = o->transform.vD.x - me->transform.vD.x;
+        const float dy = o->transform.vD.y - me->transform.vD.y;
+        const float dz = o->transform.vD.z - me->transform.vD.z;
+        return sqrtf(dx * dx + dy * dy + dz * dz);
+    };
+    const float mine = dist(pod);
+    if (mine > g_nameplate_max_dist)
+        return false;
+    // rank this pod among the others by distance to the followed racer
+    int closer = 0;
+    const RaceTelemetry *t = race_telemetry_Get();
+    for (int k = 0; k < t->n; k++) {
+        const int slot = t->rows[k].slot;
+        if (slot == followed || slot == score_slot)
+            continue;
+        const swrRace *o = swrScoresPtr[slot].obj_test_ptr;
+        if (o != NULL && dist(o) < mine)
+            closer++;
+    }
+    return closer < g_nameplate_neighbors;
 }
 
 static void (*g_row_click)(int slot) = NULL;
@@ -408,6 +448,8 @@ static void load_config() {
     g_leaderboard = config::get_int(INI_SECTION, "leaderboard", g_leaderboard) != 0;
     g_show_tags = config::get_int(INI_SECTION, "show_tags", g_show_tags) != 0;
     g_nameplates = config::get_int(INI_SECTION, "nameplates", g_nameplates) != 0;
+    g_nameplate_neighbors = config::get_int(INI_SECTION, "nameplate_neighbors", g_nameplate_neighbors);
+    g_nameplate_max_dist = config::get_float(INI_SECTION, "nameplate_max_dist", g_nameplate_max_dist);
     g_pod_status = config::get_int(INI_SECTION, "pod_status", g_pod_status) != 0;
     g_game_gauges = config::get_int(INI_SECTION, "game_gauges", g_game_gauges) != 0;
     g_scale = config::get_float(INI_SECTION, "scale", g_scale);
@@ -421,6 +463,8 @@ static void save_config() {
     config::set_int(INI_SECTION, "leaderboard", g_leaderboard);
     config::set_int(INI_SECTION, "show_tags", g_show_tags);
     config::set_int(INI_SECTION, "nameplates", g_nameplates);
+    config::set_int(INI_SECTION, "nameplate_neighbors", g_nameplate_neighbors);
+    config::set_float(INI_SECTION, "nameplate_max_dist", g_nameplate_max_dist);
     config::set_int(INI_SECTION, "pod_status", g_pod_status);
     config::set_int(INI_SECTION, "game_gauges", g_game_gauges);
     config::set_float(INI_SECTION, "scale", g_scale);
@@ -443,6 +487,8 @@ static void panel_broadcast() {
     }
     changed |= ImGui::Checkbox("Status icons (finished / crashed / on fire)", &g_show_tags);
     changed |= ImGui::Checkbox("Names over pods (instead of position numbers)", &g_nameplates);
+    changed |= ImGui::SliderInt("Named neighbours of the followed racer", &g_nameplate_neighbors, 0, 19);
+    changed |= ImGui::SliderFloat("... within (world units)", &g_nameplate_max_dist, 50.0f, 3000.0f, "%.0f");
     changed |= ImGui::Checkbox("Game gauges for the followed racer (timer, speedo, engines)",
                                &g_game_gauges);
     changed |= ImGui::Checkbox("Followed racer card (ImGui speed + engines)", &g_pod_status);

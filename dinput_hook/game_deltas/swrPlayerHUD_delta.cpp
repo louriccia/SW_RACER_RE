@@ -96,6 +96,8 @@ void swrPlayerHUD_RenderDistanceText_delta(void *viewport, bool secondaryPass) {
         swrRace *racer = swrScores[player].obj_test_ptr;
         if (!racer)
             continue;
+        if (!overlay_NameplateVisible(player))
+            continue;// not in the followed racer's neighbourhood: no label
         const int slot = racer->obj.id;
         if (slot < 0 || slot >= HUD_NAME_MAX_RACERS)
             continue;

@@ -42,3 +42,6 @@ void overlay_ForceNameplates(bool on);
 // Temporarily hide the labels (e.g. during a wide drone shot) without changing the toggles.
 void overlay_SuppressNameplates(bool suppress);
 bool overlay_NameplatesSuppressed();
+// Per-racer filter for the overhead names: the followed racer always, plus its nearest
+// neighbours within range ([broadcast] nameplate_neighbors / nameplate_max_dist).
+bool overlay_NameplateVisible(int score_slot);

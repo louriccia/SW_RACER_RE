@@ -192,7 +192,6 @@ static void set_shot(Shot s) {
     g_cam_seeded = fly;
     g_blend_until_ms = fly ? g_shot_start_ms + (DWORD) (g_drone_blend_s * 1000.0f) : 0;
     g_orbit_ang_seeded = false;
-    overlay_SuppressNameplates(s == SHOT_DRONE);
     g_trackside_planted = false;
     g_blocked_since_ms = 0;
     if (s == SHOT_COCKPIT)
