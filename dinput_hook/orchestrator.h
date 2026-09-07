@@ -7,7 +7,9 @@
 // camera. Re-enters the next race through swrObjHang_LoadScreen(hang, 1, 0), the same call the
 // demo 'Abrt' handler in swrObjHang_F4 uses.
 
-// Detours: swrObjHang_F4 (race end -> schedule the next race). Call from init_renderer_hooks.
+// Race graphics live in broadcast/overlay.cpp (the orchestrator forces the leaderboard on while armed).
+// Detours: swrObjHang_F4 (race end -> next race), swrRace_CalcTargetTurnRate (AI fidelity/damage).
+// Call from init_renderer_hooks.
 void orchestrator_RegisterHooks();
 
 // ImGui "Orchestrator" panel. Call once after register_builtin_debug_panels.
@@ -17,8 +19,23 @@ void orchestrator_RegisterPanel();
 // 'Fini' once every racer has finished and starts the next race when the pause elapses.
 void orchestrator_Service();
 
-// Live leaderboard window while armed. Call inside the ImGui frame (next to draw_fps_overlay).
-void orchestrator_DrawOverlay();
+// What the orchestrator is running / about to run. Seed of the game-modes ruleset descriptor.
+struct RaceDescriptor {
+    int track_index;// 0..24
+    int laps;
+    int racer_count;// 1..20
+    int human_slots;// 0 = all-AI
+};
+
+enum OrchestratorEvent {
+    ORCH_RACE_STARTED = 1,// LoadScreen issued for the descriptor
+    ORCH_WINNER_IN,       // first racer finished; results window open
+    ORCH_RACE_ENDED,      // judge torn down ('Fini' / 'Abrt'); the next race is being started
+};
+
+typedef void (*OrchestratorListener)(int event, const RaceDescriptor *race);
+void orchestrator_Subscribe(OrchestratorListener cb);
+const RaceDescriptor *orchestrator_CurrentRace();
 
 #ifdef __cplusplus
 extern "C" {

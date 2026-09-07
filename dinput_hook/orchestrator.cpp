@@ -4,6 +4,7 @@
 #include "patch.h"
 #include "imgui_utils.h"             // settings_ini_path
 #include "game_deltas/tracks_delta.h"// swrUI_GetTrackNameFromId_delta
+#include "broadcast/overlay.h"
 
 #include <imgui.h>
 
@@ -59,6 +60,24 @@ static int g_force_track = -1;          // next start_race uses this track inste
 static int g_next_track = -1;// pre-picked at the winner's finish so the overlay can show it
 static char g_status[128] = "idle";
 
+static RaceDescriptor g_race = {-1, 1, 20, 0};
+static OrchestratorListener g_listeners[8];
+static int g_listener_count = 0;
+
+void orchestrator_Subscribe(OrchestratorListener cb) {
+    if (cb != NULL && g_listener_count < 8)
+        g_listeners[g_listener_count++] = cb;
+}
+
+const RaceDescriptor *orchestrator_CurrentRace() {
+    return &g_race;
+}
+
+static void emit(int event) {
+    for (int i = 0; i < g_listener_count; i++)
+        g_listeners[i](event, &g_race);
+}
+
 // Per race
 static bool g_cooldown_active = false;// winner is in; counting down to the next race
 static DWORD g_cooldown_end_ms = 0;
@@ -73,11 +92,6 @@ static bool g_dnf_marked[MAX_RACERS];
 static int g_snaps_total = 0;
 static int g_dnf_total = 0;
 static int g_ai_explosions = 0;
-// Leader pace (laps per second), sampled every second, used to turn progress gaps into seconds.
-static float g_pace_prev_prog = -1.0f;
-static DWORD g_pace_prev_ms = 0;
-static float g_leader_pace = 0.0f;
-static float g_overlay_scale = 1.6f;
 
 // Track pick: uniform over the 25 tracks, never one of the last TRACK_HISTORY played.
 static const int TRACK_COUNT = 25;
@@ -202,9 +216,6 @@ static void reset_race_watch() {
     g_fini_fired = false;
     g_cooldown_active = false;
     g_cooldown_end_ms = 0;
-    g_pace_prev_prog = -1.0f;
-    g_pace_prev_ms = 0;
-    g_leader_pace = 0.0f;
 }
 
 // Configure the hangar for an all-AI race and jump straight into the loading screen, the way the
@@ -228,9 +239,14 @@ static void start_race(swrObjHang *hang) {
 
     g_races_started++;
     reset_race_watch();
+    g_race.track_index = hang->track_index;
+    g_race.laps = g_laps;
+    g_race.racer_count = g_racers;
+    g_race.human_slots = 0;
     set_status("race %d: track %d (%s), %d racers, %d lap(s)", g_races_started, hang->track_index,
                track_name(hang->track_index), g_racers, g_laps);
     ((swrObjHang_LoadScreen_t) swrObjHang_LoadScreen_ADDR)(hang, 1, 0);
+    emit(ORCH_RACE_STARTED);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -250,8 +266,13 @@ static int __cdecl swrObjHang_F4_delta(swrObjHang *hang, int *subEvents, int *p3
         if (g_races_started == 0) {// the first race was started from the menu by hand
             g_races_started = 1;
             remember_track(hang->track_index);
+            g_race.track_index = hang->track_index;
+            g_race.laps = hang->numLaps;
+            g_race.racer_count = hang->num_players;
+            g_race.human_slots = 0;
         }
         g_races_finished++;
+        emit(ORCH_RACE_ENDED);
         set_status("race %d ended (%s); %d snaps, %d DNF, %d explosions so far", g_races_started,
                    event == 'Fini' ? "Fini" : "Abrt", g_snaps_total, g_dnf_total, g_ai_explosions);
         start_race(hang);
@@ -446,34 +467,6 @@ static void supervise_dnf(swrObjJdge *jdge, DWORD now) {
 }
 
 // Progress of the racer furthest along (finished racers count as num_laps).
-static float leader_progress(const swrObjJdge *jdge) {
-    float best = 0.0f;
-    for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++) {
-        swrScore *score = &swrScoresPtr[i];
-        if (score->obj_test_ptr == NULL)
-            continue;
-        const float p =
-            (score->flag & 2) ? (float) jdge->num_laps : swrObjJdge_GetRacerProgress(score);
-        best = std::max(best, p);
-    }
-    return best;
-}
-
-static void update_leader_pace(const swrObjJdge *jdge, DWORD now) {
-    const float prog = leader_progress(jdge);
-    if (g_pace_prev_ms == 0) {
-        g_pace_prev_prog = prog;
-        g_pace_prev_ms = now;
-        return;
-    }
-    if (now - g_pace_prev_ms < 1000)
-        return;
-    const float rate = (prog - g_pace_prev_prog) / ((now - g_pace_prev_ms) / 1000.0f);
-    if (rate > 0.0f)
-        g_leader_pace = g_leader_pace > 0.0f ? g_leader_pace * 0.7f + rate * 0.3f : rate;
-    g_pace_prev_prog = prog;
-    g_pace_prev_ms = now;
-}
 
 static bool any_finished(const swrObjJdge *jdge) {
     for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++)
@@ -507,6 +500,22 @@ void orchestrator_Service() {
     // (covers the first race, started from the menu by hand).
     hang->demo_mode = 1;
 
+    overlay_ForceLeaderboard(true);
+    overlay_SetTitle(g_cooldown_active ? "RESULTS" : "");
+    if (g_cooldown_active) {
+        const DWORD now_ms = GetTickCount();
+        const float left =
+            now_ms >= g_cooldown_end_ms ? 0.0f : (g_cooldown_end_ms - now_ms) / 1000.0f;
+        const int track = g_next_track >= 0 ? g_next_track : (int) hang->track_index;
+        char footer[160];
+        snprintf(footer, sizeof(footer), "NEXT: %s  (%d racers, %d lap%s)  in %d:%02d",
+                 track_name(track), g_racers, g_laps, g_laps == 1 ? "" : "s", (int) left / 60,
+                 (int) left % 60);
+        overlay_SetFooter(footer);
+    } else {
+        overlay_SetFooter("");
+    }
+
     swrObjJdge *jdge = get_jdge();
     const bool in_race = jdge != NULL && !jdge_asleep(jdge) && swrJdge_Cleared == 0;
     if (in_race) {
@@ -530,7 +539,6 @@ void orchestrator_Service() {
             apply_ai_lighting(jdge);
         if (state == 1 || state == 2) {
             log_snapshot(jdge, now);
-            update_leader_pace(jdge, now);
             if (g_unstick)
                 supervise_stuck(jdge, now);
             // Winner in -> open the results / betting window and pre-pick the next track so the
@@ -542,6 +550,7 @@ void orchestrator_Service() {
                 g_next_track = pick_track(hang->track_index);
                 set_status("race %d: winner in; next race (track %d, %s) in %.0fs", g_races_started,
                            g_next_track, track_name(g_next_track), g_cooldown_s);
+                emit(ORCH_WINNER_IN);
             }
             if (g_cooldown_active && g_dnf)
                 supervise_dnf(jdge, now);
@@ -578,162 +587,11 @@ extern "C" void orchestrator_ToggleArmed(void) {
         swrObjHang *hang = get_hang();
         if (hang != NULL)
             hang->demo_mode = 0;
+        overlay_ForceLeaderboard(false);
+        overlay_SetTitle("");
+        overlay_SetFooter("");
     }
     set_status(g_armed ? "armed (start a Free Play race, or press Start now)" : "disarmed");
-}
-
-// ---------------------------------------------------------------------------------------------
-// Broadcast overlay stand-in: live leaderboard while racing, results + "next race" card once the
-// winner is in (the vanilla HUD draws nothing with numLocalPlayers == 0).
-
-static void strip_codes(const char *in, char *out, size_t n) {
-    size_t o = 0;
-    for (const char *p = in; *p && o + 1 < n; p++) {
-        if (*p == '~' && p[1]) {
-            p++;// skip "~x" formatting codes
-            continue;
-        }
-        out[o++] = *p;
-    }
-    out[o] = '\0';
-}
-
-static void pilot_name(const swrScore *score, char *out, size_t n) {
-    char raw[128] = {0};
-    if (score->pilotId != NULL && *score->pilotId >= 0 && *score->pilotId < 23)
-        swrText_FormatPodName(*score->pilotId, raw, sizeof(raw));
-    strip_codes(raw, out, n);
-}
-
-static void format_time(float seconds, char *out, size_t n) {
-    if (seconds < 0.0f)
-        seconds = 0.0f;
-    const int ms = (int) (seconds * 1000.0f + 0.5f);
-    snprintf(out, n, "%d:%02d.%03d", ms / 60000, (ms / 1000) % 60, ms % 1000);
-}
-
-static const ImGuiWindowFlags OVERLAY_FLAGS =
-    ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
-    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing;
-
-static void format_gap(float seconds, char *out, size_t n) {
-    const int ms = (int) (seconds * 1000.0f + 0.5f);
-    if (ms >= 60000)
-        snprintf(out, n, "+%d:%02d.%03d", ms / 60000, (ms / 1000) % 60, ms % 1000);
-    else
-        snprintf(out, n, "+%d.%03d", ms / 1000, ms % 1000);
-}
-
-static void draw_board(swrObjHang *hang, swrObjJdge *jdge) {
-    // Order: finished by total time, then the rest by progress (the game's standings position is
-    // the same idea, but it is not refreshed for finished racers once the field thins out).
-    int order[MAX_RACERS];
-    int n = 0;
-    for (int i = 0; i < jdge->num_players && i < MAX_RACERS; i++)
-        if (swrScoresPtr[i].obj_test_ptr != NULL)
-            order[n++] = i;
-    std::sort(order, order + n, [](int a, int b) {
-        const swrScore *sa = &swrScoresPtr[a];
-        const swrScore *sb = &swrScoresPtr[b];
-        const bool fa = (sa->flag & 2) != 0, fb = (sb->flag & 2) != 0;
-        if (fa != fb)
-            return fa;
-        if (fa)
-            return sa->results_P1_total_time < sb->results_P1_total_time;
-        return swrObjJdge_GetRacerProgress((swrScore *) sa) >
-               swrObjJdge_GetRacerProgress((swrScore *) sb);
-    });
-
-    const float lead_prog = leader_progress(jdge);
-    const bool leader_finished = n > 0 && (swrScoresPtr[order[0]].flag & 2) != 0;
-    const float leader_time =
-        leader_finished ? swrScoresPtr[order[0]].results_P1_total_time : jdge->raceTimer_ms;
-
-    ImGui::SetNextWindowPos(ImVec2(10.0f, 60.0f), ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.6f);
-    if (ImGui::Begin("##race_tv_board", NULL, OVERLAY_FLAGS)) {
-        ImGui::SetWindowFontScale(g_overlay_scale);
-        ImGui::Text("%s %d  |  %s", g_cooldown_active ? "RESULTS" : "RACE", g_races_started,
-                    track_name(hang->track_index));
-        ImGui::Separator();
-        char gaps[MAX_RACERS][48];
-        float gap_w = 0.0f;
-        for (int k = 0; k < n; k++) {
-            swrScore *score = &swrScoresPtr[order[k]];
-            char *gap = gaps[k];
-            const size_t gap_n = sizeof(gaps[k]);
-            const bool fin = (score->flag & 2) != 0;
-            if (k == 0) {
-                // leader: absolute time (final for a finisher, race clock while racing)
-                format_time(leader_time, gap, gap_n);
-            } else if (fin) {
-                format_gap(score->results_P1_total_time - leader_time, gap, gap_n);
-            } else {
-                const float laps_behind = lead_prog - swrObjJdge_GetRacerProgress(score);
-                if (laps_behind >= 1.0f)
-                    snprintf(gap, gap_n, "+%d lap%s", (int) laps_behind,
-                             (int) laps_behind == 1 ? "" : "s");
-                else if (g_leader_pace > 0.0f)
-                    format_gap(laps_behind / g_leader_pace, gap, gap_n);
-                else
-                    snprintf(gap, gap_n, "+%.1f%%", laps_behind * 100.0f);
-            }
-            gap_w = std::max(gap_w, ImGui::CalcTextSize(gap).x);
-        }
-        if (ImGui::BeginTable("board", 4, ImGuiTableFlags_SizingFixedFit)) {
-            ImGui::TableSetupColumn("pos");
-            ImGui::TableSetupColumn("name");
-            ImGui::TableSetupColumn("gap", ImGuiTableColumnFlags_WidthFixed, gap_w);
-            ImGui::TableSetupColumn("tag");
-            for (int k = 0; k < n; k++) {
-                swrScore *score = &swrScoresPtr[order[k]];
-                char name[64];
-                pilot_name(score, name, sizeof(name));
-                const bool fin = (score->flag & 2) != 0;
-                const char *gap = gaps[k];
-                const char *tag = "";
-                if (fin && g_dnf_marked[order[k]])
-                    tag = "DNF";
-                else if (fin && g_cooldown_active)
-                    tag = "FIN";
-                else if (!fin && g_cooldown_active)
-                    tag = "racing";
-                else if (g_snaps[order[k]] > 0)
-                    tag = "snapped";
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::Text("%2d", k + 1);
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(name);
-                ImGui::TableNextColumn();
-                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + gap_w - ImGui::CalcTextSize(gap).x);
-                ImGui::TextUnformatted(gap);
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(tag);
-            }
-            ImGui::EndTable();
-        }
-        if (g_cooldown_active) {
-            ImGui::Separator();
-            const int track = g_next_track >= 0 ? g_next_track : (int) hang->track_index;
-            const DWORD now = GetTickCount();
-            const float left =
-                now >= g_cooldown_end_ms ? 0.0f : (g_cooldown_end_ms - now) / 1000.0f;
-            ImGui::Text("NEXT: %s  (%d racers, %d lap%s)  in %d:%02d", track_name(track), g_racers,
-                        g_laps, g_laps == 1 ? "" : "s", (int) left / 60, (int) left % 60);
-        }
-    }
-    ImGui::End();
-}
-
-void orchestrator_DrawOverlay() {
-    if (!g_armed)
-        return;
-    swrObjHang *hang = get_hang();
-    swrObjJdge *jdge = get_jdge();
-    if (hang == NULL || jdge == NULL || jdge_asleep(jdge) || swrScoresPtr == NULL)
-        return;
-    draw_board(hang, jdge);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -777,7 +635,6 @@ static void load_config() {
     g_repair_stop = ini_get_float(ini, L"repair_stop", g_repair_stop);
     g_ai_lighting = GetPrivateProfileIntW(INI_SECTION, L"ai_lighting", g_ai_lighting, ini) != 0;
     g_snapshot_s = ini_get_float(ini, L"snapshot_s", g_snapshot_s);
-    g_overlay_scale = ini_get_float(ini, L"overlay_scale", g_overlay_scale);
 }
 
 static void save_config() {
@@ -797,7 +654,6 @@ static void save_config() {
     ini_set_float(ini, L"repair_stop", g_repair_stop);
     ini_set_int(ini, L"ai_lighting", g_ai_lighting);
     ini_set_float(ini, L"snapshot_s", g_snapshot_s);
-    ini_set_float(ini, L"overlay_scale", g_overlay_scale);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -817,7 +673,6 @@ static void panel_orchestrator() {
     changed |= ImGui::SliderFloat("Results / betting window after the winner (s)", &g_cooldown_s,
                                   5.0f, 900.0f, "%.0f");
     changed |= ImGui::Checkbox("Random track (no repeat in last 10)", &g_rotate_tracks);
-    changed |= ImGui::SliderFloat("Overlay scale", &g_overlay_scale, 1.0f, 3.0f, "%.1f");
     changed |= ImGui::Checkbox("Full physics for all AI (no on-rails LOD)", &g_full_physics);
     changed |= ImGui::Checkbox("AI engine damage: fires burn, engines explode", &g_ai_damage);
     changed |= ImGui::Checkbox("AI may repair", &g_ai_repair);
