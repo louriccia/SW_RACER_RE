@@ -326,8 +326,9 @@ static void __cdecl swrRace_DeathSpeed_delta(swrRace *player, float a, float b) 
 typedef void(__cdecl *swrRace_Explode_t)(swrRace *player, int mode);
 
 static void __cdecl swrRace_Explode_delta(swrRace *player, int mode) {
-    const bool lend = player != NULL && (player->flags0 & swrObjTest_FLAG0_AI) != 0 &&
-                      (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 &&
+    // Not keyed on the AI bit: swrRace_DeathSpeed_delta hides it for its call, and in an all-AI
+    // race every non-local pod is an AI anyway.
+    const bool lend = player != NULL && (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 &&
                       (player->flags1 & swrObjTest_FLAG1_FORCE_GROUND) == 0 &&
                       applies(race_telemetry_Get());
     const bool was_exploding = player != NULL && (player->flags1 & swrObjTest_FLAG1_EXPLODING) != 0;
@@ -347,6 +348,23 @@ static void __cdecl swrRace_Explode_delta(swrRace *player, int mode) {
     }
 }
 
+// Wall impacts never reached swrRace_DeathSpeed for AI: swrObjTest_UpdatePhysicsContact calls it
+// only for non-AI (or FORCE_GROUND) pods. Hide the AI bit for that call; nothing else in the
+// routine reads it.
+typedef void(__cdecl *swrObjTest_UpdatePhysicsContact_t)(swrRace *player);
+
+static void __cdecl swrObjTest_UpdatePhysicsContact_delta(swrRace *player) {
+    const bool lend =
+        g_impact_death && player != NULL && (player->flags0 & swrObjTest_FLAG0_AI) != 0 &&
+        (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 && applies(race_telemetry_Get());
+    if (lend)
+        player->flags0 = (swrObjTest_FLAG0) (player->flags0 & ~swrObjTest_FLAG0_AI);
+    hook_call_original((swrObjTest_UpdatePhysicsContact_t) swrObjTest_UpdatePhysicsContact_ADDR,
+                       player);
+    if (lend)
+        player->flags0 = (swrObjTest_FLAG0) (player->flags0 | swrObjTest_FLAG0_AI);
+}
+
 void ai_variance_RegisterHooks() {
     hook_function("swrRace_UpdateCatchup", (uint32_t) swrRace_UpdateCatchup_ADDR,
                   (uint8_t *) swrRace_UpdateCatchup_delta);
@@ -356,6 +374,9 @@ void ai_variance_RegisterHooks() {
                   (uint8_t *) swrRace_DeathSpeed_delta);
     hook_function("swrRace_Explode", (uint32_t) swrRace_Explode_ADDR,
                   (uint8_t *) swrRace_Explode_delta);
+    hook_function("swrObjTest_UpdatePhysicsContact",
+                  (uint32_t) swrObjTest_UpdatePhysicsContact_ADDR,
+                  (uint8_t *) swrObjTest_UpdatePhysicsContact_delta);
 }
 
 // ---------------------------------------------------------------------------------------------
