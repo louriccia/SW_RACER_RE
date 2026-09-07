@@ -277,7 +277,7 @@ static void draw_pod_status(const RaceTelemetry *t) {
     for (int k = 0; k < t->n; k++)
         if (t->rows[k].slot == g_highlight_slot)
             r = &t->rows[k];
-    if (r == NULL)
+    if (r == NULL || r->finished)
         return;
     const ImGuiIO &io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - g_margin_x, io.DisplaySize.y - g_margin_y),
@@ -348,6 +348,23 @@ void __cdecl swrObjJdge_F3_delta(swrObjJdge *jdge) {
     }
     swrRace_InRaceTimer(score, jdge);
     swrRace_InRaceEngineUI(score, 0);
+
+    // Diagnostic (temporary): the speed-dial fill is not showing for followed AI. Log the ratio the
+    // dial drawer wrote and the fill sprite's state every 2 s.
+    static DWORD last_ms = 0;
+    const DWORD now = GetTickCount();
+    if (now - last_ms > 2000) {
+        last_ms = now;
+        const swrSprite *fill = &swrSprite_array[0xf];
+        const void *tex = *(void *const *) ((const char *) fill + 0x1c);
+        fprintf(hook_log,
+                "[overlay] dial: ratio %.3f  fill(0xf) flags %08x pos %d,%d size %.2fx%.2f tex %p  "
+                "gradient %p  pod speed %.1f max %.1f\n",
+                speedDialPosition1, fill->flags, fill->x, fill->y, fill->width, fill->height, tex,
+                (void *) swrSpriteTexture_dial_gradient_rgb, score->obj_test_ptr->speedValue,
+                score->obj_test_ptr->podStats.maxSpeed);
+        fflush(hook_log);
+    }
 }
 
 void overlay_RegisterHooks() {

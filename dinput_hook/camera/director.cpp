@@ -34,8 +34,9 @@ static int g_w_leader = 3, g_w_battle = 3, g_w_random = 1;// target pick weights
 static float g_battle_gap_s = 1.5f;                       // two racers this close are a "battle"
 // Shot mix (weights) + parameters. The stock spectator-mode cycling is disabled while active.
 static int g_w_chase = 2, g_w_drone = 6, g_w_orbit = 2, g_w_cockpit = 1;
-static float g_drone_height = 220.0f;// world units above the pod
-static float g_drone_back = 160.0f;  // behind the pod along its horizontal heading
+static float g_drone_height = 150.0f;// world units above the pod
+static const int CFG_VERSION = 2;    // bump when a default should override a stored value
+static float g_drone_back = 130.0f;  // behind the pod along its horizontal heading
 static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
 static float g_drone_smooth = 0.5f;  // position time constant (s)
 static float g_orbit_gap_s = 3.0f;   // rival within this many seconds -> orbit shot possible
@@ -489,8 +490,11 @@ static void load_config() {
     g_w_drone = ini_get_int(ini, L"shot_drone", g_w_drone);
     g_w_orbit = ini_get_int(ini, L"shot_orbit", g_w_orbit);
     g_w_cockpit = ini_get_int(ini, L"shot_cockpit", g_w_cockpit);
-    g_drone_height = ini_get_float(ini, L"drone_height", g_drone_height);
-    g_drone_back = ini_get_float(ini, L"drone_back", g_drone_back);
+    const int stored_version = ini_get_int(ini, L"cfg_version", 1);
+    if (stored_version >= CFG_VERSION) {// v2: lower / closer drone defaults replace the old ones
+        g_drone_height = ini_get_float(ini, L"drone_height", g_drone_height);
+        g_drone_back = ini_get_float(ini, L"drone_back", g_drone_back);
+    }
     g_drone_ahead = ini_get_float(ini, L"drone_ahead", g_drone_ahead);
     g_drone_smooth = ini_get_float(ini, L"drone_smooth", g_drone_smooth);
     g_orbit_gap_s = ini_get_float(ini, L"orbit_gap_s", g_orbit_gap_s);
@@ -502,6 +506,7 @@ static void load_config() {
 
 static void save_config() {
     const wchar_t *ini = settings_ini_path();
+    ini_set_int(ini, L"cfg_version", CFG_VERSION);
     ini_set_int(ini, L"auto", g_auto);
     ini_set_float(ini, L"dwell_s", g_dwell_s);
     ini_set_float(ini, L"manual_hold_s", g_manual_hold_s);
@@ -598,5 +603,6 @@ static DebugPanel g_panel = {.category = "Camera",
 
 void director_RegisterPanel() {
     load_config();
+    save_config();// stamps cfg_version so the one-time default override does not repeat
     debug_ui_register(&g_panel);
 }

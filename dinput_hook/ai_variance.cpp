@@ -41,10 +41,10 @@ static float g_clamp_lo = 0.5f, g_clamp_hi = 1.6f;// same envelope as the stock 
 // Per-race state (indexed by swrScoresPtr slot)
 
 static const int MAX_SLOTS = 20;
+static float g_form_u[MAX_SLOTS];// per-race unit draw in [-1, 1]; form = 1 + u * amplitude (live)
 static float g_form[MAX_SLOTS];
 static float g_swing[MAX_SLOTS];
 static DWORD g_blunder_until_ms[MAX_SLOTS];
-static DWORD g_blunder_next_ms[MAX_SLOTS];
 static float g_last_mult[MAX_SLOTS];
 static int g_seeded_track = -2;
 static int g_seeded_state0_seen = 0;
@@ -59,20 +59,13 @@ static float gauss() {// Box-Muller
     return sqrtf(-2.0f * logf(u1)) * cosf(6.2831853f * u2);
 }
 
-static DWORD schedule_blunder(DWORD now) {
-    if (g_blunder_per_min <= 0.0f)
-        return 0;
-    const float mean_s = 60.0f / g_blunder_per_min;
-    const float wait = -logf(std::max(1e-6f, frand())) * mean_s;// exponential inter-arrival
-    return now + (DWORD) (wait * 1000.0f);
-}
-
 static void reseed(DWORD now) {
+    (void) now;
     for (int i = 0; i < MAX_SLOTS; i++) {
-        g_form[i] = 1.0f + (frand() * 2.0f - 1.0f) * g_form_amp;
+        g_form_u[i] = frand() * 2.0f - 1.0f;
+        g_form[i] = 1.0f + g_form_u[i] * g_form_amp;
         g_swing[i] = 0.0f;
         g_blunder_until_ms[i] = 0;
-        g_blunder_next_ms[i] = schedule_blunder(now);
         g_last_mult[i] = 1.0f;
     }
     fprintf(hook_log, "[ai_variance] reseeded form:");
@@ -127,6 +120,7 @@ static void __cdecl swrRace_UpdateCatchup_delta(swrRace *player) {
         return;
 
     const float dt = (float) swrRace_deltaTimeSecs;
+    g_form[slot] = 1.0f + g_form_u[slot] * g_form_amp;// amplitude changes apply at once
 
     // slow swing: dx = -x/tau dt + sigma*sqrt(2 dt/tau) dW
     if (g_swing_tau_s > 0.0f && dt > 0.0f) {
@@ -154,16 +148,14 @@ static void __cdecl swrRace_UpdateCatchup_delta(swrRace *player) {
         pack = std::clamp(1.0f + g_pack_gain * err, 1.0f - g_pack_clamp, 1.0f + g_pack_clamp);
     }
 
-    // blunders
+    // blunders: per-frame Bernoulli at the configured rate (so the rate applies live)
     float blunder = 1.0f;
     if (g_blunder_until_ms[slot] != 0 && now < g_blunder_until_ms[slot]) {
         blunder = g_blunder_depth;
     } else {
-        if (g_blunder_until_ms[slot] != 0) {
-            g_blunder_until_ms[slot] = 0;
-            g_blunder_next_ms[slot] = schedule_blunder(now);
-        }
-        if (g_blunder_next_ms[slot] != 0 && now >= g_blunder_next_ms[slot]) {
+        g_blunder_until_ms[slot] = 0;
+        const float p = g_blunder_per_min / 60.0f * dt;
+        if (p > 0.0f && frand() < p) {
             const float dur =
                 g_blunder_min_s + frand() * std::max(0.0f, g_blunder_max_s - g_blunder_min_s);
             g_blunder_until_ms[slot] = now + (DWORD) (dur * 1000.0f);
