@@ -144,8 +144,33 @@ void swrPlayerHUD_RenderDistanceText_delta(void *viewport, bool secondaryPass) {
     g_mpNameRedirect = false;
 }
 
+// The 0.5 the "~F" code scales glyphs (and positions) by (swrText_halfScale -> this float in
+// rdProcEntry_Add2DQuad2). The broadcast nameplates want a smaller factor, but the text batch also
+// carries the HUD's own "~F" strings, so our labels are held back and rendered in a second batch of
+// their own with the factor swapped (swrText_RenderEntries1 resets the entry count after a pass).
+static float *const g_half_scale_factor = (float *) 0x004ac64c;
+static const float HALF_SCALE_STOCK = 0.5f;
+
+static void set_half_scale_factor(float v) {
+    DWORD old;
+    if (VirtualProtect(g_half_scale_factor, sizeof(float), PAGE_READWRITE, &old)) {
+        *g_half_scale_factor = v;
+        VirtualProtect(g_half_scale_factor, sizeof(float), old, &old);
+    }
+}
+
+struct DeferredLabel {
+    int x, y;
+    char r, g, b, a;
+    char text[40];
+};
+static DeferredLabel g_deferred[HUD_NAME_MAX_RACERS * 2];// both splitscreen passes
+static int g_deferred_count = 0;
+static float g_deferred_scale = HALF_SCALE_STOCK;
+
 void swrText_CreateTextEntry2_delta(int16_t screen_x, int16_t screen_y, char r, char g, char b,
                                     char a, char *screenText) {
+    bool deferred = false;
     if (g_mpNameRedirect) {
         // The renderer stored this racer's screen position into the sprite-position arrays for the
         // current pass right before calling us, so match it back to the slot (and thus the name).
@@ -162,10 +187,13 @@ void swrText_CreateTextEntry2_delta(int16_t screen_x, int16_t screen_y, char r, 
             // 0x004ac64c, swapped for the overlay's nameplate scale during swrText_RenderEntries1),
             // which scales the position too: pre-divide so the label lands on the pod, then nudge
             // it up by the configured screen px. "~c" in the string handles centring.
-            float scale = 0.5f;// the stock factor: multiplayer names keep the vanilla size
+            float scale = HALF_SCALE_STOCK;// multiplayer names keep the vanilla size
             int offset_y = 0;
-            if (overlay_NameplatesActive())// broadcast labels: the factor is swapped at render
+            if (overlay_NameplatesActive()) {// broadcast labels: own batch, own factor
                 overlay_NameplateStyle(&scale, &offset_y);
+                deferred = scale != HALF_SCALE_STOCK;
+                g_deferred_scale = scale;
+            }
             screen_x = (int16_t) lroundf((float) screen_x / scale + HUD_NAME_OFFSET_X);
             screen_y = (int16_t) lroundf(((float) screen_y + (float) offset_y) / scale);
             screenText = g_slotName[slot];
@@ -180,34 +208,36 @@ void swrText_CreateTextEntry2_delta(int16_t screen_x, int16_t screen_y, char r, 
     // already-design-space entry) via the trampoline; calling it by name would re-enter the Entry1
     // centering hook and shift this world-locked text.
     UiVec2 design = ui_project_px_to_design(UiVec2{(float) screen_x, (float) screen_y});
+    if (deferred) {
+        if (g_deferred_count < (int) (sizeof(g_deferred) / sizeof(g_deferred[0]))) {
+            DeferredLabel &d = g_deferred[g_deferred_count++];
+            d.x = (int) lroundf(design.x);
+            d.y = (int) lroundf(design.y);
+            d.r = r;
+            d.g = g;
+            d.b = b;
+            d.a = a;
+            snprintf(d.text, sizeof(d.text), "%s", screenText);
+        }
+        return;
+    }
     hook_call_original(swrText_CreateTextEntry1, (int) lroundf(design.x), (int) lroundf(design.y),
                        r, g, b, a, screenText);
 }
 
-// The 0.5 the "~F" code scales glyphs (and positions) by. Swapped for the nameplate scale around
-// the batch that renders our labels; anything else drawn with "~F" in that batch shrinks with them.
-static float *const g_half_scale_factor = (float *) 0x004ac64c;
-static const float HALF_SCALE_STOCK = 0.5f;
-
-static void set_half_scale_factor(float v) {
-    DWORD old;
-    if (VirtualProtect(g_half_scale_factor, sizeof(float), PAGE_READWRITE, &old)) {
-        *g_half_scale_factor = v;
-        VirtualProtect(g_half_scale_factor, sizeof(float), old, &old);
-    }
-}
-
 void swrText_RenderEntries1_delta(void) {
-    float scale = HALF_SCALE_STOCK;
-    int offset_y;
-    if (imgui_state.show_pod_names && overlay_NameplatesActive())
-        overlay_NameplateStyle(&scale, &offset_y);
-    const bool swap = scale != HALF_SCALE_STOCK;
-    if (swap)
-        set_half_scale_factor(scale);
     hook_call_original((swrText_RenderEntries1_t *) swrText_RenderEntries1_ADDR);
-    if (swap)
+    if (g_deferred_count > 0) {
+        // second batch: only the broadcast nameplates, at their own scale
+        set_half_scale_factor(g_deferred_scale);
+        for (int i = 0; i < g_deferred_count; i++) {
+            DeferredLabel &d = g_deferred[i];
+            hook_call_original(swrText_CreateTextEntry1, d.x, d.y, d.r, d.g, d.b, d.a, d.text);
+        }
+        hook_call_original((swrText_RenderEntries1_t *) swrText_RenderEntries1_ADDR);
         set_half_scale_factor(HALF_SCALE_STOCK);
+        g_deferred_count = 0;
+    }
     // Our half-size labels use the "~F" code, which leaves swrText_halfScale set after the last one
     // renders (swrText_RenderString only resets it per string). Clear it so the minimap text drawn
     // after this batch -- which doesn't go through RenderString -- isn't shrunk too.
