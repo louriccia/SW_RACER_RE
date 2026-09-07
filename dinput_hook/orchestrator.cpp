@@ -49,11 +49,12 @@ static bool g_full_physics = true;// keep every AI pod off the on-rails LOD path
 static bool g_ai_damage = true;   // AI take fire damage and can explode like a human
 static bool g_ai_repair =
     false;// let AI repair (off: fires burn until the engine blows -- more drama)
-static float g_repair_start = 0.5f;
+static float g_repair_start = 0.7f; // worst engine damage (0..1) before an AI even thinks about repairing
 static float g_repair_stop = 0.2f;
+static float g_repair_delay_s = 4.0f;// ... and then it waits this long (+/-50%) before starting
 static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
 static int g_hero_count = 5;// grid hold: cut to this many random racers with announcer lines (0 = off)
-static const int CFG_VERSION = 2;// bump when a default should override a stored value
+static const int CFG_VERSION = 3;// bump when a default should override a stored value
 static bool g_shuffle_grid = true; // random starting grid (stock: roster order, favourite up front)
 static bool g_no_blue_flash = true;// keep the respawn light override off the shared AI light bank
 static float g_snapshot_s = 20.0f; // periodic field snapshot to hook.log (0 = off)
@@ -109,6 +110,7 @@ static float g_last_progress[MAX_RACERS];
 static DWORD g_last_progress_ms[MAX_RACERS];
 static int g_snaps[MAX_RACERS];
 static bool g_dnf_marked[MAX_RACERS];
+static DWORD g_repair_due_ms[MAX_RACERS];// per slot: repair may start at (0 = not pending)
 static int g_snaps_total = 0;
 static int g_dnf_total = 0;
 static int g_ai_explosions = 0;
@@ -231,6 +233,7 @@ static void reset_race_watch() {
         g_last_progress_ms[i] = 0;
         g_snaps[i] = 0;
         g_dnf_marked[i] = false;
+        g_repair_due_ms[i] = 0;
     }
     g_first_finish_ms = 0;
     g_fini_fired = false;
@@ -382,13 +385,35 @@ static void supervise_ai_damage(swrRace *pod) {
         }
         worst = std::max(worst, pod->engineHealth[i]);
     }
+    // Repair is neglected: nothing happens until the worst engine passes g_repair_start (a fire on
+    // its own is not enough), and even then the pod carries on for a randomised delay before it
+    // starts. Once started it repairs down to g_repair_stop unless it boosts.
     bool repairing = false;
     if (g_ai_repair) {
+        const int slot = pod->score_ptr != NULL && swrScoresPtr != NULL
+                             ? (int) (pod->score_ptr - swrScoresPtr)
+                             : -1;
+        const DWORD now = GetTickCount();
+        const bool boosting = (pod->flags0 & swrObjTest_FLAG0_BOOSTING) != 0;
         repairing = (pod->flags0 & swrObjTest_FLAG0_REPAIRING) != 0;
-        if (fire || (worst > g_repair_start && (pod->flags0 & swrObjTest_FLAG0_BOOSTING) == 0))
-            repairing = true;
-        else if (worst < g_repair_stop || (pod->flags0 & swrObjTest_FLAG0_BOOSTING) != 0)
-            repairing = false;
+        if (slot >= 0 && slot < MAX_RACERS) {
+            if (!repairing) {
+                if (worst > g_repair_start) {
+                    if (g_repair_due_ms[slot] == 0) {
+                        const float jitter = 0.5f + (float) rand() / (float) RAND_MAX;// 0.5..1.5
+                        g_repair_due_ms[slot] = now + (DWORD) (g_repair_delay_s * jitter * 1000.0f);
+                    }
+                    if (now >= g_repair_due_ms[slot] && !boosting)
+                        repairing = true;
+                } else {
+                    g_repair_due_ms[slot] = 0;
+                }
+            }
+            if (repairing && (worst < g_repair_stop || boosting)) {
+                repairing = false;
+                g_repair_due_ms[slot] = 0;
+            }
+        }
     }
     if (repairing)
         pod->flags0 = (swrObjTest_FLAG0) (pod->flags0 | swrObjTest_FLAG0_REPAIRING);
@@ -810,11 +835,14 @@ static void load_config() {
     g_full_physics = config::get_int(INI_SECTION, "full_physics", g_full_physics) != 0;
     g_ai_damage = config::get_int(INI_SECTION, "ai_damage", g_ai_damage) != 0;
     g_ai_repair = config::get_int(INI_SECTION, "ai_repair", g_ai_repair) != 0;
-    g_repair_start = config::get_float(INI_SECTION, "repair_start", g_repair_start);
     g_repair_stop = config::get_float(INI_SECTION, "repair_stop", g_repair_stop);
     g_ai_lighting = config::get_int(INI_SECTION, "ai_lighting", g_ai_lighting) != 0;
-    if (config::get_int(INI_SECTION, "cfg_version", 1) >= CFG_VERSION)// v2: 5 heroes
+    const int stored_version = config::get_int(INI_SECTION, "cfg_version", 1);
+    if (stored_version >= 2)// v2: 5 heroes
         g_hero_count = config::get_int(INI_SECTION, "hero_count", g_hero_count);
+    if (stored_version >= CFG_VERSION)// v3: neglected repairs (threshold 0.7 + delay)
+        g_repair_start = config::get_float(INI_SECTION, "repair_start", g_repair_start);
+    g_repair_delay_s = config::get_float(INI_SECTION, "repair_delay_s", g_repair_delay_s);
     g_shuffle_grid = config::get_int(INI_SECTION, "shuffle_grid", g_shuffle_grid) != 0;
     g_no_blue_flash =
         config::get_int(INI_SECTION, "no_blue_flash", g_no_blue_flash) != 0;
@@ -837,6 +865,7 @@ static void save_config() {
     config::set_int(INI_SECTION, "ai_repair", g_ai_repair);
     config::set_float(INI_SECTION, "repair_start", g_repair_start);
     config::set_float(INI_SECTION, "repair_stop", g_repair_stop);
+    config::set_float(INI_SECTION, "repair_delay_s", g_repair_delay_s);
     config::set_int(INI_SECTION, "ai_lighting", g_ai_lighting);
     config::set_int(INI_SECTION, "hero_count", g_hero_count);
     config::set_int(INI_SECTION, "cfg_version", CFG_VERSION);
@@ -877,6 +906,7 @@ static void panel_orchestrator() {
         ImGui::SameLine();
         ImGui::SetNextItemWidth(90.0f);
         changed |= ImGui::SliderFloat("stop##rep", &g_repair_stop, 0.0f, 0.5f, "%.2f");
+        changed |= ImGui::SliderFloat("Repair delay once over the threshold (s, +/-50%)", &g_repair_delay_s, 0.0f, 20.0f, "%.1f");
     }
     changed |= ImGui::Checkbox("Light AI pods from the followed pod's light bank", &g_ai_lighting);
     changed |= ImGui::SliderInt("Grid showcase: racers introduced by the announcer", &g_hero_count, 0, 10);
