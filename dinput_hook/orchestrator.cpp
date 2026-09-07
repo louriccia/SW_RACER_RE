@@ -47,9 +47,10 @@ static bool g_ai_repair =
     false;// let AI repair (off: fires burn until the engine blows -- more drama)
 static float g_repair_start = 0.5f;
 static float g_repair_stop = 0.2f;
-static bool g_ai_lighting = true; // light AI pods from the followed pod's light bank
-static bool g_shuffle_grid = true;// random starting grid (stock: roster order, favourite up front)
-static float g_snapshot_s = 20.0f;// periodic field snapshot to hook.log (0 = off)
+static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
+static bool g_shuffle_grid = true; // random starting grid (stock: roster order, favourite up front)
+static bool g_no_blue_flash = true;// keep the respawn light override off the shared AI light bank
+static float g_snapshot_s = 20.0f; // periodic field snapshot to hook.log (0 = off)
 
 // ---------------------------------------------------------------------------------------------
 // Run state
@@ -380,10 +381,40 @@ static void __cdecl swrObjJdge_SpawnRacers_delta(swrObjJdge *judge, swrScore *sc
     hook_call_original((swrObjJdge_SpawnRacers_t) swrObjJdge_SpawnRacers_ADDR, judge, scores);
 }
 
+// Respawn flash. swrObjTest_F3 ends by painting the pod's own light bank blue while flags0 & 0x6000
+// (respawn invincibility / spinout). Every AI borrows the followed pod's bank (apply_ai_lighting), so
+// the followed pod's flash lit the whole field. Cache that bank while it is normal and put it back
+// right after F3 has written the flash. The renderer reads bank + 1 (slot 0 is the default light).
+static rdVector4 g_bank_color, g_bank_ambient;
+static int g_bank_cached = -1;
+
+typedef void(__cdecl *swrObjTest_F3_t)(swrRace *pod);
+
+static void __cdecl swrObjTest_F3_delta(swrRace *pod) {
+    hook_call_original((swrObjTest_F3_t) swrObjTest_F3_ADDR, pod);
+    if (!g_armed || !g_no_blue_flash || pod == NULL || firstLocalPlayer != NULL)
+        return;
+    const int followed = director_FollowedSlot();
+    if (followed < 0 || swrScoresPtr == NULL || swrScoresPtr[followed].obj_test_ptr != pod)
+        return;
+    const int slot = pod->current_light_index + 1;
+    if (slot < 1 || slot > 12)
+        return;
+    if ((pod->flags0 & (swrObjTest_FLAG0_RESPAWN_INVINC | swrObjTest_FLAG0_DEAD)) == 0) {
+        g_bank_color = lightColor1[slot];
+        g_bank_ambient = lightAmbientColor[slot];
+        g_bank_cached = slot;
+    } else if (g_bank_cached == slot) {
+        lightColor1[slot] = g_bank_color;
+        lightAmbientColor[slot] = g_bank_ambient;
+    }
+}
+
 void orchestrator_RegisterHooks() {
     hook_function("swrObjJdge_SpawnRacers", (uint32_t) swrObjJdge_SpawnRacers_ADDR,
                   (uint8_t *) swrObjJdge_SpawnRacers_delta);
     hook_function("swrObjHang_F4", (uint32_t) swrObjHang_F4_ADDR, (uint8_t *) swrObjHang_F4_delta);
+    hook_function("swrObjTest_F3", (uint32_t) swrObjTest_F3_ADDR, (uint8_t *) swrObjTest_F3_delta);
     hook_function("swrRace_CalcTargetTurnRate", (uint32_t) swrRace_CalcTargetTurnRate_ADDR,
                   (uint8_t *) swrRace_CalcTargetTurnRate_delta);
     srand((unsigned) time(NULL));
@@ -722,6 +753,8 @@ static void load_config() {
     g_repair_stop = ini_get_float(ini, L"repair_stop", g_repair_stop);
     g_ai_lighting = GetPrivateProfileIntW(INI_SECTION, L"ai_lighting", g_ai_lighting, ini) != 0;
     g_shuffle_grid = GetPrivateProfileIntW(INI_SECTION, L"shuffle_grid", g_shuffle_grid, ini) != 0;
+    g_no_blue_flash =
+        GetPrivateProfileIntW(INI_SECTION, L"no_blue_flash", g_no_blue_flash, ini) != 0;
     g_snapshot_s = ini_get_float(ini, L"snapshot_s", g_snapshot_s);
 }
 
@@ -744,6 +777,7 @@ static void save_config() {
     ini_set_float(ini, L"repair_stop", g_repair_stop);
     ini_set_int(ini, L"ai_lighting", g_ai_lighting);
     ini_set_int(ini, L"shuffle_grid", g_shuffle_grid);
+    ini_set_int(ini, L"no_blue_flash", g_no_blue_flash);
     ini_set_float(ini, L"snapshot_s", g_snapshot_s);
 }
 
@@ -781,6 +815,7 @@ static void panel_orchestrator() {
     }
     changed |= ImGui::Checkbox("Light AI pods from the followed pod's light bank", &g_ai_lighting);
     changed |= ImGui::Checkbox("Random starting grid", &g_shuffle_grid);
+    changed |= ImGui::Checkbox("No respawn blue flash on the shared AI lighting", &g_no_blue_flash);
     ImGui::SetNextItemWidth(120.0f);
     changed |= ImGui::SliderFloat("Field snapshot to log (s)", &g_snapshot_s, 0.0f, 60.0f, "%.0f");
     changed |= ImGui::Checkbox("Snap stuck pods", &g_unstick);

@@ -180,7 +180,10 @@ static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const c
                 g_boosts_total++;
                 if (g_boost_sound)
                     swrSound_PlaySpatialRange(
-                        BOOST_SFX_ID, 7, frand() * 0.1f - 0.18f /* swrRace_BoostCharge's pitch */,
+                        BOOST_SFX_ID, 7,
+                        frand() * 0.4f -
+                            0.3f /* wider than swrRace_BoostCharge's rand*0.1-0.18 so the variance is audible */
+                        ,
                         1.0f, (rdVector3 *) &pod->transform.vD, 0, 1, 10.0f, 500.0f);
                 fprintf(hook_log, "[ai_variance] slot %d (%s) boost%s\n", slot, name,
                         g_boost_hold_to_fire[slot] ? " (holding to overheat)" : "");
