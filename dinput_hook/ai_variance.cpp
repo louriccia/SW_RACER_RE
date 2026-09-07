@@ -188,9 +188,9 @@ static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const c
                 if (g_boost_sound)
                     swrSound_PlaySpatialRange(
                         BOOST_SFX_ID, 7,
-                        frand() * 0.4f -
-                            0.3f /* wider than swrRace_BoostCharge's rand*0.1-0.18 so the variance is audible */
-                        ,
+                        // swrRace_BoostCharge@0x46bd20: rand*0.1 - (-0.18) => 0.18..0.28 (the
+                        // constant at 0x4ad8c0 is negative); a little wider so the variance is audible
+                        frand() * 0.26f + 0.10f,
                         1.0f, (rdVector3 *) &pod->transform.vD, 0, 1, 10.0f, 500.0f);
                 fprintf(hook_log, "[ai_variance] slot %d (%s) boost%s\n", slot, name,
                         g_boost_hold_to_fire[slot] ? " (holding to overheat)" : "");
@@ -267,15 +267,38 @@ static bool is_ai(const swrRace *player) {
 typedef float(__cdecl *swrRace_UpdateWallContact_t)(swrRace *player, float *a, float *b,
                                                     rdVector3 *c);
 
-static float __cdecl swrRace_UpdateWallContact_delta(swrRace *player, float *a, float *b,
-                                                     rdVector3 *c) {
-    const bool lend =
-        g_wall_damage && player != NULL && is_ai(player) &&
-        (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 && applies(race_telemetry_Get());
+static bool lend_local_for_scrape(swrRace *player) {
+    const bool lend = g_wall_damage && player != NULL && is_ai(player) &&
+                      (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 && applies(race_telemetry_Get());
     if (lend)
         player->flags0 = (swrObjTest_FLAG0) (player->flags0 | swrObjTest_FLAG0_LOCAL);
+    return lend;
+}
+
+// Zero-g / orbit surfaces (FLAG0_ZON); the ordinary driving path is swrRace_UpdateGroundContact.
+static float __cdecl swrRace_UpdateWallContact_delta(swrRace *player, float *a, float *b,
+                                                     rdVector3 *c) {
+    const bool lend = lend_local_for_scrape(player);
     const float r = hook_call_original((swrRace_UpdateWallContact_t) swrRace_UpdateWallContact_ADDR,
                                        player, a, b, c);
+    if (lend)
+        player->flags0 = (swrObjTest_FLAG0) (player->flags0 & ~swrObjTest_FLAG0_LOCAL);
+    return r;
+}
+
+// Same LOCAL gate around DetectWallScrape + ApplyWallCollision at 0x47a108; non-local pods get the
+// plain block move (and a spline z-clamp) instead.
+typedef float(__cdecl *swrRace_UpdateGroundContact_t)(swrRace *player, float *velocity,
+                                                      int scrapeData, rdVector3 *up,
+                                                      int hoverPadState);
+
+static float __cdecl swrRace_UpdateGroundContact_delta(swrRace *player, float *velocity,
+                                                       int scrapeData, rdVector3 *up,
+                                                       int hoverPadState) {
+    const bool lend = lend_local_for_scrape(player);
+    const float r =
+        hook_call_original((swrRace_UpdateGroundContact_t) swrRace_UpdateGroundContact_ADDR, player,
+                           velocity, scrapeData, up, hoverPadState);
     if (lend)
         player->flags0 = (swrObjTest_FLAG0) (player->flags0 & ~swrObjTest_FLAG0_LOCAL);
     return r;
@@ -477,6 +500,8 @@ void ai_variance_RegisterHooks() {
                   (uint8_t *) swrRace_UpdateCatchup_delta);
     hook_function("swrRace_UpdateWallContact", (uint32_t) swrRace_UpdateWallContact_ADDR,
                   (uint8_t *) swrRace_UpdateWallContact_delta);
+    hook_function("swrRace_UpdateGroundContact", (uint32_t) swrRace_UpdateGroundContact_ADDR,
+                  (uint8_t *) swrRace_UpdateGroundContact_delta);
     hook_function("swrRace_DeathSpeed", (uint32_t) swrRace_DeathSpeed_ADDR,
                   (uint8_t *) swrRace_DeathSpeed_delta);
     hook_function("swrRace_Explode", (uint32_t) swrRace_Explode_ADDR,
