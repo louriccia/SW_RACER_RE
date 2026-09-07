@@ -68,6 +68,7 @@ static DWORD g_boost_until_ms[MAX_SLOTS];
 static DWORD g_boost_cooldown_ms[MAX_SLOTS];
 static bool g_boost_hold_to_fire[MAX_SLOTS];
 static int g_boosts_total = 0;
+static int g_explosions_total = 0;
 static int g_seeded_track = -2;
 static int g_seeded_state0_seen = 0;
 static int g_blunders_total = 0;
@@ -315,6 +316,34 @@ static void __cdecl swrRace_DeathSpeed_delta(swrRace *player, float a, float b) 
         player->flags0 = (swrObjTest_FLAG0) (player->flags0 | swrObjTest_FLAG0_AI);
 }
 
+// The explosion itself. swrRace_Explode returns at once unless the pod is LOCAL or FORCE_GROUND
+// (the post-finish player pod handed to the AI), so every death path above -- destroyed engine,
+// death-speed impact -- was a no-op for AI. Lend FORCE_GROUND for the call (the game's own
+// admission for a non-local pod; the LOCAL-only block inside is just a force-feedback stop).
+typedef void(__cdecl *swrRace_Explode_t)(swrRace *player, int mode);
+
+static void __cdecl swrRace_Explode_delta(swrRace *player, int mode) {
+    const bool lend = player != NULL && (player->flags0 & swrObjTest_FLAG0_AI) != 0 &&
+                      (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 &&
+                      (player->flags1 & swrObjTest_FLAG1_FORCE_GROUND) == 0 &&
+                      applies(race_telemetry_Get());
+    const bool was_exploding = player != NULL && (player->flags1 & swrObjTest_FLAG1_EXPLODING) != 0;
+    if (lend)
+        player->flags1 = (swrObjTest_FLAG1) (player->flags1 | swrObjTest_FLAG1_FORCE_GROUND);
+    hook_call_original((swrRace_Explode_t) swrRace_Explode_ADDR, player, mode);
+    if (lend) {
+        player->flags1 = (swrObjTest_FLAG1) (player->flags1 & ~swrObjTest_FLAG1_FORCE_GROUND);
+        if (!was_exploding && (player->flags1 & swrObjTest_FLAG1_EXPLODING) != 0) {
+            g_explosions_total++;
+            const int slot = player->score_ptr != NULL && swrScoresPtr != NULL
+                                 ? (int) (player->score_ptr - swrScoresPtr)
+                                 : -1;
+            fprintf(hook_log, "[ai_variance] slot %d exploded (mode %d)\n", slot, mode);
+            fflush(hook_log);
+        }
+    }
+}
+
 void ai_variance_RegisterHooks() {
     hook_function("swrRace_UpdateCatchup", (uint32_t) swrRace_UpdateCatchup_ADDR,
                   (uint8_t *) swrRace_UpdateCatchup_delta);
@@ -322,6 +351,8 @@ void ai_variance_RegisterHooks() {
                   (uint8_t *) swrRace_UpdateWallContact_delta);
     hook_function("swrRace_DeathSpeed", (uint32_t) swrRace_DeathSpeed_ADDR,
                   (uint8_t *) swrRace_DeathSpeed_delta);
+    hook_function("swrRace_Explode", (uint32_t) swrRace_Explode_ADDR,
+                  (uint8_t *) swrRace_Explode_delta);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -461,7 +492,8 @@ static void panel_ai_variance() {
         save_config();
 
     ImGui::Separator();
-    ImGui::Text("Blunders so far: %d, boosts %d", g_blunders_total, g_boosts_total);
+    ImGui::Text("Blunders so far: %d, boosts %d, explosions %d", g_blunders_total, g_boosts_total,
+                g_explosions_total);
     if (ImGui::Button("Reseed form now"))
         reseed(GetTickCount());
     const RaceTelemetry *t = race_telemetry_Get();
