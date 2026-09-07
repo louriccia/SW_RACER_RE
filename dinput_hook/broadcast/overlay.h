@@ -23,3 +23,8 @@ void overlay_SetFooter(const char *footer);// one line under the table
 // slot is drawn selected (e.g. the pod the camera follows). -1 / NULL clear.
 void overlay_SetRowClickHandler(void (*handler)(int slot));
 void overlay_SetHighlightSlot(int slot);
+
+// Names over pods instead of the stock position numbers (single-player / all-AI; multiplayer
+// already shows player names). User toggle in the Broadcast panel, or forced by a consumer.
+bool overlay_NameplatesActive();
+void overlay_ForceNameplates(bool on);

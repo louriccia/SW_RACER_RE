@@ -33,7 +33,7 @@ static float g_manual_hold_s = 45.0f;// a manual pick holds this long before aut
 static int g_w_leader = 3, g_w_battle = 3, g_w_random = 1;// target pick weights
 static float g_battle_gap_s = 1.5f;                       // two racers this close are a "battle"
 // Shot mix (weights) + parameters. The stock spectator-mode cycling is disabled while active.
-static int g_w_chase = 4, g_w_drone = 3, g_w_orbit = 3, g_w_cockpit = 1;
+static int g_w_chase = 2, g_w_drone = 6, g_w_orbit = 2, g_w_cockpit = 1;
 static float g_drone_height = 220.0f;// world units above the pod
 static float g_drone_back = 160.0f;  // behind the pod along its horizontal heading
 static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
@@ -61,6 +61,9 @@ static DWORD g_shot_start_ms = 0;
 static bool g_cam_seeded = false;
 static rdVector3 g_cam_pos, g_cam_aim;
 static int g_orbit_rival = -1;
+static float g_orbit_ang = 0.0f;// eased, unwrapped camera angle around the pair
+static float g_orbit_radius = 0.0f;
+static bool g_orbit_ang_seeded = false;
 
 static swrObjcMan *camera_man() {
     return (swrObjcMan *) swrEvent_FindObjectById('cMan', 0);
@@ -114,6 +117,7 @@ static void set_shot(Shot s) {
     g_shot = s;
     g_shot_start_ms = GetTickCount();
     g_cam_seeded = false;
+    g_orbit_ang_seeded = false;
     if (s == SHOT_COCKPIT)
         playercam_SetExternalCockpit(true);
 }
@@ -224,9 +228,8 @@ void director_Service() {
     if (t->judge_state == 0)// countdown: leave the assigned camera alone
         return;
     const DWORD now = GetTickCount();
-    swrObjcMan *cman = camera_man();
-
-    // Our shots replace the stock spectator cycle (random chase / first-person / spline-cam modes
+    swrObjcMan *cman =
+        camera_man();// Our shots replace the stock spectator cycle (random chase / first-person / spline-cam modes
     // on a timer): keep its countdown from ever expiring, and hold the chase mode under our shots.
     swrObjcMan_spectatorCycleTimer = 1.0e9f;
     if (cman != NULL && cman->mode_type != 1 && cman->mode_type != 8 && cman->mode_type != 9) {
@@ -240,17 +243,26 @@ void director_Service() {
 
     const RaceTelemetryRow *cur = row_for_slot(t, g_target_slot);
     const bool manual_hold = now < g_manual_until_ms;
-    const bool must_cut = cur == NULL || !followable(*cur);// finished / crashed: cut away now
-    const bool dwell_over = now - g_last_cut_ms >= (DWORD) (g_dwell_s * 1000.0f);
-
-    // Shot upkeep: orbit needs its rival in range; cockpit shots are short.
+    // A followed racer who finishes or crashes is left on screen (the finish / crash is the
+    // shot); they are simply never picked again (followable), so the next cut moves on.
+    const bool must_cut = cur == NULL;
+    const bool dwell_over =
+        now - g_last_cut_ms >=
+        (DWORD) (g_dwell_s *
+                 1000.0f);// Shot upkeep: orbit needs its rival in range; cockpit shots are short.
     if (!must_cut) {
         if (g_shot == SHOT_ORBIT) {
-            const int rival = nearest_rival(t, g_target_slot);
-            if (rival < 0)
-                set_shot(SHOT_CHASE);
-            else
-                g_orbit_rival = rival;
+            const RaceTelemetryRow *rv = row_for_slot(t, g_orbit_rival);
+            const bool keep = rv != NULL && followable(*rv) && cur->gap_leader_s >= 0.0f &&
+                              rv->gap_leader_s >= 0.0f &&
+                              fabsf(rv->gap_leader_s - cur->gap_leader_s) <= g_orbit_gap_s * 1.5f;
+            if (!keep) {
+                const int rival = nearest_rival(t, g_target_slot);
+                if (rival < 0)
+                    set_shot(SHOT_CHASE);
+                else
+                    g_orbit_rival = rival;
+            }
         } else if (g_shot == SHOT_COCKPIT &&
                    now - g_shot_start_ms > (DWORD) (g_cockpit_max_s * 1000.0f)) {
             set_shot(SHOT_CHASE);
@@ -351,11 +363,28 @@ static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *riva
     }
     const float t = (GetTickCount() - g_shot_start_ms) / 1000.0f;
     const float phase = g_orbit_sweep * sinf(t * g_orbit_rate);
-    const float ang = atan2f(dy, dx) + phase;
-    const float radius = std::clamp(sep * 0.8f + 30.0f, 35.0f, 160.0f);
-    const float height = 10.0f + sep * 0.12f;
-    const rdVector3 want_pos = {mid.x + cosf(ang) * radius, mid.y + sinf(ang) * radius,
-                                mid.z + height};
+    const float want_ang = atan2f(dy, dx) + phase;
+    const float want_radius = std::clamp(sep * 0.8f + 40.0f, 50.0f, 180.0f);
+    // The pair line flips 180 degrees when the pods swap order: ease the angle itself along the
+    // shortest arc so the camera swings around rather than jumping.
+    const float dt = (float) swrRace_deltaTimeSecs;
+    const float a = g_orbit_smooth > 0.0f ? 1.0f - expf(-dt / g_orbit_smooth) : 1.0f;
+    if (!g_orbit_ang_seeded) {
+        g_orbit_ang = want_ang;
+        g_orbit_radius = want_radius;
+        g_orbit_ang_seeded = true;
+    } else {
+        float d = want_ang - g_orbit_ang;
+        while (d > 3.14159265f)
+            d -= 6.2831853f;
+        while (d < -3.14159265f)
+            d += 6.2831853f;
+        g_orbit_ang += d * a;
+        g_orbit_radius += (want_radius - g_orbit_radius) * a;
+    }
+    const float height = 25.0f + sep * 0.2f;
+    const rdVector3 want_pos = {mid.x + cosf(g_orbit_ang) * g_orbit_radius,
+                                mid.y + sinf(g_orbit_ang) * g_orbit_radius, mid.z + height};
     const rdVector3 want_aim = {mid.x, mid.y, mid.z + 2.0f};
     ease_to(want_pos, want_aim, g_orbit_smooth);
     write_camera(cman);
@@ -442,10 +471,10 @@ static void load_config() {
     g_w_battle = ini_get_int(ini, L"w_battle", g_w_battle);
     g_w_random = ini_get_int(ini, L"w_random", g_w_random);
     g_battle_gap_s = ini_get_float(ini, L"battle_gap_s", g_battle_gap_s);
-    g_w_chase = ini_get_int(ini, L"w_chase", g_w_chase);
-    g_w_drone = ini_get_int(ini, L"w_drone", g_w_drone);
-    g_w_orbit = ini_get_int(ini, L"w_orbit", g_w_orbit);
-    g_w_cockpit = ini_get_int(ini, L"w_cockpit", g_w_cockpit);
+    g_w_chase = ini_get_int(ini, L"shot_chase", g_w_chase);
+    g_w_drone = ini_get_int(ini, L"shot_drone", g_w_drone);
+    g_w_orbit = ini_get_int(ini, L"shot_orbit", g_w_orbit);
+    g_w_cockpit = ini_get_int(ini, L"shot_cockpit", g_w_cockpit);
     g_drone_height = ini_get_float(ini, L"drone_height", g_drone_height);
     g_drone_back = ini_get_float(ini, L"drone_back", g_drone_back);
     g_drone_ahead = ini_get_float(ini, L"drone_ahead", g_drone_ahead);
@@ -466,10 +495,10 @@ static void save_config() {
     ini_set_int(ini, L"w_battle", g_w_battle);
     ini_set_int(ini, L"w_random", g_w_random);
     ini_set_float(ini, L"battle_gap_s", g_battle_gap_s);
-    ini_set_int(ini, L"w_chase", g_w_chase);
-    ini_set_int(ini, L"w_drone", g_w_drone);
-    ini_set_int(ini, L"w_orbit", g_w_orbit);
-    ini_set_int(ini, L"w_cockpit", g_w_cockpit);
+    ini_set_int(ini, L"shot_chase", g_w_chase);
+    ini_set_int(ini, L"shot_drone", g_w_drone);
+    ini_set_int(ini, L"shot_orbit", g_w_orbit);
+    ini_set_int(ini, L"shot_cockpit", g_w_cockpit);
     ini_set_float(ini, L"drone_height", g_drone_height);
     ini_set_float(ini, L"drone_back", g_drone_back);
     ini_set_float(ini, L"drone_ahead", g_drone_ahead);

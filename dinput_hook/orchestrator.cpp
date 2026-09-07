@@ -523,6 +523,7 @@ void orchestrator_Service() {
     hang->demo_mode = 1;
 
     overlay_ForceLeaderboard(true);
+    overlay_ForceNameplates(true);
     director_SetEnabled(true);
     overlay_SetHighlightSlot(director_FollowedSlot());
     char title[32];
@@ -616,6 +617,7 @@ extern "C" void orchestrator_ToggleArmed(void) {
         if (hang != NULL)
             hang->demo_mode = 0;
         overlay_ForceLeaderboard(false);
+        overlay_ForceNameplates(false);
         overlay_SetTitle("");
         overlay_SetFooter("");
         director_SetEnabled(false);

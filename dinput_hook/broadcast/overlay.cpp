@@ -20,11 +20,11 @@ static bool g_leaderboard =
 static bool g_show_tags = true;// FIN / DNF / racing column
 static float g_scale = 1.6f;
 static float g_opacity = 0.6f;
-static int g_anchor = 0;// 0 left, 1 right
+static int g_anchor = 0;         // 0 left, 1 right
+static bool g_nameplates = false;// names over pods (SP / all-AI)
+static bool g_nameplates_forced = false;
 static float g_margin_x = 10.0f;
-static float g_margin_y = 60.0f;
-
-// Consumer overrides
+static float g_margin_y = 60.0f;// Consumer overrides
 static bool g_forced = false;
 static char g_title[32] = "";
 static char g_footer[160] = "";
@@ -37,6 +37,13 @@ void overlay_SetTitle(const char *title) {
 }
 void overlay_SetFooter(const char *footer) {
     snprintf(g_footer, sizeof(g_footer), "%s", footer ? footer : "");
+}
+
+bool overlay_NameplatesActive() {
+    return g_nameplates || g_nameplates_forced;
+}
+void overlay_ForceNameplates(bool on) {
+    g_nameplates_forced = on;
 }
 
 static void (*g_row_click)(int slot) = NULL;
@@ -164,8 +171,8 @@ static void draw_leaderboard(const RaceTelemetry *t) {
     }
     ImGui::SetNextWindowBgAlpha(g_opacity);
     if (ImGui::Begin("##broadcast_leaderboard", NULL, OVERLAY_FLAGS)) {
-        ImGui::SetWindowFontScale(g_scale);
-        // Drag to move: while the window is being dragged, fold its position back into the
+        ImGui::SetWindowFontScale(
+            g_scale);// Drag to move: while the window is being dragged, fold its position back into the
         // margins; persist once the button is released.
         const bool held = ImGui::IsWindowFocused() && ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
                           ImGui::IsMouseDragging(ImGuiMouseButton_Left);
@@ -277,6 +284,7 @@ static void load_config() {
     const wchar_t *ini = settings_ini_path();
     g_leaderboard = GetPrivateProfileIntW(INI_SECTION, L"leaderboard", g_leaderboard, ini) != 0;
     g_show_tags = GetPrivateProfileIntW(INI_SECTION, L"show_tags", g_show_tags, ini) != 0;
+    g_nameplates = GetPrivateProfileIntW(INI_SECTION, L"nameplates", g_nameplates, ini) != 0;
     g_scale = ini_get_float(ini, L"scale", g_scale);
     g_opacity = ini_get_float(ini, L"opacity", g_opacity);
     g_anchor = std::clamp((int) GetPrivateProfileIntW(INI_SECTION, L"anchor", g_anchor, ini), 0, 1);
@@ -288,6 +296,7 @@ static void save_config() {
     const wchar_t *ini = settings_ini_path();
     ini_set_int(ini, L"leaderboard", g_leaderboard);
     ini_set_int(ini, L"show_tags", g_show_tags);
+    ini_set_int(ini, L"nameplates", g_nameplates);
     ini_set_float(ini, L"scale", g_scale);
     ini_set_float(ini, L"opacity", g_opacity);
     ini_set_int(ini, L"anchor", g_anchor);
@@ -306,6 +315,11 @@ static void panel_broadcast() {
         ImGui::TextDisabled("(forced on by the orchestrator)");
     }
     changed |= ImGui::Checkbox("Status icons (finished / crashed / on fire)", &g_show_tags);
+    changed |= ImGui::Checkbox("Names over pods (instead of position numbers)", &g_nameplates);
+    if (g_nameplates_forced) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(forced on)");
+    }
     changed |= ImGui::SliderFloat("Scale", &g_scale, 1.0f, 3.0f, "%.1f");
     changed |= ImGui::SliderFloat("Opacity", &g_opacity, 0.0f, 1.0f, "%.2f");
     bool moved = false;

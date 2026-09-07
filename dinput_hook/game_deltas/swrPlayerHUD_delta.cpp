@@ -12,8 +12,9 @@ extern "C" {
 }
 
 #include "../hook_helper.h"
-#include "../imgui_utils.h" // imgui_state.show_pod_names (the debug-menu toggle)
-#include "../ui_transform.h" // ui_project_px_to_design (resolution-independent label placement)
+#include "../imgui_utils.h"
+#include "../broadcast/overlay.h"// imgui_state.show_pod_names (the debug-menu toggle)
+#include "../ui_transform.h"     // ui_project_px_to_design (resolution-independent label placement)
 
 // ===========================================================================================
 // Multiplayer: player names above pods.
@@ -50,20 +51,20 @@ extern "C" {
 // ===========================================================================================
 
 typedef void(swrPlayerHUD_RenderDistanceText_t)(void *viewport, bool secondaryPass);
-typedef char *(swrMultiplayer_GetPlayerNameAscii_t)(int playerIndex);
+typedef char *(swrMultiplayer_GetPlayerNameAscii_t) (int playerIndex);
 typedef int(swrMultiplayer_GetRacerId_t)(int playerIndex);
 typedef void(swrText_RenderEntries1_t)(void);
 
-#define HUD_NAME_MAX_RACERS 20 // swrScores[20] / player_sprite arrays are sized 20
-#define HUD_NAME_MAX_PODS 23   // swrRacer_PodData[23] (character-name fallback bound)
-#define HUD_NAME_FONT 0        // full-alphabet font; "~F0" renders it at half scale
+#define HUD_NAME_MAX_RACERS 20// swrScores[20] / player_sprite arrays are sized 20
+#define HUD_NAME_MAX_PODS 23  // swrRacer_PodData[23] (character-name fallback bound)
+#define HUD_NAME_FONT 0       // full-alphabet font; "~F0" renders it at half scale
 
 // Label placement, baked in (was INI-tunable during bring-up; final values per review).
-#define HUD_NAME_POS_PCT 200 // % scale on the draw x/y (undoes the ~F 0.5 position scale)
-#define HUD_NAME_OFFSET_X 0  // px nudge right after the scale (negative = left)
-#define HUD_NAME_OFFSET_Y 0  // px nudge down after the scale (negative = up)
+#define HUD_NAME_POS_PCT 200// % scale on the draw x/y (undoes the ~F 0.5 position scale)
+#define HUD_NAME_OFFSET_X 0 // px nudge right after the scale (negative = left)
+#define HUD_NAME_OFFSET_Y 0 // px nudge down after the scale (negative = up)
 
-static char g_slotName[HUD_NAME_MAX_RACERS][40]; // "~F0~c~s" + name, indexed by sprite slot (obj.id)
+static char g_slotName[HUD_NAME_MAX_RACERS][40];// "~F0~c~s" + name, indexed by sprite slot (obj.id)
 static bool g_mpNameRedirect = false;
 static bool g_mpNameSecondaryPass = false;
 
@@ -75,18 +76,20 @@ void swrPlayerHUD_RenderDistanceText_delta(void *viewport, bool secondaryPass) {
         return;
     }
 
-    if (multiplayer_enabled == 0) {
+    if (multiplayer_enabled == 0 && !overlay_NameplatesActive()) {
         // Single-player: position numbers over AI, unchanged.
-        hook_call_original((swrPlayerHUD_RenderDistanceText_t *) swrPlayerHUD_RenderDistanceText_ADDR,
-                           viewport, secondaryPass);
+        hook_call_original(
+            (swrPlayerHUD_RenderDistanceText_t *) swrPlayerHUD_RenderDistanceText_ADDR, viewport,
+            secondaryPass);
         return;
     }
+    const bool sp_names = multiplayer_enabled == 0;// character names instead of numbers
 
     for (int slot = 0; slot < HUD_NAME_MAX_RACERS; slot++)
         g_slotName[slot][0] = '\0';
 
     for (int player = 0; player < HUD_NAME_MAX_RACERS; player++) {
-        if (swrScores[player].identifier == 0) // empty roster slot
+        if (swrScores[player].identifier == 0)// empty roster slot
             continue;
         swrRace *racer = swrScores[player].obj_test_ptr;
         if (!racer)
@@ -96,8 +99,20 @@ void swrPlayerHUD_RenderDistanceText_delta(void *viewport, bool secondaryPass) {
             continue;
 
         const char *name =
-            ((swrMultiplayer_GetPlayerNameAscii_t *) swrMultiplayer_GetPlayerNameAscii_ADDR)(player);
-        if (name && name[0]) {
+            sp_names
+                ? NULL
+                : ((swrMultiplayer_GetPlayerNameAscii_t *) swrMultiplayer_GetPlayerNameAscii_ADDR)(
+                      player);
+        if (sp_names) {
+            const int *pid = swrScores[player].pilotId;
+            const int podIndex = pid != NULL ? *pid : -1;
+            if (podIndex >= 0 && podIndex < HUD_NAME_MAX_PODS) {
+                char podName[32];
+                swrText_FormatPodName(podIndex, podName, sizeof(podName));
+                snprintf(g_slotName[slot], sizeof(g_slotName[slot]), "~F%d~c~s%s", HUD_NAME_FONT,
+                         podName);
+            }
+        } else if (name && name[0]) {
             snprintf(g_slotName[slot], sizeof(g_slotName[slot]), "~F%d~c~s%s", HUD_NAME_FONT, name);
         } else {
             // No player name for this slot: fall back to the character name.
@@ -147,8 +162,8 @@ void swrText_CreateTextEntry2_delta(int16_t screen_x, int16_t screen_y, char r, 
     // already-design-space entry) via the trampoline; calling it by name would re-enter the Entry1
     // centering hook and shift this world-locked text.
     UiVec2 design = ui_project_px_to_design(UiVec2{(float) screen_x, (float) screen_y});
-    hook_call_original(swrText_CreateTextEntry1, (int) lroundf(design.x), (int) lroundf(design.y), r,
-                       g, b, a, screenText);
+    hook_call_original(swrText_CreateTextEntry1, (int) lroundf(design.x), (int) lroundf(design.y),
+                       r, g, b, a, screenText);
 }
 
 void swrText_RenderEntries1_delta(void) {
