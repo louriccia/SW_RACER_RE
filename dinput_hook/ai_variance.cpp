@@ -426,7 +426,37 @@ static void __cdecl swrObjTest_UpdatePhysicsContact_delta(swrRace *player) {
         player->flags0 = (swrObjTest_FLAG0) (player->flags0 | swrObjTest_FLAG0_AI);
 }
 
+// Spinout visuals. When an engine blows, swrRace_Explode sets EXPLODING_LEFT/RIGHT and the pod
+// update spins the dead engine and the cockpit (swrRace_AnimateSpinoutEngines) and shows the damaged
+// engine nodes (swrRace_UpdateSpinoutNodes) -- but both early-out unless the pod is LOCAL or
+// FORCE_GROUND, so an AI just coasted upright until the death snap. Lend LOCAL for the two calls.
+typedef void(__cdecl *swrRace_SpinoutVisual_t)(swrRace *player);
+
+static void call_spinout_visual(uint32_t addr, swrRace *player) {
+    const bool lend = player != NULL && (player->flags0 & swrObjTest_FLAG0_AI) != 0 &&
+                      (player->flags0 & swrObjTest_FLAG0_LOCAL) == 0 &&
+                      (player->flags1 & (swrObjTest_FLAG1_EXPLODING_LEFT | swrObjTest_FLAG1_EXPLODING_RIGHT)) != 0 &&
+                      applies(race_telemetry_Get());
+    if (lend)
+        player->flags0 = (swrObjTest_FLAG0) (player->flags0 | swrObjTest_FLAG0_LOCAL);
+    hook_call_original((swrRace_SpinoutVisual_t) addr, player);
+    if (lend)
+        player->flags0 = (swrObjTest_FLAG0) (player->flags0 & ~swrObjTest_FLAG0_LOCAL);
+}
+
+static void __cdecl swrRace_AnimateSpinoutEngines_delta(swrRace *player) {
+    call_spinout_visual(swrRace_AnimateSpinoutEngines_ADDR, player);
+}
+
+static void __cdecl swrRace_UpdateSpinoutNodes_delta(swrRace *player) {
+    call_spinout_visual(swrRace_UpdateSpinoutNodes_ADDR, player);
+}
+
 void ai_variance_RegisterHooks() {
+    hook_function("swrRace_AnimateSpinoutEngines", (uint32_t) swrRace_AnimateSpinoutEngines_ADDR,
+                  (uint8_t *) swrRace_AnimateSpinoutEngines_delta);
+    hook_function("swrRace_UpdateSpinoutNodes", (uint32_t) swrRace_UpdateSpinoutNodes_ADDR,
+                  (uint8_t *) swrRace_UpdateSpinoutNodes_delta);
     hook_function("swrRace_UpdateCatchup", (uint32_t) swrRace_UpdateCatchup_ADDR,
                   (uint8_t *) swrRace_UpdateCatchup_delta);
     hook_function("swrRace_UpdateWallContact", (uint32_t) swrRace_UpdateWallContact_ADDR,
