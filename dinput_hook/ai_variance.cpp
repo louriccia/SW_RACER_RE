@@ -42,6 +42,8 @@ static float g_clamp_lo = 0.5f, g_clamp_hi = 1.6f;// same envelope as the stock 
 // Boost. Humans charge by holding throttle + nose-down at > 75% top speed for 1 s, then fire;
 // boosting drains engineTemp (100 = cool, 0 = overheated -> a random engine catches fire).
 static bool g_boost = true;
+static bool g_flame = true;// Sebulba's flame attack from lap 1 (stock AI waits for lap 3)
+static int g_flame_min_lap = 0;
 static float g_boost_start_per_s = 0.6f;// chance per second to begin charging when eligible
 static float g_boost_min_s = 3.0f, g_boost_max_s = 7.0f;// boost duration
 static float g_boost_release_temp = 20.0f;  // let go of the boost when engineTemp falls to this
@@ -72,6 +74,7 @@ static DWORD g_boost_until_ms[MAX_SLOTS];
 static DWORD g_boost_cooldown_ms[MAX_SLOTS];
 static bool g_boost_hold_to_fire[MAX_SLOTS];
 static int g_boosts_total = 0;
+static int g_flames_total = 0;
 static int g_explosions_total = 0;
 static DWORD g_dead_since_ms[MAX_SLOTS];
 static int g_respawns_total = 0;
@@ -135,6 +138,42 @@ static bool applies(const RaceTelemetry *t) {
 // engineTemp reaches the release point; with a small chance it is held until the engines ignite.
 static const float BOOST_CHARGE_S = 1.0f;// _DAT_004ad7f4
 static const int BOOST_SFX_ID = 0x72;    // swrRace_BoostCharge's fire sound
+
+// Sebulba's flame attack. swrObjTest_F0@0x46d170 lets an AI Sebulba (score->pilotId == 2) call
+// swrRace_SpawnFlameAttack only from the third lap (results_P1_Lap >= 2), above 200 speed, with a
+// pod within 10000 units on its vA side. The flame itself (swrRace_UpdateEngineDamageFX) already
+// lights every pod within 64 units of its tip, AI included, so the only thing stopping AI-on-AI
+// fire is that late lap gate. Re-run the trigger with a configurable minimum lap;
+// SpawnFlameAttack refuses while a flame is already burning.
+static const float FLAME_MIN_SPEED = 200.0f;// _DAT_004ad820
+static const float FLAME_SCAN_RANGE = 10000.0f;// 0x461c4000
+
+static void supervise_flame(swrRace *pod, int slot, const char *name) {
+    if (pod->score_ptr->pilotId == NULL || *pod->score_ptr->pilotId != 2)
+        return;
+    if (pod->score_ptr->results_P1_Lap < g_flame_min_lap || pod->speedValue <= FLAME_MIN_SPEED)
+        return;
+    if (pod->flameSmokeHandle != NULL)
+        return;
+    for (int i = 0; i < MAX_SLOTS; i++) {
+        const swrRace *other = swrScoresPtr[i].obj_test_ptr;
+        if (other == NULL || other == pod || (swrScoresPtr[i].flag & 1) == 0)
+            continue;
+        rdVector3 d;
+        rdVector_Sub3(&d, (rdVector3 *) &other->transform.vD, (rdVector3 *) &pod->transform.vD);
+        if (rdVector_Len3(&d) > FLAME_SCAN_RANGE)
+            continue;
+        if (rdVector_Dot3(&d, (rdVector3 *) &pod->transform.vA) > 0.0f) {
+            swrRace_SpawnFlameAttack(pod);
+            if (pod->flameSmokeHandle != NULL) {
+                g_flames_total++;
+                fprintf(hook_log, "[ai_variance] slot %d (%s) flame attack\n", slot, name);
+                fflush(hook_log);
+            }
+            return;
+        }
+    }
+}
 
 static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const char *name) {
     const bool boosting = (pod->flags0 & swrObjTest_FLAG0_BOOSTING) != 0;
@@ -378,6 +417,8 @@ static void __cdecl swrRace_UpdateCatchup_delta(swrRace *player) {
 
     if (g_boost)
         supervise_boost(player, slot, dt, now, row ? row->name : "?");
+    if (g_flame)
+        supervise_flame(player, slot, row ? row->name : "?");
 
     const float ours = g_form[slot] * (1.0f + g_swing[slot]) * pack * blunder;
     const float base = g_replace_stock ? 1.0f : player->speedMultiplier;
@@ -535,6 +576,8 @@ static void load_config() {
     g_blunder_max_s = config::get_float(INI_SECTION, "blunder_max_s", g_blunder_max_s);
     g_blunder_depth = config::get_float(INI_SECTION, "blunder_depth", g_blunder_depth);
     g_boost = config::get_int(INI_SECTION, "boost", g_boost) != 0;
+    g_flame = config::get_int(INI_SECTION, "flame", g_flame) != 0;
+    g_flame_min_lap = config::get_int(INI_SECTION, "flame_min_lap", g_flame_min_lap);
     if (config::get_int(INI_SECTION, "cfg_version", 1) >= CFG_VERSION) {
         // v2: the more aggressive boost defaults replace whatever an older build stored
         g_boost_start_per_s = config::get_float(INI_SECTION, "boost_start_per_s", g_boost_start_per_s);
@@ -570,6 +613,8 @@ static void save_config() {
     config::set_float(INI_SECTION, "blunder_max_s", g_blunder_max_s);
     config::set_float(INI_SECTION, "blunder_depth", g_blunder_depth);
     config::set_int(INI_SECTION, "boost", g_boost);
+    config::set_int(INI_SECTION, "flame", g_flame);
+    config::set_int(INI_SECTION, "flame_min_lap", g_flame_min_lap);
     config::set_float(INI_SECTION, "boost_start_per_s", g_boost_start_per_s);
     config::set_float(INI_SECTION, "boost_min_s", g_boost_min_s);
     config::set_float(INI_SECTION, "boost_max_s", g_boost_max_s);
@@ -611,6 +656,9 @@ static void panel_ai_variance() {
     changed |= ImGui::SliderFloat("Min duration (s)", &g_blunder_min_s, 0.5f, 5.0f, "%.1f");
     changed |= ImGui::SliderFloat("Max duration (s)", &g_blunder_max_s, 0.5f, 8.0f, "%.1f");
     changed |= ImGui::SliderFloat("Depth (multiplier)", &g_blunder_depth, 0.2f, 1.0f, "%.2f");
+    ImGui::SeparatorText("Sebulba");
+    changed |= ImGui::Checkbox("Flame attack before lap 3 (stock AI waits)", &g_flame);
+    changed |= ImGui::SliderInt("Flame attack from lap", &g_flame_min_lap, 0, 4);
     ImGui::SeparatorText("Boost");
     changed |= ImGui::Checkbox("AI boost", &g_boost);
     ImGui::SameLine();
@@ -634,8 +682,9 @@ static void panel_ai_variance() {
         save_config();
 
     ImGui::Separator();
-    ImGui::Text("Blunders so far: %d, boosts %d, explosions %d, respawns %d", g_blunders_total,
-                g_boosts_total, g_explosions_total, g_respawns_total);
+    ImGui::Text("Blunders so far: %d, boosts %d, flames %d, explosions %d, respawns %d",
+                g_blunders_total, g_boosts_total, g_flames_total, g_explosions_total,
+                g_respawns_total);
     if (ImGui::Button("Reseed form now"))
         reseed(GetTickCount());
     const RaceTelemetry *t = race_telemetry_Get();

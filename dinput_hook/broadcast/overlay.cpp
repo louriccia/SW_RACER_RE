@@ -332,7 +332,7 @@ void overlay_Service() {
 // all-AI race has no gauges. After F3 has drawn its frame, draw the same lap timer + engine UI
 // (speedometer, engine health) for the highlighted racer with the game's own routines, in the
 // single-screen slot. Finished racers get the vanilla hide, as the player would.
-swrScore *overlay_HudStandInLocal(const swrObjJdge *jdge) {
+static swrScore *followed_score(const swrObjJdge *jdge) {
     if (!g_game_gauges || jdge == NULL || firstLocalPlayer != NULL || swrScoresPtr == NULL)
         return NULL;
     if (!(g_leaderboard || g_forced) || g_highlight_slot < 0 ||
@@ -345,9 +345,15 @@ swrScore *overlay_HudStandInLocal(const swrObjJdge *jdge) {
     return score->obj_test_ptr != NULL ? score : NULL;
 }
 
+swrScore *overlay_HudStandInLocal(const swrObjJdge *jdge) {
+    swrScore *score = followed_score(jdge);
+    // finished: the victory lap shows no HUD (swrObjJdge_F3_delta hides the gauges too)
+    return score != NULL && (score->flag & 2) == 0 ? score : NULL;
+}
+
 void __cdecl swrObjJdge_F3_delta(swrObjJdge *jdge) {
     hook_call_original(swrObjJdge_F3, jdge);
-    swrScore *score = overlay_HudStandInLocal(jdge);
+    swrScore *score = followed_score(jdge);
     if (score == NULL)
         return;
     if ((score->flag & 2) != 0) {
