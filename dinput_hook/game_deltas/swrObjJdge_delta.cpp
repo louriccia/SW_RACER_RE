@@ -24,6 +24,7 @@ extern FILE* hook_log;
 
 #include "../hook_helper.h"
 #include "../patch.h"
+#include "../broadcast/overlay.h"// overlay_HudStandInLocal
 #include "../crash_logger.h"
 #include "../ui_transform.h"
 #include "../imgui_utils.h"// imgui_state cutscene-skip toggles + fast_restart (debug-menu toggles)
@@ -1025,9 +1026,26 @@ typedef void swrObjJdge_CycleHudMode_t(swrObjJdge *jdge);
 typedef void swrObjJdge_DrawRaceHUD_t(swrObjJdge *jdge);
 
 void swrObjJdge_DrawRaceHUD_delta(swrObjJdge *jdge) {
+    // Everything in DrawRaceHUD (minimap outline + dots, position markers) sits under
+    // `if (numLocalPlayers != 0)`, and the attract-demo roster forces hud_mode OFF. When the broadcast
+    // overlay follows a racer in an all-AI race, lend it the local-player globals for the draw so the
+    // HUD shows that racer's minimap.
+    swrScore *stand_in = numLocalPlayers == 0 ? overlay_HudStandInLocal(jdge) : NULL;
+    const swrObjJdge_HUDMODE hud_mode = jdge->hud_mode;
+    if (stand_in != NULL) {
+        numLocalPlayers = 1;
+        firstLocalPlayer = stand_in;
+        if (jdge->hud_mode >= swrObjJdge_HUDMODE_OFF)
+            jdge->hud_mode = swrObjJdge_HUDMODE_MINIMAP_FAR;
+    }
     ui_hud_marker_mode = jdge->hud_mode;
     hook_call_original((swrObjJdge_DrawRaceHUD_t *) swrObjJdge_DrawRaceHUD_ADDR, jdge);
     ui_hud_marker_mode = -1;
+    if (stand_in != NULL) {
+        jdge->hud_mode = hud_mode;
+        firstLocalPlayer = NULL;
+        numLocalPlayers = 0;
+    }
 }
 
 // 0x00462b20 -- swrObjJdge_UpdatePlayerHUD draws the per-player HUD (header bar, speedometer, engine

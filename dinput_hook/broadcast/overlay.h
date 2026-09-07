@@ -28,6 +28,13 @@ void overlay_SetFooter(const char *footer);// one line under the table
 void overlay_SetRowClickHandler(void (*handler)(int slot));
 void overlay_SetHighlightSlot(int slot);
 
+// The followed racer's score when the broadcast HUD stands in for a local player (no human in the
+// race, game gauges on, race running), else NULL. swrObjJdge_DrawRaceHUD lends it the local-player
+// globals so the minimap / position markers draw.
+struct swrObjJdge;
+struct swrScore;
+swrScore *overlay_HudStandInLocal(const swrObjJdge *jdge);
+
 // Names over pods instead of the stock position numbers (single-player / all-AI; multiplayer
 // already shows player names). User toggle in the Broadcast panel, or forced by a consumer.
 bool overlay_NameplatesActive();

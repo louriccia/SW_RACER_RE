@@ -332,18 +332,23 @@ void overlay_Service() {
 // all-AI race has no gauges. After F3 has drawn its frame, draw the same lap timer + engine UI
 // (speedometer, engine health) for the highlighted racer with the game's own routines, in the
 // single-screen slot. Finished racers get the vanilla hide, as the player would.
-void __cdecl swrObjJdge_F3_delta(swrObjJdge *jdge) {
-    hook_call_original(swrObjJdge_F3, jdge);
+swrScore *overlay_HudStandInLocal(const swrObjJdge *jdge) {
     if (!g_game_gauges || jdge == NULL || firstLocalPlayer != NULL || swrScoresPtr == NULL)
-        return;
+        return NULL;
     if (!(g_leaderboard || g_forced) || g_highlight_slot < 0 ||
         g_highlight_slot >= RACE_TELEMETRY_MAX_ROWS)
-        return;
+        return NULL;
     const int state = jdge->flag & 0xf;
     if (state == 3 || state == 4 || state == 5)
-        return;
+        return NULL;
     swrScore *score = &swrScoresPtr[g_highlight_slot];
-    if (score->obj_test_ptr == NULL)
+    return score->obj_test_ptr != NULL ? score : NULL;
+}
+
+void __cdecl swrObjJdge_F3_delta(swrObjJdge *jdge) {
+    hook_call_original(swrObjJdge_F3, jdge);
+    swrScore *score = overlay_HudStandInLocal(jdge);
+    if (score == NULL)
         return;
     if ((score->flag & 2) != 0) {
         // Vanilla hides the engine readout on finish; the speed-dial cluster and its readout frame
