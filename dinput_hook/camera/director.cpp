@@ -60,6 +60,7 @@ static float g_ign_pan_frac = 0.55f;    // fraction of the grid line the pan act
 static float g_grid_dist = 13.0f;   // grid shot: from the cockpit
 static float g_grid_height = 0.0f;// level with the cockpit: an operator standing on the grid
 static float g_grid_az_min = 25.0f, g_grid_az_max = 60.0f;// degrees off the nose
+static float g_grid_back = 10.0f;   // random pull back along the pod, so shots are not identical
 static float g_face_dist = 30.0f;  // face cam: ahead of the pod
 static float g_face_height = 7.0f; // ... and up
 static float g_face_side = 4.0f;   // ... and a touch to one side (random sign)
@@ -965,7 +966,12 @@ static void shot_grid(swrObjcMan *cman, const swrRace *pod) {
             f.y /= fl;
             f.z /= fl;
         }
-        const float ca = cosf(g_grid_az) * g_grid_dist, sa = sinf(g_grid_az) * g_grid_dist;
+        // Distance and a longitudinal pull-back are both drawn per shot: planting at the same
+        // radius dead level with the cockpit every time made every grid shot the same frame.
+        const float jitter = 0.85f + 0.3f * ((float) rand() / (float) RAND_MAX);
+        const float dist = g_grid_dist * jitter;
+        const float back = g_grid_back * ((float) rand() / (float) RAND_MAX);
+        const float ca = cosf(g_grid_az) * dist - back, sa = sinf(g_grid_az) * dist;
         g_grid_pos = {c.x + f.x * ca + r.x * sa + u.x * g_grid_height,
                       c.y + f.y * ca + r.y * sa + u.y * g_grid_height,
                       c.z + f.z * ca + r.z * sa + u.z * g_grid_height};
@@ -1141,6 +1147,7 @@ static void load_config() {
     g_grid_pan_s = config::get_float(INI_SECTION, "grid_pan_s", g_grid_pan_s);
     g_grid_az_min = config::get_float(INI_SECTION, "grid_az_min", g_grid_az_min);
     g_grid_az_max = config::get_float(INI_SECTION, "grid_az_max", g_grid_az_max);
+    g_grid_back = config::get_float(INI_SECTION, "grid_back", g_grid_back);
     g_w_chase_far = config::get_int(INI_SECTION, "shot_chase_far", g_w_chase_far);
     g_w_bumper = config::get_int(INI_SECTION, "shot_bumper", g_w_bumper);
     g_w_fp_wide = config::get_int(INI_SECTION, "shot_fp_wide", g_w_fp_wide);
@@ -1251,6 +1258,7 @@ static void save_config() {
     config::set_float(INI_SECTION, "grid_height", g_grid_height);
     config::set_float(INI_SECTION, "grid_az_min", g_grid_az_min);
     config::set_float(INI_SECTION, "grid_az_max", g_grid_az_max);
+    config::set_float(INI_SECTION, "grid_back", g_grid_back);
     config::set_int(INI_SECTION, "shot_chase_far", g_w_chase_far);
     config::set_int(INI_SECTION, "shot_bumper", g_w_bumper);
     config::set_int(INI_SECTION, "shot_fp_wide", g_w_fp_wide);
@@ -1337,6 +1345,7 @@ static void panel_director() {
     changed |= ImGui::SliderFloat("Height##grid", &g_grid_height, -5.0f, 40.0f, "%.0f");
     changed |= ImGui::SliderFloat("Angle off the nose, min (deg)", &g_grid_az_min, 0.0f, 80.0f, "%.0f");
     changed |= ImGui::SliderFloat("Angle off the nose, max (deg)", &g_grid_az_max, 0.0f, 80.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Random pull back along the pod", &g_grid_back, 0.0f, 40.0f, "%.0f");
     changed |= ImGui::SliderFloat("Pan across the pod (units)", &g_grid_pan, 0.0f, 60.0f, "%.0f");
     changed |= ImGui::SliderFloat("Pan duration (s)", &g_grid_pan_s, 1.0f, 30.0f, "%.0f");
     ImGui::SeparatorText("Binder ignition shot");
