@@ -317,6 +317,15 @@ static void service_music() {
 
 // Free the one stream (swrSoundStream_file) before starting another streamed entry: parking the
 // queue leaves the outgoing looping voice playing and holding it.
+static bool voice_live(int sfx) {
+    if (sfx <= 0)
+        return false;
+    for (int i = 0; i < 8; i++)
+        if (swrSound_voicesLive[i].id == sfx && swrSound_voicesLive[i].activeSoundId != -1)
+            return true;
+    return false;
+}
+
 static void stop_music_voice(int sfx) {
     if (sfx > 0)
         swrSound_StopVoiceById(sfx);
@@ -339,6 +348,9 @@ static void arm_music(const swrObjJdge *jdge, int state) {
     const bool pre_race = state == 0 || state == 4 || state == 5;
     const bool racing = state == 1 || state == 2;
     if (pre_race) {
+        // The stock pre-race commentary (swrObjJdge_F0 state 5, gated on this one-shot flag) is for
+        // the stale local pilot id; hold it down every frame, not just once, or it surfaces later.
+        swrSound_SetSfxFlag(0, 0x200000);
         if (g_music_phase != MUSIC_PHASE_NONE)
             return;
         g_music_phase = MUSIC_PHASE_GRID;
@@ -349,13 +361,14 @@ static void arm_music(const swrObjJdge *jdge, int state) {
         g_sting_sfx = (int) swrMusicPlanetIntroTable[planet];
         if (g_sting_sfx > 0) {
             playASound(g_sting_sfx, 7, 0.25f, 1.0f, 0);
-            // The announcer waits it out: a commentator line under the fanfare loses to it.
+            // Floor for the announcer's wait; the live-voice probe is what actually gates it.
             const swrSoundDescriptor *e = (const swrSoundDescriptor *) swrSound_GetEntry(g_sting_sfx);
-            g_sting_until_ms =
-                GetTickCount() + (e != NULL && e->durationMs > 0 ? e->durationMs : 8000);
+            const DWORD len = e != NULL && e->durationMs > 0 ? e->durationMs : 8000;
+            g_sting_until_ms = GetTickCount() + len;
+            fprintf(hook_log, "[orchestrator] planet sting: music sfx 0x%x (once, %lu ms)\n",
+                    g_sting_sfx, (unsigned long) len);
+            fflush(hook_log);
         }
-        fprintf(hook_log, "[orchestrator] planet sting: music sfx 0x%x (once)\n", g_sting_sfx);
-        fflush(hook_log);
         return;
     }
     if (!racing || g_music_phase == MUSIC_PHASE_RACE || g_music_phase == MUSIC_PHASE_VICTORY)
@@ -453,8 +466,6 @@ static void showcase_heroes(const swrObjJdge *jdge, DWORD now) {
     if (g_hero_count <= 0 || g_heroes_shown >= g_hero_count || !director_IsEnabled())
         return;
     if (g_hero_next_ms == 0) {
-        // Suppress the stock line for the stale local pilot id; it uses this one-shot flag.
-        swrSound_SetSfxFlag(0, 0x200000);
         // Opening shot: a drone high over the grid pans down onto the pack; the introductions
         // start once it has landed.
         int slot = -1;
@@ -465,13 +476,14 @@ static void showcase_heroes(const swrObjJdge *jdge, DWORD now) {
             director_GridIntro(slot);
             overlay_SetHighlightSlot(slot);
         }
-        // Hold the opening drone until the descent AND the planet fanfare are both done.
-        DWORD ready = now + (DWORD) (director_GridIntroSeconds() * 1000.0f) + 500;
-        if (g_sting_until_ms > ready)
-            ready = g_sting_until_ms + 400;
-        g_hero_next_ms = ready;
+        g_hero_next_ms = now + (DWORD) (director_GridIntroSeconds() * 1000.0f) + 500;
         return;
     }
+    // The opening drone holds until the fanfare has actually stopped sounding -- a commentator line
+    // started under it was inaudible and then surfaced late. The bank duration is only a floor; the
+    // mixer's live voice is the truth.
+    if (g_sting_sfx > 0 && (now < g_sting_until_ms || voice_live(g_sting_sfx)))
+        return;
     if (now < g_hero_next_ms)
         return;
     int candidates[MAX_RACERS], n = 0;
