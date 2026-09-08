@@ -369,18 +369,24 @@ void director_Service() {
     const RaceTelemetry *t = race_telemetry_Get();
     if (!t->valid || t->n == 0 || t->source != RACE_SOURCE_ALL_AI)
         return;
-    if (t->judge_state == 0)// countdown: leave the assigned camera alone
+    if (t->judge_state >= 3)// post-race sequence / results: the game's own cameras
         return;
     const DWORD now = GetTickCount();
     swrObjcMan *cman = camera_man();
 
-    // Our shots replace the stock spectator cycle (random chase / first-person / spline-cam modes
-    // on a timer): keep its countdown from ever expiring, and hold the chase mode under our shots.
+    // Our shots replace the stock spectator cycle: swrObjcMan_UpdateCamera counts
+    // swrObjcMan_spectatorCycleTimer down whenever the followed pod is not LOCAL and then picks a
+    // random entry of swrObjcMan_SpectatorCamModes (chase / first-person / the static spline camera
+    // that stares at wherever the pod was). Keep the countdown from ever expiring, and hold the
+    // shot's own mode -- on the grid as well, where that cycle was the "orbit looking the wrong
+    // way" between showcase cuts.
     swrObjcMan_spectatorCycleTimer = 1.0e9f;
     const int want_mode = shot_stock_mode(g_shot);
     if (cman != NULL && cman->mode_type != want_mode && cman->mode_type != 8 &&
         cman->mode_type != 9)
         playercam_SetStockMode(cman, want_mode);// 8/9 = death camera, left alone
+    if (t->judge_state == 0)// countdown: the orchestrator's showcase owns the cuts
+        return;
 
     const int followed = director_FollowedSlot();
     if (followed != g_target_slot && followed >= 0)

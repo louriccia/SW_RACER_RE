@@ -15,6 +15,7 @@ extern "C" void hook_function(const char *function_name, uint32_t original_addre
                               uint8_t *hook_address);
 
 extern "C" {
+#include <swr.h>// playASound
 #include <Swr/swrObj.h>
 #include <Swr/swrRace.h>
 #include <Swr/swrSound.h>
@@ -282,10 +283,13 @@ int voice_AnnounceRacer(int slot, int variant) {
     }
     if (id <= 0)
         return 0;
-    {
-        LocalPlayerLend lend;
-        swrSound_PlaySfxThrottled(category, 0, id, NULL);
-    }
+    // Straight to the mixer, the way swrSound_PlaySfxThrottled ends up doing it, but without its
+    // recently-played ring: an intro clip that also played in the previous race's grid (the same
+    // pilots come up often) would otherwise be silently dropped.
+    const int idx = swrSound_ResolveSfxId(category, 0, id);
+    if (idx < 0)
+        return 0;
+    playASound(idx, 7, 0.25f, 1.0f, 0);
     const int ms = sfx_length_ms(category, id);
     g_lines++;
     fprintf(hook_log, "[voice] announcer: pilot %d (hero %d) cat %d id %d, %d ms\n", pilot, variant,
