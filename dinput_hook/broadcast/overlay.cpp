@@ -386,7 +386,9 @@ static swrScore *followed_score(const swrObjJdge *jdge) {
         g_highlight_slot >= RACE_TELEMETRY_MAX_ROWS)
         return NULL;
     const int state = jdge->flag & 0xf;
-    if (state == 3 || state == 4 || state == 5)
+    // 0 = grid / countdown, 3-5 = post-race: the broadcast runs clean there (no gauges, no minimap,
+    // no position markers -- swrObjJdge_DrawRaceHUD only draws those for a local player).
+    if (state == 0 || state == 3 || state == 4 || state == 5)
         return NULL;
     swrScore *score = &swrScoresPtr[g_highlight_slot];
     return score->obj_test_ptr != NULL ? score : NULL;
@@ -400,6 +402,14 @@ swrScore *overlay_HudStandInLocal(const swrObjJdge *jdge) {
 
 void __cdecl swrObjJdge_F3_delta(swrObjJdge *jdge) {
     hook_call_original(swrObjJdge_F3, jdge);
+    if (jdge != NULL && (jdge->flag & 0xf) == 0 && g_game_gauges && firstLocalPlayer == NULL &&
+        (g_leaderboard || g_forced)) {
+        // Grid / countdown: clear the HUD frame art and gauges the last racing frame left behind
+        // (they are only ever re-shown per frame). The countdown lights live at 0xa1+, untouched.
+        for (short id = 0; id <= 0x2a; id++)
+            swrSprite_SetVisible(id, 0);
+        return;
+    }
     swrScore *score = followed_score(jdge);
     if (score == NULL)
         return;

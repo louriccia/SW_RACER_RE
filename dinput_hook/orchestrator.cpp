@@ -115,6 +115,7 @@ static DWORD g_ignite_start_ms = 0;// 0 = not yet
 enum MusicAfter { MUSIC_AFTER_NONE = 0, MUSIC_AFTER_TRACK_THEME, MUSIC_AFTER_SILENCE };
 static MusicAfter g_music_after = MUSIC_AFTER_NONE;
 static DWORD g_music_after_ms = 0;// not before this (a fanfare plays out first)
+static int g_music_trace = 0;     // frames of music tracing left after a sting is queued
 static const int SHARED_AI_BANK =
     10;// the one light bank every AI pod reads (see apply_ai_lighting)
 static float g_last_progress[MAX_RACERS];
@@ -298,6 +299,23 @@ static void sustain_music() {
         return;
     swrSound_musicGain = 1.0f;
     swrSound_SetMusicFade(1);
+    // Trace while a sting should be sounding: the mixer state says whether the id ever reached a
+    // voice slot (requested -> live) or was dropped before that.
+    if (g_music_trace > 0 && --g_music_trace % 20 == 0) {
+        int req = -1, live = -1;
+        for (int i = 0; i < 8; i++) {
+            if (swrSound_voicesRequested[i].id == swrSound_queuedMusicId)
+                req = swrSound_voicesRequested[i].activeSoundId;
+            if (swrSound_voicesLive[i].id == swrSound_queuedMusicId)
+                live = swrSound_voicesLive[i].activeSoundId;
+        }
+        fprintf(hook_log,
+                "[orchestrator] music trace: queued %d current %d mode %d gain %.2f music_vol %d "
+                "req %d live %d\n",
+                swrSound_queuedMusicId, swrSound_currentMusicId, swrSound_musicFadeMode,
+                swrSound_musicGain, (int) sound_music_volume, req, live);
+        fflush(hook_log);
+    }
 }
 
 static void play_music(int sfx, const char *what, MusicAfter after, DWORD after_ms) {
@@ -307,6 +325,7 @@ static void play_music(int sfx, const char *what, MusicAfter after, DWORD after_
     swrSound_SetMusicFade(1);
     g_music_after = after;
     g_music_after_ms = after_ms;
+    g_music_trace = 200;
     fprintf(hook_log, "[orchestrator] %s: music sfx 0x%x\n", what, sfx);
     fflush(hook_log);
 }
