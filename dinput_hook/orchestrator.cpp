@@ -624,10 +624,28 @@ static void supervise_stuck(swrObjJdge *jdge, DWORD now) {
 }
 
 // Compact per-slot line every g_snapshot_s: progress, speed, camera distance, state nibble.
+// Sound-layer health, for the "audio dies after N races" hunt: bank bytes loaded, the 8 live
+// mixer channels (id:state, -1 free, -2 pending) and the 8 request slots.
+static void log_sound_health() {
+    char line[512];
+    int o = snprintf(line, sizeof(line), "[orchestrator] sound: loaded %d B, 3d %d, sfx vol %d, live",
+                     swrSound_loadedBytes, Sound_enabled_3d, (int) sound_sfx_volume);
+    for (int i = 0; i < 8 && o < (int) sizeof(line) - 24; i++)
+        o += snprintf(line + o, sizeof(line) - o, " %d:%d", swrSound_voicesLive[i].id,
+                      swrSound_voicesLive[i].activeSoundId);
+    o += snprintf(line + o, sizeof(line) - o, " | req");
+    for (int i = 0; i < 8 && o < (int) sizeof(line) - 24; i++)
+        o += snprintf(line + o, sizeof(line) - o, " %d:%d", swrSound_voicesRequested[i].id,
+                      swrSound_voicesRequested[i].activeSoundId);
+    fprintf(hook_log, "%s\n", line);
+    fflush(hook_log);
+}
+
 static void log_snapshot(swrObjJdge *jdge, DWORD now) {
     if (g_snapshot_s <= 0.0f || now - g_last_snapshot_ms < (DWORD) (g_snapshot_s * 1000.0f))
         return;
     g_last_snapshot_ms = now;
+    log_sound_health();
     char line[1024];
     int o = snprintf(line, sizeof(line), "[orchestrator] race %d field:", g_races_started);
     for (int i = 0; i < jdge->num_players && i < MAX_RACERS && o < (int) sizeof(line) - 40; i++) {
@@ -931,6 +949,13 @@ static void panel_orchestrator() {
     }
     changed |= ImGui::Checkbox("Light AI pods from the followed pod's light bank", &g_ai_lighting);
     changed |= ImGui::SliderInt("Grid showcase: racers introduced by the announcer", &g_hero_count, 0, 10);
+    if (ImGui::Button("Reset sound channels (if audio has died)")) {
+        log_sound_health();
+        swrSound_ResetRequestedVoices();
+        swrSound_ResetChannels();
+        fprintf(hook_log, "[orchestrator] sound channels reset by the user\n");
+        fflush(hook_log);
+    }
     changed |= ImGui::Checkbox("Random starting grid", &g_shuffle_grid);
     changed |= ImGui::Checkbox("No respawn blue flash on the shared AI lighting", &g_no_blue_flash);
     ImGui::SetNextItemWidth(120.0f);

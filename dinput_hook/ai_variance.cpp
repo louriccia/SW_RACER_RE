@@ -52,6 +52,7 @@ static float g_boost_turn_limit = 150.0f;   // |turnRateTarget| above this = cor
 static float g_boost_cooldown_s = 1.5f;
 static float g_boost_p_overheat = 0.15f;// chance a boost is held until the engines catch fire
 static bool g_boost_sound = true;
+static float g_boost_sfx_range = 450.0f;// only AI within this many units of the camera play the boost sound
 static bool g_wall_damage = true;// AI take the player's wall scrape / impact path (damage, sparks)
 static bool g_impact_death =
     true;// AI explode on a death-speed impact like a human (stock: quiet respawn)
@@ -175,6 +176,16 @@ static void supervise_flame(swrRace *pod, int slot, const char *name) {
     }
 }
 
+static bool near_camera(const swrRace *pod, float range) {
+    const swrObjcMan *cman = (const swrObjcMan *) swrEvent_FindObjectById('cMan', 0);
+    if (cman == NULL)
+        return true;
+    const float dx = pod->transform.vD.x - cman->unk20_mat.vD.x;
+    const float dy = pod->transform.vD.y - cman->unk20_mat.vD.y;
+    const float dz = pod->transform.vD.z - cman->unk20_mat.vD.z;
+    return dx * dx + dy * dy + dz * dz <= range * range;
+}
+
 static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const char *name) {
     const bool boosting = (pod->flags0 & swrObjTest_FLAG0_BOOSTING) != 0;
     const bool can_charge = (pod->flags0 & swrObjTest_FLAG0_CAN_CHARGE_BOOST) != 0;
@@ -224,7 +235,9 @@ static void supervise_boost(swrRace *pod, int slot, float dt, DWORD now, const c
                                    1000.0f);
                 g_boost_hold_to_fire[slot] = frand() < g_boost_p_overheat;
                 g_boosts_total++;
-                if (g_boost_sound)
+                // A human race plays this for one pod; twenty AI boosting once a second each is a
+                // few thousand positional one-shots per race, so only pods the camera can hear get one.
+                if (g_boost_sound && near_camera(pod, g_boost_sfx_range))
                     swrSound_PlaySpatialRange(
                         BOOST_SFX_ID, 7,
                         // swrRace_BoostCharge@0x46bd20: rand*0.1 - (-0.18) => 0.18..0.28 (the
@@ -590,6 +603,7 @@ static void load_config() {
         g_boost_cooldown_s = config::get_float(INI_SECTION, "boost_cooldown_s", g_boost_cooldown_s);
         g_boost_p_overheat = config::get_float(INI_SECTION, "boost_p_overheat", g_boost_p_overheat);
         g_boost_sound = config::get_int(INI_SECTION, "boost_sound", g_boost_sound) != 0;
+        g_boost_sfx_range = config::get_float(INI_SECTION, "boost_sfx_range", g_boost_sfx_range);
         g_boost_steer_scale = config::get_float(INI_SECTION, "boost_steer_scale", g_boost_steer_scale);
     }
 }
@@ -624,6 +638,7 @@ static void save_config() {
     config::set_float(INI_SECTION, "boost_cooldown_s", g_boost_cooldown_s);
     config::set_float(INI_SECTION, "boost_p_overheat", g_boost_p_overheat);
     config::set_int(INI_SECTION, "boost_sound", g_boost_sound);
+    config::set_float(INI_SECTION, "boost_sfx_range", g_boost_sfx_range);
     config::set_float(INI_SECTION, "boost_steer_scale", g_boost_steer_scale);
     config::save();
 }
