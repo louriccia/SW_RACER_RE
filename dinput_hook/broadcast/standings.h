@@ -26,6 +26,10 @@ void standings_RecordRace(const RaceResult *result);
 // Current table, sorted by points (then wins, then best finish). Never NULL.
 const StandingsRow *standings_Rows(int *count);
 int standings_RacesCounted();
+
+// The leading `max` pilots of the championship, best placed first, written to `out` as pilot ids.
+// Returns how many were written (0 when standings are off or nothing has been scored yet).
+int standings_TopPilots(int max, int *out);
 int standings_SeriesLength();// 0 = endless
 void standings_Reset();
 

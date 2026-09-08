@@ -66,6 +66,7 @@ static int g_ignite_sfx_count = 5;    // ignition sound repeats across the rippl
 static float g_ignite_spread_s = 8.0f;// ... one pod after another over this long; the crowd
                                       // shot's pan runs with it and ends when the last one lights
 static const int CFG_VERSION = 4;// bump when a default should override a stored value
+static int g_seed_top = 10;// the leading N of the championship are always in the next roster
 static bool g_shuffle_grid = true; // random starting grid (stock: roster order, favourite up front)
 static bool g_no_blue_flash = true;// keep the respawn light override off the shared AI light bank
 static float g_snapshot_s = 20.0f; // periodic field snapshot to hook.log (0 = off)
@@ -681,6 +682,73 @@ static void __cdecl swrRace_CalcTargetTurnRate_delta(swrRace *player) {
 // Starting grid. swrObjJdge_SpawnRacer places each pod at grid index score->unk14 = its roster
 // slot, so the favourite (slot 1) starts on the front row every race. Shuffle the indices among the
 // racers before the spawn loop when nobody local is racing.
+// The stock roster is random bar the track's favourite, so a championship leader can sit out several
+// races in a row. Rebuild it after the builder has run: the leaders go in, the rest of the random
+// field stays. Racer i's pilot is vehicleOpponent[i - 1], i.e. i == 0 reads the vehiclePlayer byte
+// in front of the array -- the roster builder indexes it exactly that way itself.
+typedef void *(__cdecl *swrObjHang_BuildRosterSinglePlayer_t)(swrObjHang *hang, int *out);
+
+// Point one already-built AI racer at another pilot. The builder gives every AI the shared AI
+// handling table and then puts these three values back from the pilot's own pod.
+static bool reseat_racer(int slot, int pilot) {
+    swrScore *score = &swrScores[slot];
+    if (score->identifier != 'AAII' || pilot < 0 || pilot >= 23)
+        return false;
+    score->pilotId = (int *) &swrRacer_PodData[pilot];
+    score->podStats.hoverHeight = swrRacer_PodHandlingData[pilot].hoverHeight;
+    score->podStats.bumpMass = swrRacer_PodHandlingData[pilot].bumpMass;
+    score->podStats.intersectRadius = swrRacer_PodHandlingData[pilot].intersectRadius;
+    return true;
+}
+
+static void *__cdecl swrObjHang_BuildRosterSinglePlayer_delta(swrObjHang *hang, int *out) {
+    void *r = hook_call_original(
+        (swrObjHang_BuildRosterSinglePlayer_t) swrObjHang_BuildRosterSinglePlayer_ADDR, hang, out);
+    if (!g_armed || g_seed_top <= 0 || hang == NULL || firstLocalPlayer != NULL ||
+        swrMultiplayer_IsMultiplayerEnabled() != 0)
+        return r;
+    const int n = std::min((int) hang->num_players, MAX_RACERS);
+    int wanted[MAX_RACERS];
+    const int want = standings_TopPilots(std::min(g_seed_top, n), wanted);
+    if (want <= 0)
+        return r;
+
+    char *pilots = &hang->vehiclePlayer;// racer i -> pilots[i]
+    // Slots the leaders may take over, the track's favourite (racer 1) last so it survives if the
+    // field is big enough to hold both.
+    int order[MAX_RACERS], count = 0;
+    for (int i = 2; i < n; i++)
+        order[count++] = i;
+    if (n > 0)
+        order[count++] = 0;
+    if (n > 1)
+        order[count++] = 1;
+
+    int seated = 0;
+    for (int w = 0; w < want; w++) {
+        bool present = false;
+        for (int i = 0; i < n; i++)
+            present = present || pilots[i] == wanted[w];
+        if (present)
+            continue;
+        for (int o = 0; o < count; o++) {
+            const int slot = order[o];
+            bool keep = false;// the pilot in this slot is itself one of the leaders
+            for (int x = 0; x < want; x++)
+                keep = keep || pilots[slot] == wanted[x];
+            if (keep || !reseat_racer(slot, wanted[w]))
+                continue;
+            pilots[slot] = (char) wanted[w];
+            seated++;
+            break;
+        }
+    }
+    if (seated > 0)
+        set_status("race %d: %d championship leader%s added to the roster", g_races_started + 1,
+                   seated, seated == 1 ? "" : "s");
+    return r;
+}
+
 typedef void(__cdecl *swrObjJdge_SpawnRacers_t)(swrObjJdge *judge, swrScore *scores);
 
 static void __cdecl swrObjJdge_SpawnRacers_delta(swrObjJdge *judge, swrScore *scores) {
@@ -729,6 +797,9 @@ void orchestrator_RegisterHooks() {
     hook_function("swrObjJdge_SpawnRacers", (uint32_t) swrObjJdge_SpawnRacers_ADDR,
                   (uint8_t *) swrObjJdge_SpawnRacers_delta);
     hook_function("swrObjHang_F4", (uint32_t) swrObjHang_F4_ADDR, (uint8_t *) swrObjHang_F4_delta);
+    hook_function("swrObjHang_BuildRosterSinglePlayer",
+                  (uint32_t) swrObjHang_BuildRosterSinglePlayer_ADDR,
+                  (uint8_t *) swrObjHang_BuildRosterSinglePlayer_delta);
     hook_function("swrObjTest_F3", (uint32_t) swrObjTest_F3_ADDR, (uint8_t *) swrObjTest_F3_delta);
     hook_function("SetLightColorsAndDirection2", (uint32_t) SetLightColorsAndDirection2_ADDR,
                   (uint8_t *) SetLightColorsAndDirection2_delta);
@@ -1101,6 +1172,7 @@ static void load_config() {
         std::clamp(config::get_int(INI_SECTION, "racers", g_racers), 1, 20);
     g_cooldown_s = config::get_float(INI_SECTION, "cooldown_s", g_cooldown_s);
     g_summary_s = config::get_float(INI_SECTION, "summary_s", g_summary_s);
+    g_seed_top = config::get_int(INI_SECTION, "seed_standings_top", g_seed_top);
     g_all_done_s = config::get_float(INI_SECTION, "all_done_s", g_all_done_s);
     g_grid_hold_s = config::get_float(INI_SECTION, "grid_hold_s", g_grid_hold_s);
     g_rotate_tracks =
@@ -1135,6 +1207,7 @@ static void save_config() {
     config::set_int(INI_SECTION, "racers", g_racers);
     config::set_float(INI_SECTION, "cooldown_s", g_cooldown_s);
     config::set_float(INI_SECTION, "summary_s", g_summary_s);
+    config::set_int(INI_SECTION, "seed_standings_top", g_seed_top);
     config::set_float(INI_SECTION, "all_done_s", g_all_done_s);
     config::set_float(INI_SECTION, "grid_hold_s", g_grid_hold_s);
     config::set_int(INI_SECTION, "rotate_tracks", g_rotate_tracks);
@@ -1175,6 +1248,8 @@ static void panel_orchestrator() {
         orchestrator_ToggleArmed();
     changed |= ImGui::SliderInt("Racers", &g_racers, 1, 20);
     changed |= ImGui::SliderInt("Laps", &g_laps, 1, 10);
+    changed |= ImGui::SliderInt("Championship leaders always in the field", &g_seed_top, 0, 20);
+    ImGui::TextDisabled("The stock roster is random; this reserves seats for the standings' top N.");
     changed |= ImGui::SliderFloat("Results / betting window after the winner (s)", &g_cooldown_s,
                                   5.0f, 900.0f, "%.0f");
     changed |= ImGui::SliderFloat("Hold for the results + standings once everyone is in (s)",

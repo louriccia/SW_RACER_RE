@@ -70,6 +70,16 @@ const StandingsRow *standings_Rows(int *count) {
 int standings_RacesCounted() {
     return g_races_counted;
 }
+int standings_TopPilots(int max, int *out) {
+    if (!g_enabled || out == NULL)
+        return 0;
+    int n = 0;
+    for (int i = 0; i < g_count && n < max; i++)
+        if (g_rows[i].pilot_id >= 0)
+            out[n++] = g_rows[i].pilot_id;
+    return n;
+}
+
 int standings_SeriesLength() {
     return g_series_races;
 }
