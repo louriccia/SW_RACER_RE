@@ -57,8 +57,7 @@ static float g_repair_turn_limit = 150.0f;// |turnRateTarget| below this counts 
 static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
 static int g_hero_count = 5;// grid hold: cut to this many random racers with announcer lines (0 = off)
 static bool g_ignite = true;          // after the introductions: the field lights its energy binders
-static bool g_grid_sting = false;     // planet fanfare over the grid (competes with the
-                                      // announcer for the sequence; the commentary wins)
+static bool g_grid_sting = true;      // planet fanfare over the grid, before the commentary
 static int g_ignite_sfx_count = 5;    // ignition sound repeats across the ripple
 static float g_ignite_spread_s = 8.0f;// ... one pod after another over this long; the crowd
                                       // shot's pan runs with it and ends when the last one lights
@@ -118,11 +117,18 @@ static int g_ignite_sfx_left = 0;  // ignition sounds still to fire this race
 static DWORD g_ignite_next_sfx_ms = 0;
 // The broadcast's music: the planet's arrival fanfare over the grid, the track theme from the
 // green light. Both go through the streamed-music controller's queue.
-enum MusicPhase { MUSIC_PHASE_NONE = 0, MUSIC_PHASE_GRID, MUSIC_PHASE_RACE, MUSIC_PHASE_VICTORY };
+enum MusicPhase {
+    MUSIC_PHASE_NONE = 0,
+    MUSIC_PHASE_FADING,// the outgoing theme is being faded out to free the stream
+    MUSIC_PHASE_GRID,
+    MUSIC_PHASE_RACE,
+    MUSIC_PHASE_VICTORY,
+};
 static MusicPhase g_music_phase = MUSIC_PHASE_NONE;
 static int g_sting_sfx = -1;// the grid fanfare's id, so its voice can be stopped at the green light
 static int g_theme_sfx = -1;// ... and the track theme's, for the winner's fanfare
 static DWORD g_sting_until_ms = 0;// the grid fanfare is still playing until this tick
+static DWORD g_fade_deadline_ms = 0;// give the fade this long, then move on regardless
 static const int SHARED_AI_BANK =
     10;// the one light bank every AI pod reads (see apply_ai_lighting)
 static float g_last_progress[MAX_RACERS];
@@ -268,6 +274,7 @@ static void reset_race_watch() {
     g_sting_sfx = -1;
     g_theme_sfx = -1;
     g_sting_until_ms = 0;
+    g_fade_deadline_ms = 0;
 }
 
 // Grid showcase: while the grid is held, cut to a few random racers in turn and play the
@@ -300,9 +307,36 @@ static const int BINDER_IGNITION_SFX = 0x74;
 // the loop owns the screen -- the pattern swrObjJdge_F3 uses for a human race -- and kick the first
 // play directly. loop = 1 throughout, so UpdateMusic's own play dedups onto that one voice (a
 // loop = 0 start would not, and a second voice on a streamed entry fights the single stream).
-static void service_music() {
+// Called once the outgoing theme has faded: start the grid fanfare, if it is wanted.
+static void start_grid_sting(const swrObjJdge *jdge) {
+    g_music_phase = MUSIC_PHASE_GRID;
+    swrSound_queuedMusicId = -1;
+    swrSound_currentMusicId = -1;
+    if (jdge == NULL)
+        return;
+    const int planet = std::clamp((int) jdge->planetId, 0, 7);
+    g_sting_sfx = g_grid_sting ? (int) swrMusicPlanetIntroTable[planet] : -1;
+    if (g_sting_sfx <= 0)
+        return;
+    playASound(g_sting_sfx, 7, 0.25f, 1.0f, 0);
+    const swrSoundDescriptor *e = (const swrSoundDescriptor *) swrSound_GetEntry(g_sting_sfx);
+    const DWORD len =
+        std::min<DWORD>(e != NULL && e->durationMs > 0 ? (DWORD) e->durationMs : 8000, 12000);
+    g_sting_until_ms = GetTickCount() + len;
+    fprintf(hook_log, "[orchestrator] planet sting: music sfx 0x%x (once, %lu ms)\n", g_sting_sfx,
+            (unsigned long) len);
+    fflush(hook_log);
+}
+
+static void service_music(const swrObjJdge *jdge) {
     if (!g_armed)
         return;
+    // Waiting on the fade: the fade machine lands in mode 0 when the gain reaches zero.
+    if (g_music_phase == MUSIC_PHASE_FADING) {
+        if (swrSound_musicFadeMode == 0 || GetTickCount() >= g_fade_deadline_ms)
+            start_grid_sting(jdge);
+        return;
+    }
     // While a one-shot owns the channel (the grid fanfare, the winner's fanfare) the queue must
     // stay empty: swrObjJdge_F0 re-selects the track theme every frame in the pre-race states, and
     // anything queued is what swrSound_UpdateMusic plays -- that is how the theme ended up over the
@@ -346,25 +380,18 @@ static void arm_music(const swrObjJdge *jdge, int state) {
         swrSound_SetSfxFlag(0, 0x200000);
         if (g_music_phase != MUSIC_PHASE_NONE)
             return;
-        g_music_phase = MUSIC_PHASE_GRID;
-        stop_music_voice(swrSound_queuedMusicId);
-        swrSound_queuedMusicId = -1;
-        swrSound_currentMusicId = -1;
-        const int planet = std::clamp((int) jdge->planetId, 0, 7);
-        g_sting_sfx = g_grid_sting ? (int) swrMusicPlanetIntroTable[planet] : -1;
-        if (g_sting_sfx > 0) {
-            playASound(g_sting_sfx, 7, 0.25f, 1.0f, 0);
-            // Floor for the announcer's wait; the live-voice probe is what actually gates it.
-            const swrSoundDescriptor *e = (const swrSoundDescriptor *) swrSound_GetEntry(g_sting_sfx);
-            // Bounded: a wrong duration must not stall the introductions behind it.
-            const DWORD len = std::min<DWORD>(
-                e != NULL && e->durationMs > 0 ? (DWORD) e->durationMs : 8000, 12000);
-            g_sting_until_ms = GetTickCount() + len;
-            fprintf(hook_log, "[orchestrator] planet sting: music sfx 0x%x (once, %lu ms)\n",
-                    g_sting_sfx, (unsigned long) len);
-            fflush(hook_log);
+        // Fade the outgoing theme rather than yanking it. swrSound_StopVoiceById only zeroes a
+        // voice's volume and rewinds it -- the voice stays, and a looping STREAMED track keeps
+        // holding the one stream (swrSoundStream_file), which is why the fanfare was silent on
+        // every race after the first. The mixer only releases a music voice once the fade machine
+        // has taken its gain to zero, so let it: SetMusicFade(2) with the theme still queued.
+        if (swrSound_queuedMusicId > 0) {
+            g_music_phase = MUSIC_PHASE_FADING;
+            g_fade_deadline_ms = GetTickCount() + 3000;
+            swrSound_SetMusicFade(2);
+            return;
         }
-        return;
+        start_grid_sting(jdge);// nothing playing: straight to the fanfare
     }
     if (!racing || g_music_phase == MUSIC_PHASE_RACE || g_music_phase == MUSIC_PHASE_VICTORY)
         return;// other states (post-race teardown) leave the music alone
@@ -912,7 +939,7 @@ void orchestrator_Service() {
         const int state = jdge->flag & 0xf;
         const DWORD now = GetTickCount();
         arm_music(jdge, state);
-        service_music();
+        service_music(jdge);
 
         if (g_skip_requested || g_restart_requested) {
             if (g_restart_requested)
