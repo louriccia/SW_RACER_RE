@@ -24,6 +24,8 @@ void director_FollowSlot(int slot);
 void director_Showcase(int slot);
 // First shot of a race: a drone high over `slot` pans down onto the grid (Director > Grid intro).
 void director_GridIntro(int slot);
+// A drone over `slot` without the descent (the grid ignition moment).
+void director_GridWide(int slot);
 // Length of that descent in seconds (so the caller can schedule what follows).
 float director_GridIntroSeconds();
 

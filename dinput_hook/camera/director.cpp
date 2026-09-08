@@ -499,6 +499,11 @@ void director_Showcase(int slot) {
     cut_to(slot, "showcase");
 }
 
+void director_GridWide(int slot) {
+    cut_to(slot, "showcase");
+    set_shot(SHOT_DRONE);
+}
+
 float director_GridIntroSeconds() {
     return g_intro_s;
 }

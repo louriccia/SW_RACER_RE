@@ -24,6 +24,7 @@ extern "C" {
 #include <Swr/swrObj.h>
 #include <Swr/swrRace.h>
 #include <Swr/swrSound.h>// swrSound_SetSfxFlag (stock announcer one-shot)
+#include <swr.h>// playASound (binder ignition)
 #include <Swr/swrEvent.h>
 #include <Swr/swrMultiplayer.h>
 #include <Swr/swrText.h>
@@ -55,6 +56,8 @@ static float g_repair_stop = 0.2f;
 static float g_repair_delay_s = 4.0f;// ... and then it waits this long (+/-50%) before starting
 static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
 static int g_hero_count = 5;// grid hold: cut to this many random racers with announcer lines (0 = off)
+static bool g_ignite = true;          // after the introductions: the field lights its energy binders
+static float g_ignite_spread_s = 2.5f;// ... one pod after another over this long
 static const int CFG_VERSION = 3;// bump when a default should override a stored value
 static bool g_shuffle_grid = true; // random starting grid (stock: roster order, favourite up front)
 static bool g_no_blue_flash = true;// keep the respawn light override off the shared AI light bank
@@ -106,6 +109,7 @@ static int g_countdown_beat = -1;// last 3-2-1 beat that got its own racer
 static DWORD g_hero_next_ms = 0;
 static DWORD g_hero_hold_until_ms = 0;// keep the grid until the last intro has finished
 static bool g_hero_used[MAX_RACERS];
+static DWORD g_ignite_start_ms = 0;// 0 = not yet
 static const int SHARED_AI_BANK =
     10;// the one light bank every AI pod reads (see apply_ai_lighting)
 static float g_last_progress[MAX_RACERS];
@@ -247,11 +251,50 @@ static void reset_race_watch() {
     g_hero_next_ms = 0;
     g_hero_hold_until_ms = 0;
     memset(g_hero_used, 0, sizeof(g_hero_used));
+    g_ignite_start_ms = 0;
 }
 
 // Grid showcase: while the grid is held, cut to a few random racers in turn and play the
 // announcer's pre-race lines for them (swrObjJdge_F0 does this once, for the local pilot only,
 // 2 s into the pre-race orbit).
+// Energy binders. swrRace_UpdateEnergyBinder shows a pod's binder beam once the global
+// binder-ignition timer exceeds 0.1 s x the pod's entity id (a 0.1 s stagger across the field; the
+// compare constant at 0x4adb48 is a double 0.01 on the squared value), and pins the timer to 1000
+// once the pod is racing. The pre-race orbit advances that timer only while the camera-man follows
+// a LOCAL pod (swrEvent_UpdateTimedSound_Maybe), after playing the ignition sound (sfx 0x74) --
+// so an all-AI grid sat dark until the green light. Drive the timer ourselves after the
+// introductions, on a wide drone, with the same sound.
+static float *const g_binder_ignition_timer = (float *) 0x0050caf8;
+static const int BINDER_IGNITION_SFX = 0x74;
+static const float BINDER_STAGGER_S = 0.1f;// per entity id
+
+static void ignite_field(const swrObjJdge *jdge, DWORD now) {
+    if (!g_ignite)
+        return;
+    const float total = BINDER_STAGGER_S * (float) (jdge->num_players + 1);// timer value that lights the last pod
+    if (g_ignite_start_ms == 0) {
+        g_ignite_start_ms = now;
+        *g_binder_ignition_timer = 0.0f;
+        g_hero_hold_until_ms = now + (DWORD) (g_ignite_spread_s * 1000.0f) + 1500;
+        playASound(BINDER_IGNITION_SFX, 6, 0.25f, 0.5f, 0);
+        int slot = -1;// wide shot of the pack: a drone over a mid-grid pod
+        for (int i = jdge->num_players / 2; i < jdge->num_players && i < MAX_RACERS && slot < 0; i++)
+            if (swrScoresPtr[i].obj_test_ptr != NULL)
+                slot = i;
+        if (slot >= 0 && director_IsEnabled()) {
+            director_GridWide(slot);
+            overlay_SetHighlightSlot(slot);
+        }
+        fprintf(hook_log, "[orchestrator] race %d: binders igniting\n", g_races_started);
+        fflush(hook_log);
+        return;
+    }
+    if (*g_binder_ignition_timer < total + 1.0f) {
+        const float rate = total / std::max(0.5f, g_ignite_spread_s);// timer units per second
+        *g_binder_ignition_timer += (float) swrRace_deltaTimeSecs * rate;
+    }
+}
+
 // 3-2-1: a different racer on each beat of the countdown.
 static void countdown_cuts(const swrObjJdge *jdge) {
     if (!director_IsEnabled())
@@ -771,10 +814,14 @@ void orchestrator_Service() {
                                  now < g_hero_hold_until_ms;
             if (holding && state == 0 && jdge->raceTimer_ms < 3.5f)
                 jdge->raceTimer_ms = 3.5f;
-            if (holding && state == 0)
+            if (holding && state == 0) {
                 showcase_heroes(jdge, now);
-            else if (state == 0)
+                const bool heroes_done = g_hero_count <= 0 || g_heroes_shown >= g_hero_count;
+                if (heroes_done && (g_hero_next_ms == 0 || now >= g_hero_next_ms - 900))
+                    ignite_field(jdge, now);
+            } else if (state == 0) {
                 countdown_cuts(jdge);
+            }
         }
         if (state == 1 || state == 2) {
             log_snapshot(jdge, now);
@@ -882,6 +929,8 @@ static void load_config() {
     if (stored_version >= CFG_VERSION)// v3: neglected repairs (threshold 0.7 + delay)
         g_repair_start = config::get_float(INI_SECTION, "repair_start", g_repair_start);
     g_repair_delay_s = config::get_float(INI_SECTION, "repair_delay_s", g_repair_delay_s);
+    g_ignite = config::get_int(INI_SECTION, "ignite", g_ignite) != 0;
+    g_ignite_spread_s = config::get_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
     g_shuffle_grid = config::get_int(INI_SECTION, "shuffle_grid", g_shuffle_grid) != 0;
     g_no_blue_flash =
         config::get_int(INI_SECTION, "no_blue_flash", g_no_blue_flash) != 0;
@@ -905,6 +954,8 @@ static void save_config() {
     config::set_float(INI_SECTION, "repair_start", g_repair_start);
     config::set_float(INI_SECTION, "repair_stop", g_repair_stop);
     config::set_float(INI_SECTION, "repair_delay_s", g_repair_delay_s);
+    config::set_int(INI_SECTION, "ignite", g_ignite);
+    config::set_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
     config::set_int(INI_SECTION, "ai_lighting", g_ai_lighting);
     config::set_int(INI_SECTION, "hero_count", g_hero_count);
     config::set_int(INI_SECTION, "cfg_version", CFG_VERSION);
@@ -949,6 +1000,8 @@ static void panel_orchestrator() {
     }
     changed |= ImGui::Checkbox("Light AI pods from the followed pod's light bank", &g_ai_lighting);
     changed |= ImGui::SliderInt("Grid showcase: racers introduced by the announcer", &g_hero_count, 0, 10);
+    changed |= ImGui::Checkbox("Grid: the field ignites its binders after the introductions", &g_ignite);
+    changed |= ImGui::SliderFloat("Ignition spread (s)", &g_ignite_spread_s, 0.5f, 8.0f, "%.1f");
     if (ImGui::Button("Reset sound channels (if audio has died)")) {
         log_sound_health();
         swrSound_ResetRequestedVoices();
