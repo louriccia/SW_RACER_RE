@@ -578,6 +578,11 @@ extern "C" void __cdecl swrObjcMan_UpdateChaseCamera_delta(swrObjcMan *cman) {
 // stagingTransformFocus.vD.w is the camera FOV, re-staged every frame by the mode function (100, or
 // 120 for the wide first person) and pushed to the viewport here.
 typedef void(__cdecl *swrObjcMan_UpdateFogAndViewportFn)(swrObjcMan *);
+static PlayerCamFovFn g_fov_override = nullptr;
+void playercam_SetFovOverride(PlayerCamFovFn fn) {
+    g_fov_override = fn;
+}
+
 extern "C" void __cdecl swrObjcMan_UpdateFogAndViewport_delta(swrObjcMan *cman) {
     swrRace *racer = local_followed_racer(cman);
     if (racer != nullptr && is_player_view(cman->mode_type)) {
@@ -588,6 +593,9 @@ extern "C" void __cdecl swrObjcMan_UpdateFogAndViewport_delta(swrObjcMan *cman) 
         }
         cman->stagingTransformFocus.vD.w = std::clamp(fov, 20.0f, 170.0f);
     }
+    if (g_fov_override != nullptr)// e.g. the director's trackside zoom
+        cman->stagingTransformFocus.vD.w =
+            std::clamp(g_fov_override(cman, cman->stagingTransformFocus.vD.w), 20.0f, 170.0f);
     hook_call_original((swrObjcMan_UpdateFogAndViewportFn) swrObjcMan_UpdateFogAndViewport_ADDR,
                        cman);
 }

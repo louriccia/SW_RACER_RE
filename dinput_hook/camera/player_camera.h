@@ -26,6 +26,10 @@ float playercam_NearClipScale();
 struct swrObjcMan;
 typedef bool (*PlayerCamOverrideFn)(swrObjcMan *cman);
 void playercam_SetCameraOverride(PlayerCamOverrideFn fn);
+// Per-frame FOV hook, applied where the camera-man pushes its staged FOV to the viewport
+// (swrObjcMan_UpdateFogAndViewport): gets the staged FOV in degrees, returns the one to use.
+typedef float (*PlayerCamFovFn)(swrObjcMan *cman, float fov);
+void playercam_SetFovOverride(PlayerCamFovFn fn);
 
 // True-cockpit camera for any pod (the director's cockpit shot): writes the cockpit transform + the
 // per-pilot eye offset into the camera-man. While an external cockpit shot is active the near clip

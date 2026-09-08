@@ -49,6 +49,8 @@ static float g_trackside_height = 25.0f;
 static float g_trackside_past = 450.0f; // release once the pod is this far past the camera
 static float g_trackside_max_s = 22.0f; // or after this long (pod stalled / went the other way)
 static float g_trackside_aim_smooth = 0.15f;
+static float g_trackside_zoom = 0.45f;// FOV multiplier at plant distance (1 = no zoom); eases to 1 as the pod arrives
+static float g_trackside_zoom_near = 90.0f;// fully zoomed out by the time the pod is this close
 static float g_drone_height = 95.0f; // world units above the pod
 static const int CFG_VERSION = 8;    // bump when a default should override a stored value
 static float g_drone_back = 85.0f;   // behind the pod along its horizontal heading
@@ -124,6 +126,7 @@ static DWORD g_blocked_since_ms = 0;// free-camera line of sight to the pod lost
 static DWORD g_win_seen_ms = 0;     // the winner crossed the line at (0 = not yet)
 static DWORD g_intro_start_ms = 0;
 static float g_face_sign = 1.0f;
+static float g_fov_eased = 0.0f;// trackside zoom state (0 = unseeded)
 
 static swrObjcMan *camera_man() {
     return (swrObjcMan *) swrEvent_FindObjectById('cMan', 0);
@@ -230,6 +233,7 @@ static void set_shot(Shot s) {
     g_trackside_planted = false;
     g_blocked_since_ms = 0;
     g_face_sign = (rand() & 1) ? 1.0f : -1.0f;
+    g_fov_eased = 0.0f;
     if (s == SHOT_COCKPIT)
         playercam_SetExternalCockpit(true);
     swrObjcMan *cman = camera_man();
@@ -708,6 +712,27 @@ static void shot_trackside(swrObjcMan *cman, const swrRace *pod) {
     write_camera(cman);
 }
 
+// Trackside zoom: a long lens while the pod is far up the road, pulling out to the normal FOV as
+// it arrives, like a trackside operator following the approach.
+static float fov_override(swrObjcMan *cman, float fov) {
+    if (!g_enabled || g_shot != SHOT_TRACKSIDE || !g_trackside_planted || cman == NULL)
+        return fov;
+    const swrRace *pod = cman->unkf4_objTest;
+    if (pod == NULL || g_trackside_zoom >= 1.0f)
+        return fov;
+    const float dx = pod->transform.vD.x - g_trackside_pos.x;
+    const float dy = pod->transform.vD.y - g_trackside_pos.y;
+    const float dz = pod->transform.vD.z - g_trackside_pos.z;
+    const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+    const float span = std::max(1.0f, g_trackside_ahead - g_trackside_zoom_near);
+    const float t = std::clamp((d - g_trackside_zoom_near) / span, 0.0f, 1.0f);
+    const float want = fov * (1.0f - t * (1.0f - g_trackside_zoom));
+    const float dt = (float) swrRace_deltaTimeSecs;
+    const float a = 1.0f - expf(-dt / 0.25f);
+    g_fov_eased = g_fov_eased <= 0.0f ? want : g_fov_eased + (want - g_fov_eased) * a;
+    return g_fov_eased;
+}
+
 static bool camera_override(swrObjcMan *cman) {
     if (!g_enabled || cman == NULL || g_shot == SHOT_CHASE)
         return false;
@@ -759,6 +784,7 @@ void director_SetEnabled(bool on) {
     overlay_SuppressNameplates(false);
     overlay_SetRowClickHandler(on ? director_FollowSlot : NULL);
     playercam_SetCameraOverride(on ? camera_override : NULL);
+    playercam_SetFovOverride(on ? fov_override : NULL);
     if (!on)
         overlay_SetHighlightSlot(-1);
 }
@@ -792,6 +818,8 @@ static void load_config() {
     g_face_side = config::get_float(INI_SECTION, "face_side", g_face_side);
     g_face_max_s = config::get_float(INI_SECTION, "face_max_s", g_face_max_s);
     g_trackside_side = config::get_float(INI_SECTION, "trackside_side", g_trackside_side);
+    g_trackside_zoom = config::get_float(INI_SECTION, "trackside_zoom", g_trackside_zoom);
+    g_trackside_zoom_near = config::get_float(INI_SECTION, "trackside_zoom_near", g_trackside_zoom_near);
     g_trackside_height = config::get_float(INI_SECTION, "trackside_height", g_trackside_height);
     const int stored_version = config::get_int(INI_SECTION, "cfg_version", 1);
     if (stored_version >= 3) {// v3: further / longer trackside defaults
@@ -857,6 +885,8 @@ static void save_config() {
     config::set_float(INI_SECTION, "face_max_s", g_face_max_s);
     config::set_float(INI_SECTION, "trackside_ahead", g_trackside_ahead);
     config::set_float(INI_SECTION, "trackside_side", g_trackside_side);
+    config::set_float(INI_SECTION, "trackside_zoom", g_trackside_zoom);
+    config::set_float(INI_SECTION, "trackside_zoom_near", g_trackside_zoom_near);
     config::set_float(INI_SECTION, "trackside_height", g_trackside_height);
     config::set_float(INI_SECTION, "trackside_past", g_trackside_past);
     config::set_float(INI_SECTION, "trackside_max_s", g_trackside_max_s);
@@ -938,6 +968,8 @@ static void panel_director() {
     ImGui::SeparatorText("Trackside");
     changed |= ImGui::SliderFloat("Plant ahead (world units)", &g_trackside_ahead, 50.0f, 2000.0f, "%.0f");
     changed |= ImGui::SliderFloat("Beside the track", &g_trackside_side, 0.0f, 300.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Zoom at plant distance (FOV x)", &g_trackside_zoom, 0.2f, 1.0f, "%.2f");
+    changed |= ImGui::SliderFloat("Fully zoomed out within", &g_trackside_zoom_near, 20.0f, 600.0f, "%.0f");
     changed |= ImGui::SliderFloat("Height##trackside", &g_trackside_height, 0.0f, 200.0f, "%.0f");
     changed |= ImGui::SliderFloat("Release when past by", &g_trackside_past, 20.0f, 1500.0f, "%.0f");
     changed |= ImGui::SliderFloat("Max duration (s)##trackside", &g_trackside_max_s, 3.0f, 40.0f, "%.0f");
