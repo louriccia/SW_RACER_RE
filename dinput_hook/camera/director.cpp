@@ -47,14 +47,14 @@ static float g_profile_band_deg = 35.0f;// azimuths within this of dead-side are
 static bool g_handheld = true;         // grid / close shots get an operator's wobble
 static float g_handheld_rot_deg = 0.35f;// aim drift (pan / tilt), degrees
 static float g_handheld_pos = 0.18f;    // camera drift, world units
-static float g_handheld_zoom = 0.2f;    // zoom reach either side of neutral, as a fraction of FOV
+static float g_handheld_zoom = 0.32f;   // zoom reach either side of neutral, as a fraction of FOV
 static float g_handheld_speed = 1.6f;
 static float g_handheld_zoom_move_s = 5.0f;// seconds for one full push in / pull out
 static float g_grid_pan = 16.0f;        // grid shot: the aim sweeps this far along the pod
 static float g_grid_pan_s = 9.0f;       // ... over this long, one way (direction is random)
-static float g_ign_side = 90.0f;        // ignition shot: beside the grid (the crowd's side)
+static float g_ign_side = 50.0f;        // ignition shot: beside the grid (the crowd's side)
 static float g_ign_height = 38.0f;      // ... above the pods, looking down on the beams
-static float g_ign_lead = 60.0f;        // ... and this far back off the first pod
+static float g_ign_lead = 25.0f;        // ... and this far behind the front of the grid
 static float g_grid_dist = 22.0f;   // grid shot: from the cockpit
 static float g_grid_height = 0.0f;// level with the cockpit: an operator standing on the grid
 static float g_grid_az_min = 25.0f, g_grid_az_max = 60.0f;// degrees off the nose
@@ -71,7 +71,7 @@ static float g_trackside_aim_smooth = 0.15f;
 static float g_trackside_zoom = 0.45f;// FOV multiplier at plant distance (1 = no zoom); eases to 1 as the pod arrives
 static float g_trackside_zoom_near = 90.0f;// fully zoomed out by the time the pod is this close
 static float g_drone_height = 95.0f; // world units above the pod
-static const int CFG_VERSION = 11;    // bump when a default should override a stored value
+static const int CFG_VERSION = 12;    // bump when a default should override a stored value
 static float g_drone_back = 85.0f;   // behind the pod along its horizontal heading
 static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
 static float g_drone_smooth = 0.5f;  // position time constant (s)
@@ -857,32 +857,41 @@ static void shot_trackside(swrObjcMan *cman, const swrRace *pod) {
 // off to one side of the line the way a grandstand would.
 static void shot_ignition(swrObjcMan *cman, const swrRace *pod) {
     if (!g_ign_planted) {
-        const swrRace *first = NULL, *last = NULL;
+        const rdVector3 r = {pod->transform.vA.x, pod->transform.vA.y, pod->transform.vA.z};
+        const rdVector3 u = {pod->transform.vC.x, pod->transform.vC.y, pod->transform.vC.z};
+        const rdVector3 f = {pod->transform.vB.x, pod->transform.vB.y, pod->transform.vB.z};
+        // Front and back of the grid by how far each pod sits along the track, not by entity id:
+        // the roster order has nothing to do with where a pod was placed on the grid.
+        const swrRace *front = NULL, *back = NULL;
+        float front_d = -1e9f, back_d = 1e9f;
         for (int i = 0; i < RACE_TELEMETRY_MAX_ROWS; i++) {
             const swrRace *p = swrScoresPtr[i].obj_test_ptr;
             if (p == NULL)
                 continue;
-            if (first == NULL || p->obj.id < first->obj.id)
-                first = p;
-            if (last == NULL || p->obj.id > last->obj.id)
-                last = p;
+            const float along =
+                p->transform.vD.x * f.x + p->transform.vD.y * f.y + p->transform.vD.z * f.z;
+            if (along > front_d) {
+                front_d = along;
+                front = p;
+            }
+            if (along < back_d) {
+                back_d = along;
+                back = p;
+            }
         }
-        if (first == NULL)
-            first = pod;
-        if (last == NULL)
-            last = pod;
-        g_ign_a = {first->transform.vD.x, first->transform.vD.y, first->transform.vD.z};
-        g_ign_b = {last->transform.vD.x, last->transform.vD.y, last->transform.vD.z};
-        // Beside the middle of the line, on the pods' right, backed off the first pod so the whole
-        // grid is in frame at the start of the pan.
-        const rdVector3 r = {pod->transform.vA.x, pod->transform.vA.y, pod->transform.vA.z};
-        const rdVector3 u = {pod->transform.vC.x, pod->transform.vC.y, pod->transform.vC.z};
-        const rdVector3 f = {pod->transform.vB.x, pod->transform.vB.y, pod->transform.vB.z};
+        if (front == NULL)
+            front = pod;
+        if (back == NULL)
+            back = pod;
+        g_ign_a = {front->transform.vD.x, front->transform.vD.y, front->transform.vD.z};
+        g_ign_b = {back->transform.vD.x, back->transform.vD.y, back->transform.vD.z};
+        // Beside the line on the pods' right, level with the front of the grid less the lead, so
+        // the pan starts on the front row and travels back down the field.
         const rdVector3 mid = {(g_ign_a.x + g_ign_b.x) * 0.5f, (g_ign_a.y + g_ign_b.y) * 0.5f,
                                (g_ign_a.z + g_ign_b.z) * 0.5f};
-        g_ign_pos = {mid.x + r.x * g_ign_side - f.x * g_ign_lead + u.x * g_ign_height,
-                     mid.y + r.y * g_ign_side - f.y * g_ign_lead + u.y * g_ign_height,
-                     mid.z + r.z * g_ign_side - f.z * g_ign_lead + u.z * g_ign_height};
+        g_ign_pos = {mid.x + r.x * g_ign_side + f.x * g_ign_lead + u.x * g_ign_height,
+                     mid.y + r.y * g_ign_side + f.y * g_ign_lead + u.y * g_ign_height,
+                     mid.z + r.z * g_ign_side + f.z * g_ign_lead + u.z * g_ign_height};
         g_ign_planted = true;
     }
     const float t = g_ign_pan_s > 0.0f
@@ -1084,8 +1093,6 @@ static void load_config() {
     g_handheld_speed = config::get_float(INI_SECTION, "handheld_speed", g_handheld_speed);
     g_grid_pan = config::get_float(INI_SECTION, "grid_pan", g_grid_pan);
     g_grid_pan_s = config::get_float(INI_SECTION, "grid_pan_s", g_grid_pan_s);
-    g_ign_side = config::get_float(INI_SECTION, "ignition_side", g_ign_side);
-    g_ign_lead = config::get_float(INI_SECTION, "ignition_lead", g_ign_lead);
     g_grid_dist = config::get_float(INI_SECTION, "grid_dist", g_grid_dist);
     g_grid_az_min = config::get_float(INI_SECTION, "grid_az_min", g_grid_az_min);
     g_grid_az_max = config::get_float(INI_SECTION, "grid_az_max", g_grid_az_max);
@@ -1133,8 +1140,12 @@ static void load_config() {
         g_grid_height = config::get_float(INI_SECTION, "grid_height", g_grid_height);
     if (stored_version >= 11)// v11: the crowd shot looks down on the binders
         g_ign_height = config::get_float(INI_SECTION, "ignition_height", g_ign_height);
-    if (stored_version >= 10) {// v10: calmer wobble, longer / deeper zoom moves
+    if (stored_version >= CFG_VERSION) {// v12: closer crowd shot, deeper handheld zoom
+        g_ign_side = config::get_float(INI_SECTION, "ignition_side", g_ign_side);
+        g_ign_lead = config::get_float(INI_SECTION, "ignition_lead", g_ign_lead);
         g_handheld_zoom = config::get_float(INI_SECTION, "handheld_zoom", g_handheld_zoom);
+    }
+    if (stored_version >= 10) {// v10: calmer wobble, longer / deeper zoom moves
         g_handheld_rot_deg = config::get_float(INI_SECTION, "handheld_rot_deg", g_handheld_rot_deg);
         g_handheld_pos = config::get_float(INI_SECTION, "handheld_pos", g_handheld_pos);
         g_handheld_zoom_move_s =
