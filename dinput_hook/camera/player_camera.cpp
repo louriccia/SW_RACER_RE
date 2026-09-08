@@ -508,6 +508,13 @@ void playercam_SetStockMode(swrObjcMan *cman, int mode) {
 void playercam_SetExternalCockpit(bool active) {
     g_external_cockpit = active;
 }
+// Rebuild the camera's look-at with its roll scaled: the game's chase and first-person views
+// inherit the pod's roll, which is a lot of horizon movement to watch for any length of time.
+void playercam_ScaleRoll(swrObjcMan *cman, float influence) {
+    if (cman != nullptr)
+        scale_roll(cman, influence);
+}
+
 float playercam_Noise(float x, float y, float z) {
     return perlin::noise(x, y, z);
 }

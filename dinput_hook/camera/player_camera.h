@@ -39,6 +39,8 @@ void playercam_ApplyTrueCockpit(swrObjcMan *cman, swrRace *racer);
 // The same rig reversed: on the cockpit node, `forward` ahead of the pilot's eye point and
 // `up` above it, looking back at the pilot (a true face cam).
 void playercam_ApplyReverseCockpit(swrObjcMan *cman, swrRace *racer, float forward, float up);
+// Rebuild a camera's look-at with its roll scaled (1 = unchanged, 0 = level horizon).
+void playercam_ScaleRoll(swrObjcMan *cman, float influence);
 // Perlin noise (the camera-shake source), for other camera modules.
 float playercam_Noise(float x, float y, float z);
 void playercam_SetExternalCockpit(bool active);

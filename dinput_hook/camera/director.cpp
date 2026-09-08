@@ -89,6 +89,7 @@ static float g_orbit_height = 18.0f;
 static float g_orbit_smooth = 0.4f;
 static float g_cockpit_max_s = 8.0f;// cockpit shots are short
 static float g_occlusion_s = 1.2f;  // free camera blocked by the track this long -> back to chase
+static float g_roll_scale = 0.3f;   // roll kept on the shots that inherit the pod's (1 = stock)
 static float g_intro_height = 380.0f;// grid intro: the drone starts this far above its normal height
 static float g_intro_s = 4.5f;       // ... and descends onto the grid over this long
 static float g_finish_lock_s = 10.0f;// cut to the leader this long before the win and hold through it
@@ -1050,8 +1051,17 @@ static float fov_override(swrObjcMan *cman, float fov) {
 }
 
 static bool camera_override(swrObjcMan *cman) {
-    if (!g_enabled || cman == NULL || g_shot == SHOT_CHASE)
+    if (!g_enabled || cman == NULL)
         return false;
+    // The game's own views (and the true cockpit) roll with the pod. Our shots build their own
+    // level look-at, so this only touches the ones that inherit it -- a broadcast holds the horizon
+    // far steadier than a cockpit does, and an hour of pod roll is nauseating.
+    if (g_roll_scale < 1.0f && shot_stock_mode(g_shot) != 1)
+        playercam_ScaleRoll(cman, g_roll_scale);
+    if (g_shot == SHOT_CHASE) {
+        playercam_ScaleRoll(cman, g_roll_scale);
+        return false;
+    }
     swrRace *pod = cman->unkf4_objTest;
     if (pod == NULL || swrScoresPtr == NULL || g_target_slot < 0 ||
         swrScoresPtr[g_target_slot].obj_test_ptr != pod)
@@ -1074,6 +1084,7 @@ static bool camera_override(swrObjcMan *cman) {
             if (pod->partNodes == NULL)
                 return false;
             playercam_ApplyTrueCockpit(cman, pod);
+            playercam_ScaleRoll(cman, g_roll_scale);
             return true;
         case SHOT_TRACKSIDE:
             shot_trackside(cman, pod);
@@ -1175,6 +1186,7 @@ static void load_config() {
         g_occlusion_s = config::get_float(INI_SECTION, "occlusion_s", g_occlusion_s);
     }
     g_finish_lock_s = config::get_float(INI_SECTION, "finish_lock_s", g_finish_lock_s);
+    g_roll_scale = config::get_float(INI_SECTION, "roll_scale", g_roll_scale);
     g_intro_height = config::get_float(INI_SECTION, "intro_height", g_intro_height);
     g_intro_s = config::get_float(INI_SECTION, "intro_s", g_intro_s);
     if (stored_version >= 6) {// v6: orbit weight 2 -> 4
@@ -1289,6 +1301,7 @@ static void save_config() {
     config::set_float(INI_SECTION, "cockpit_max_s", g_cockpit_max_s);
     config::set_float(INI_SECTION, "occlusion_s", g_occlusion_s);
     config::set_float(INI_SECTION, "finish_lock_s", g_finish_lock_s);
+    config::set_float(INI_SECTION, "roll_scale", g_roll_scale);
     config::set_float(INI_SECTION, "intro_height", g_intro_height);
     config::set_float(INI_SECTION, "intro_s", g_intro_s);
     config::save();
@@ -1323,6 +1336,7 @@ static void panel_director() {
     changed |= ImGui::SliderInt("First person wide (stock)", &g_w_fp_wide, 0, 10);
     changed |= ImGui::SliderFloat("Cut when the track blocks the view for (s)", &g_occlusion_s, 0.2f, 5.0f, "%.1f");
     changed |= ImGui::SliderFloat("Cut to the leader this long before the win (s)", &g_finish_lock_s, 0.0f, 30.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Camera roll kept (1 = stock)", &g_roll_scale, 0.0f, 1.0f, "%.2f");
     ImGui::SeparatorText("Face cam");
     changed |= ImGui::SliderFloat("Ahead of the cockpit", &g_face_dist, 8.0f, 120.0f, "%.0f");
     changed |= ImGui::SliderFloat("Above", &g_face_height, -10.0f, 40.0f, "%.0f");
