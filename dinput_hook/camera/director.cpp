@@ -49,6 +49,9 @@ static float g_handheld_rot_deg = 0.8f;// aim drift (pan / tilt), degrees
 static float g_handheld_pos = 0.4f;    // camera drift, world units
 static float g_handheld_zoom = 0.12f;  // lens breathing, as a fraction of the FOV
 static float g_handheld_speed = 1.6f;
+static float g_handheld_zoom_tau = 1.8f;// how slowly a zoom move plays out (s)
+static float g_grid_pan = 16.0f;        // grid shot: the aim sweeps this far along the pod
+static float g_grid_pan_s = 9.0f;       // ... over this long, one way (direction is random)
 static float g_grid_dist = 22.0f;   // grid shot: from the cockpit
 static float g_grid_height = 0.0f;// level with the cockpit: an operator standing on the grid
 static float g_grid_az_min = 25.0f, g_grid_az_max = 60.0f;// degrees off the nose
@@ -144,6 +147,10 @@ static DWORD g_intro_start_ms = 0;
 static float g_face_sign = 1.0f;
 static float g_grid_az = 0.6f;// this shot's azimuth off the nose (radians, signed)
 static rdVector3 g_grid_pos;  // planted once per shot: the operator stands still
+static rdVector3 g_grid_fwd;  // the pod's heading at plant time (the pan axis)
+static float g_grid_pan_dir = 1.0f;
+static float g_zoom_cur = 1.0f, g_zoom_target = 1.0f;
+static DWORD g_zoom_hold_until_ms = 0;
 static bool g_grid_planted = false;
 static float g_fov_eased = 0.0f;// trackside zoom state (0 = unseeded)
 
@@ -253,6 +260,10 @@ static void set_shot(Shot s) {
     g_orbit_ang_seeded = false;
     g_trackside_planted = false;
     g_grid_planted = false;
+    g_grid_pan_dir = (rand() & 1) ? 1.0f : -1.0f;
+    g_zoom_cur = 1.0f;
+    g_zoom_target = 1.0f;
+    g_zoom_hold_until_ms = 0;
     g_blocked_since_ms = 0;
     g_face_sign = (rand() & 1) ? 1.0f : -1.0f;
     {   // grid azimuth: a three-quarter angle off the nose, either side
@@ -837,16 +848,29 @@ static void shot_grid(swrObjcMan *cman, const swrRace *pod) {
         // Stand the camera in the world once, off the pod's nose at this shot's angle. A pod on the
         // grid hovers and sways (swrRace_PoddAnimateVariousThings), and a position derived from its
         // transform every frame rode that sway; an operator holds still and lets the pod move.
-        const rdVector3 f = {pod->transform.vB.x, pod->transform.vB.y, pod->transform.vB.z};
+        rdVector3 f = {pod->transform.vB.x, pod->transform.vB.y, pod->transform.vB.z};
         const rdVector3 r = {pod->transform.vA.x, pod->transform.vA.y, pod->transform.vA.z};
         const rdVector3 u = {pod->transform.vC.x, pod->transform.vC.y, pod->transform.vC.z};
+        const float fl = sqrtf(f.x * f.x + f.y * f.y + f.z * f.z);
+        if (fl > 1e-3f) {
+            f.x /= fl;
+            f.y /= fl;
+            f.z /= fl;
+        }
         const float ca = cosf(g_grid_az) * g_grid_dist, sa = sinf(g_grid_az) * g_grid_dist;
         g_grid_pos = {c.x + f.x * ca + r.x * sa + u.x * g_grid_height,
                       c.y + f.y * ca + r.y * sa + u.y * g_grid_height,
                       c.z + f.z * ca + r.z * sa + u.z * g_grid_height};
+        g_grid_fwd = f;
         g_grid_planted = true;
     }
-    const rdVector3 aim = {c.x, c.y, c.z + 1.0f};
+    // Pan: the aim slides along the pod's length, so the planted camera sweeps from one end of the
+    // machine to the other (engines to cockpit, or back) over the shot.
+    const float pan_t = g_grid_pan_s > 0.0f
+                            ? std::clamp((GetTickCount() - g_shot_start_ms) / (g_grid_pan_s * 1000.0f), 0.0f, 1.0f)
+                            : 1.0f;
+    const float pan = g_grid_pan_dir * g_grid_pan * (pan_t * 2.0f - 1.0f);
+    const rdVector3 aim = {c.x + g_grid_fwd.x * pan, c.y + g_grid_fwd.y * pan, c.z + 1.0f};
     ease_to(g_grid_pos, aim, 0.0f);
     g_cam_pos = g_grid_pos;// fixed in the world; write_camera's drift is the only camera motion
     write_camera(cman);
@@ -875,10 +899,21 @@ static float fov_override(swrObjcMan *cman, float fov) {
     }
     // Operator's lens: a slow in / out on the handheld shots, on its own noise axis so it does not
     // march in step with the frame drift.
+    // Lens: one deliberate move at a time -- a steady push in, a steady pull out, or a settle back
+    // to neutral -- then a hold. (Noise here read as a constant breathing wobble.)
     const float amp = handheld_amp();
     if (amp > 0.0f && g_handheld_zoom > 0.0f) {
-        const float t = (float) GetTickCount() * 0.001f * g_handheld_speed * 0.45f;
-        out *= 1.0f + playercam_Noise(t * 0.9f, 3.7f, 12.1f) * amp * g_handheld_zoom;
+        const DWORD now = GetTickCount();
+        if (now >= g_zoom_hold_until_ms) {
+            const float r = (float) rand() / (float) RAND_MAX;
+            const float reach = g_handheld_zoom * amp;
+            g_zoom_target = r < 0.4f ? 1.0f - reach : r < 0.8f ? 1.0f + reach : 1.0f;
+            g_zoom_hold_until_ms =
+                now + (DWORD) ((2.5f + 3.5f * ((float) rand() / (float) RAND_MAX)) * 1000.0f);
+        }
+        const float dt = (float) swrRace_deltaTimeSecs;
+        g_zoom_cur += (g_zoom_target - g_zoom_cur) * (1.0f - expf(-dt / std::max(0.2f, g_handheld_zoom_tau)));
+        out *= g_zoom_cur;
     }
     static Shot logged = SHOT_CHASE;
     static bool logged_any = false;
@@ -986,6 +1021,9 @@ static void load_config() {
     g_handheld_zoom = config::get_float(INI_SECTION, "handheld_zoom", g_handheld_zoom);
     g_handheld_rot_deg = config::get_float(INI_SECTION, "handheld_rot_deg", g_handheld_rot_deg);
     g_handheld_pos = config::get_float(INI_SECTION, "handheld_pos", g_handheld_pos);
+    g_handheld_zoom_tau = config::get_float(INI_SECTION, "handheld_zoom_tau", g_handheld_zoom_tau);
+    g_grid_pan = config::get_float(INI_SECTION, "grid_pan", g_grid_pan);
+    g_grid_pan_s = config::get_float(INI_SECTION, "grid_pan_s", g_grid_pan_s);
     g_grid_dist = config::get_float(INI_SECTION, "grid_dist", g_grid_dist);
     g_grid_az_min = config::get_float(INI_SECTION, "grid_az_min", g_grid_az_min);
     g_grid_az_max = config::get_float(INI_SECTION, "grid_az_max", g_grid_az_max);
@@ -1068,6 +1106,9 @@ static void save_config() {
     config::set_float(INI_SECTION, "handheld_zoom", g_handheld_zoom);
     config::set_float(INI_SECTION, "handheld_rot_deg", g_handheld_rot_deg);
     config::set_float(INI_SECTION, "handheld_pos", g_handheld_pos);
+    config::set_float(INI_SECTION, "handheld_zoom_tau", g_handheld_zoom_tau);
+    config::set_float(INI_SECTION, "grid_pan", g_grid_pan);
+    config::set_float(INI_SECTION, "grid_pan_s", g_grid_pan_s);
     config::set_float(INI_SECTION, "grid_dist", g_grid_dist);
     config::set_float(INI_SECTION, "grid_height", g_grid_height);
     config::set_float(INI_SECTION, "grid_az_min", g_grid_az_min);
@@ -1151,12 +1192,15 @@ static void panel_director() {
     changed |= ImGui::SliderFloat("Handheld pan / tilt (deg)", &g_handheld_rot_deg, 0.0f, 5.0f, "%.2f");
     changed |= ImGui::SliderFloat("Handheld camera sway (units)", &g_handheld_pos, 0.0f, 5.0f, "%.2f");
     changed |= ImGui::SliderFloat("Handheld speed", &g_handheld_speed, 0.2f, 5.0f, "%.2f");
-    changed |= ImGui::SliderFloat("Handheld zoom (FOV breathing)", &g_handheld_zoom, 0.0f, 0.3f, "%.2f");
+    changed |= ImGui::SliderFloat("Handheld zoom reach (FOV x)", &g_handheld_zoom, 0.0f, 0.3f, "%.2f");
+    changed |= ImGui::SliderFloat("Zoom move duration (s)", &g_handheld_zoom_tau, 0.2f, 6.0f, "%.1f");
     ImGui::SeparatorText("Grid shot");
     changed |= ImGui::SliderFloat("Distance from the cockpit", &g_grid_dist, 8.0f, 80.0f, "%.0f");
     changed |= ImGui::SliderFloat("Height##grid", &g_grid_height, -5.0f, 40.0f, "%.0f");
     changed |= ImGui::SliderFloat("Angle off the nose, min (deg)", &g_grid_az_min, 0.0f, 80.0f, "%.0f");
     changed |= ImGui::SliderFloat("Angle off the nose, max (deg)", &g_grid_az_max, 0.0f, 80.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Pan across the pod (units)", &g_grid_pan, 0.0f, 60.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Pan duration (s)", &g_grid_pan_s, 1.0f, 30.0f, "%.0f");
     ImGui::SeparatorText("Grid intro");
     changed |= ImGui::SliderFloat("Start height above the drone view", &g_intro_height, 0.0f, 1500.0f, "%.0f");
     changed |= ImGui::SliderFloat("Descent (s)", &g_intro_s, 1.0f, 15.0f, "%.1f");

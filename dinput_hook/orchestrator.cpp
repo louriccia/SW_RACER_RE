@@ -111,6 +111,7 @@ static DWORD g_hero_next_ms = 0;
 static DWORD g_hero_hold_until_ms = 0;// keep the grid until the last intro has finished
 static bool g_hero_used[MAX_RACERS];
 static DWORD g_ignite_start_ms = 0;// 0 = not yet
+static bool g_music_restore = false;// the track theme is parked while the planet sting plays
 static const int SHARED_AI_BANK =
     10;// the one light bank every AI pod reads (see apply_ai_lighting)
 static float g_last_progress[MAX_RACERS];
@@ -253,6 +254,7 @@ static void reset_race_watch() {
     g_hero_hold_until_ms = 0;
     memset(g_hero_used, 0, sizeof(g_hero_used));
     g_ignite_start_ms = 0;
+    g_music_restore = false;
 }
 
 // Grid showcase: while the grid is held, cut to a few random racers in turn and play the
@@ -269,11 +271,13 @@ static float *const g_binder_ignition_timer = (float *) 0x0050caf8;
 static const int BINDER_IGNITION_SFX = 0x74;
 
 // The planet's arrival fanfare (mt01desert / mb00aquilarisintro / me00spiceintro / mx091lavacaves),
-// per planet in swrMusicPlanetIntroTable. swrSound_SelectPlanetIntroMusic only *queues* it in the
-// streamed-music controller, and swrObjJdge_F3 re-arms the track theme every frame while nobody
-// local is racing (SetMusicFade(1)), which took the sting straight back off the queue -- so play it
-// as a one-shot instead. Ids 0x8e-0xa5 are music to playASoundImpl: top voice priority and the
-// music volume, exactly like the awards fanfare below.
+// per planet in swrMusicPlanetIntroTable. Every one is a megabyte-plus wav, so it is a STREAMED
+// bank entry -- and there is exactly one stream (swrSoundStream_file), held by the race theme that
+// swrObjJdge_F3 keeps armed every frame while nobody local is racing. A sting played on top of that
+// was silent. Park the looping track first (SetMusicFade(0) clears the queued id, and the judge's
+// re-arm leaves it clear while pods exist), let swrSound_UpdateMusic fire the sting from its
+// one-shot slot (DAT_004b8748, 0.1 s later), and hand the stream back at the green light.
+typedef unsigned int(__cdecl *swrSound_SelectPlanetIntroMusic_t)(unsigned int planet);
 
 // m099awards2, the awards fanfare swrObjHang_UpdateResultsIntro plays over the results reveal
 // (channel 7, the music channel, at 0.8 gain).
@@ -283,11 +287,26 @@ static void play_planet_sting(const swrObjJdge *jdge) {
     if (!g_music_stings || jdge == NULL)
         return;
     const int planet = std::clamp((int) jdge->planetId, 0, 7);
-    const int sfx = (int) swrMusicPlanetIntroTable[planet];
-    if (sfx <= 0)
+    swrSound_SetMusicFade(0);// park the looping track: the sting needs the stream
+    swrScore *saved = firstLocalPlayer;
+    if (firstLocalPlayer == NULL && swrScoresPtr != NULL)
+        firstLocalPlayer = swrScoresPtr;// the selector bails when nobody local is racing
+    ((swrSound_SelectPlanetIntroMusic_t) swrSound_SelectPlanetIntroMusic_ADDR)((unsigned int) planet);
+    firstLocalPlayer = saved;
+    g_music_restore = true;
+    fprintf(hook_log, "[orchestrator] planet %d sting: sfx 0x%x (track music parked)\n", planet,
+            (int) swrMusicPlanetIntroTable[planet]);
+    fflush(hook_log);
+}
+
+// Green light: hand the stream back to the track theme.
+static void restore_track_music(const swrObjJdge *jdge) {
+    if (!g_music_restore || jdge == NULL)
         return;
-    playASound(sfx, 7, 0.25f, 1.0f, 0);
-    fprintf(hook_log, "[orchestrator] planet %d sting: sfx 0x%x\n", planet, sfx);
+    g_music_restore = false;
+    swrSound_SelectTrackMusic(jdge->planetId, jdge->planet_track_number, 1);
+    swrSound_SetMusicFade(1);
+    fprintf(hook_log, "[orchestrator] track music restored\n");
     fflush(hook_log);
 }
 static const float BINDER_STAGGER_S = 0.1f;// per entity id
@@ -849,6 +868,7 @@ void orchestrator_Service() {
             }
         }
         if (state == 1 || state == 2) {
+            restore_track_music(jdge);
             log_snapshot(jdge, now);
             if (g_unstick)
                 supervise_stuck(jdge, now);
