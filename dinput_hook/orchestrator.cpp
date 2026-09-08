@@ -51,6 +51,7 @@ static bool g_full_physics = true;// keep every AI pod off the on-rails LOD path
 static bool g_ai_damage = true;   // AI take fire damage and can explode like a human
 static bool g_ai_repair =
     false;// let AI repair (off: fires burn until the engine blows -- more drama)
+static float g_repair_start = 0.8f;     // damage on any segment before an AI bothers (0.8 = 20% health left)
 static float g_repair_stop = 0.2f;      // repair until the worst engine is this clean
 static float g_repair_turn_limit = 150.0f;// |turnRateTarget| below this counts as a straight
 static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
@@ -110,6 +111,7 @@ static DWORD g_hero_next_ms = 0;
 static DWORD g_hero_hold_until_ms = 0;// keep the grid until the last intro has finished
 static bool g_hero_used[MAX_RACERS];
 static DWORD g_ignite_start_ms = 0;// 0 = not yet
+static bool g_music_armed = false; // the track theme has been queued for this race
 static const int SHARED_AI_BANK =
     10;// the one light bank every AI pod reads (see apply_ai_lighting)
 static float g_last_progress[MAX_RACERS];
@@ -250,6 +252,7 @@ static void reset_race_watch() {
     g_hero_hold_until_ms = 0;
     memset(g_hero_used, 0, sizeof(g_hero_used));
     g_ignite_start_ms = 0;
+    g_music_armed = false;
 }
 
 // Grid showcase: while the grid is held, cut to a few random racers in turn and play the
@@ -265,13 +268,27 @@ static void reset_race_watch() {
 static float *const g_binder_ignition_timer = (float *) 0x0050caf8;
 static const int BINDER_IGNITION_SFX = 0x74;
 
-// Music is left to the game. Driving the streamed-music controller from here (planet arrival
-// fanfare on the opening shot, awards fanfare on the win) went three rounds and never produced an
-// audible sting: the entries are megabyte-plus streamed banks, there is one stream, and the fade
-// machine plays a freshly queued track at the gain the channel already holds before fading it down.
-// The last attempt silenced the race music too. If it is revisited: stop the live music voice with
-// swrSound_StopVoiceById first (parking the queue leaves the looping voice playing and holding the
-// stream), or give the sting a non-streamed bank entry of its own.
+// Music stings are not attempted here any more: the fanfares are megabyte-plus STREAMED bank
+// entries, the engine has exactly one stream, and swrSound_UpdateMusic's arm step plays a freshly
+// queued track at whatever gain the channel already holds before fading it down -- three rounds of
+// that never produced an audible sting and silenced the race music. If revisited: stop the live
+// music voice with swrSound_StopVoiceById first (parking the queue leaves the looping voice playing
+// and holding the stream), or give the sting a non-streamed bank entry of its own.
+//
+// What IS needed is the arming the game does in swrObjJdge_F0's pre-race orbit (state 5), where it
+// calls swrSound_SelectTrackMusic(planet, track, 0) to queue the track theme. Race TV holds the
+// countdown and the orbit is skippable, so that select never ran; the judge's per-frame
+// SetMusicFade(1) then arms an empty queue and the race runs silent. Do the select once per race.
+static void arm_track_music(const swrObjJdge *jdge) {
+    if (g_music_armed || jdge == NULL)
+        return;
+    g_music_armed = true;
+    swrSound_SelectTrackMusic(jdge->planetId, jdge->planet_track_number, 0);
+    swrSound_SetMusicFade(1);
+    fprintf(hook_log, "[orchestrator] track music armed (planet %d track %d)\n",
+            (int) jdge->planetId, (int) jdge->planet_track_number);
+    fflush(hook_log);
+}
 
 static const float BINDER_STAGGER_S = 0.1f;// per entity id
 
@@ -469,16 +486,17 @@ static void supervise_ai_damage(swrRace *pod) {
         }
         worst = std::max(worst, pod->engineHealth[i]);
     }
-    // Repair like a driver would: a hand comes off the controls only where the track allows it, so
-    // an AI repairs on a straight and stops the moment it has to steer again (or boosts). Nothing
-    // is repaired below g_repair_stop, which is also where a repair in progress finishes.
+    // Repair like a driver would: only once a segment is genuinely in trouble (g_repair_start, 0.8
+    // damage = 20% health left), and only where the track allows a hand off the controls -- so the
+    // AI waits for a straight and stops the moment it has to steer again or boosts. Once started it
+    // works down to g_repair_stop.
     bool repairing = false;
     if (g_ai_repair) {
         const bool straight = fabsf(pod->turnRateTarget) < g_repair_turn_limit;
         const bool boosting = (pod->flags0 & swrObjTest_FLAG0_BOOSTING) != 0;
         repairing = (pod->flags0 & swrObjTest_FLAG0_REPAIRING) != 0;
         if (!repairing)
-            repairing = straight && !boosting && worst > g_repair_stop;
+            repairing = straight && !boosting && worst > g_repair_start;
         else if (!straight || boosting || worst < g_repair_stop)
             repairing = false;
     }
@@ -772,6 +790,7 @@ void orchestrator_Service() {
     if (in_race) {
         const int state = jdge->flag & 0xf;
         const DWORD now = GetTickCount();
+        arm_track_music(jdge);
 
         if (g_skip_requested || g_restart_requested) {
             if (g_restart_requested)
@@ -917,6 +936,7 @@ static void load_config() {
     const int stored_version = config::get_int(INI_SECTION, "cfg_version", 1);
     if (stored_version >= 2)// v2: 5 heroes
         g_hero_count = config::get_int(INI_SECTION, "hero_count", g_hero_count);
+    g_repair_start = config::get_float(INI_SECTION, "repair_start", g_repair_start);
     g_repair_turn_limit = config::get_float(INI_SECTION, "repair_turn_limit", g_repair_turn_limit);
     g_ignite = config::get_int(INI_SECTION, "ignite", g_ignite) != 0;
     g_ignite_spread_s = config::get_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
@@ -941,6 +961,7 @@ static void save_config() {
     config::set_int(INI_SECTION, "full_physics", g_full_physics);
     config::set_int(INI_SECTION, "ai_damage", g_ai_damage);
     config::set_int(INI_SECTION, "ai_repair", g_ai_repair);
+    config::set_float(INI_SECTION, "repair_start", g_repair_start);
     config::set_float(INI_SECTION, "repair_stop", g_repair_stop);
     config::set_float(INI_SECTION, "repair_turn_limit", g_repair_turn_limit);
     config::set_int(INI_SECTION, "ignite", g_ignite);
@@ -983,6 +1004,7 @@ static void panel_orchestrator() {
         ImGui::SameLine();
         ImGui::SetNextItemWidth(90.0f);
         changed |= ImGui::SliderFloat("until##rep", &g_repair_stop, 0.0f, 0.5f, "%.2f");
+        changed |= ImGui::SliderFloat("Damage before repairing (0.8 = 20% health)", &g_repair_start, 0.3f, 0.98f, "%.2f");
         changed |= ImGui::SliderFloat("Straightaway (max |turn rate| to repair)", &g_repair_turn_limit, 20.0f, 400.0f, "%.0f");
     }
     changed |= ImGui::Checkbox("Light AI pods from the followed pod's light bank", &g_ai_lighting);
