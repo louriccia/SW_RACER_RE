@@ -55,6 +55,8 @@ static float g_grid_pan_s = 9.0f;       // ... over this long, one way (directio
 static float g_ign_side = 75.0f;        // ignition shot: beside the grid (the crowd's side)
 static float g_ign_height = 32.0f;      // ... above the pods, looking down on the beams
 static float g_ign_lead = 16.0f;        // ... and this far in front of the grid's middle
+static float g_ign_fov = 0.6f;          // ... on a fixed long lens (no zoom moves on this shot)
+static float g_ign_pan_frac = 0.55f;    // fraction of the grid line the pan actually covers
 static float g_grid_dist = 13.0f;   // grid shot: from the cockpit
 static float g_grid_height = 0.0f;// level with the cockpit: an operator standing on the grid
 static float g_grid_az_min = 25.0f, g_grid_az_max = 60.0f;// degrees off the nose
@@ -898,9 +900,12 @@ static void shot_ignition(swrObjcMan *cman, const swrRace *pod) {
                         ? std::clamp((GetTickCount() - g_shot_start_ms) / (g_ign_pan_s * 1000.0f),
                                      0.0f, 1.0f)
                         : 1.0f;
-    const rdVector3 aim = {g_ign_a.x + (g_ign_b.x - g_ign_a.x) * t,
-                           g_ign_a.y + (g_ign_b.y - g_ign_a.y) * t,
-                           g_ign_a.z + (g_ign_b.z - g_ign_a.z) * t + 2.0f};
+    // Cover only the middle g_ign_pan_frac of the grid line: sweeping the full length runs the aim
+    // off both ends of the field.
+    const float u = 0.5f + (t - 0.5f) * g_ign_pan_frac;
+    const rdVector3 aim = {g_ign_a.x + (g_ign_b.x - g_ign_a.x) * u,
+                           g_ign_a.y + (g_ign_b.y - g_ign_a.y) * u,
+                           g_ign_a.z + (g_ign_b.z - g_ign_a.z) * u + 2.0f};
     ease_to(g_ign_pos, aim, 0.0f);
     g_cam_pos = g_ign_pos;
     write_camera(cman);
@@ -947,6 +952,11 @@ static float fov_override(swrObjcMan *cman, float fov) {
         return fov;
     float out = fov;
     const swrRace *pod = cman->unkf4_objTest;
+    if (g_shot == SHOT_IGNITION) {
+        // The crowd shot holds its long lens: the binders are the subject, and a zoom move across
+        // them reads as a mistake rather than an operator's choice.
+        return fov * g_ign_fov;
+    }
     if (g_shot == SHOT_FACE_TRUE) {
         out = fov * g_face_true_fov;
     } else if (g_shot == SHOT_TRACKSIDE && g_trackside_planted && pod != NULL &&
@@ -1147,6 +1157,8 @@ static void load_config() {
     if (stored_version >= 13) {// v13: the handheld shots frame their pod tighter
         g_grid_dist = config::get_float(INI_SECTION, "grid_dist", g_grid_dist);
         g_ign_lead = config::get_float(INI_SECTION, "ignition_lead", g_ign_lead);
+    g_ign_fov = config::get_float(INI_SECTION, "ignition_fov", g_ign_fov);
+    g_ign_pan_frac = config::get_float(INI_SECTION, "ignition_pan_frac", g_ign_pan_frac);
     }
     if (stored_version >= 10) {// v10: calmer wobble, longer / deeper zoom moves
         g_handheld_rot_deg = config::get_float(INI_SECTION, "handheld_rot_deg", g_handheld_rot_deg);
@@ -1196,6 +1208,8 @@ static void save_config() {
     config::set_float(INI_SECTION, "ignition_side", g_ign_side);
     config::set_float(INI_SECTION, "ignition_height", g_ign_height);
     config::set_float(INI_SECTION, "ignition_lead", g_ign_lead);
+    config::set_float(INI_SECTION, "ignition_fov", g_ign_fov);
+    config::set_float(INI_SECTION, "ignition_pan_frac", g_ign_pan_frac);
     config::set_float(INI_SECTION, "grid_dist", g_grid_dist);
     config::set_float(INI_SECTION, "grid_height", g_grid_height);
     config::set_float(INI_SECTION, "grid_az_min", g_grid_az_min);
@@ -1291,7 +1305,9 @@ static void panel_director() {
     ImGui::SeparatorText("Binder ignition shot");
     changed |= ImGui::SliderFloat("Beside the grid", &g_ign_side, 20.0f, 400.0f, "%.0f");
     changed |= ImGui::SliderFloat("Height##ign", &g_ign_height, -10.0f, 100.0f, "%.0f");
-    changed |= ImGui::SliderFloat("Back off the first pod", &g_ign_lead, -100.0f, 300.0f, "%.0f");
+    changed |= ImGui::SliderFloat("In front of the grid", &g_ign_lead, -100.0f, 300.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Lens##ign (FOV x)", &g_ign_fov, 0.3f, 1.0f, "%.2f");
+    changed |= ImGui::SliderFloat("Pan coverage of the grid", &g_ign_pan_frac, 0.1f, 1.0f, "%.2f");
     ImGui::SeparatorText("Grid intro");
     changed |= ImGui::SliderFloat("Start height above the drone view", &g_intro_height, 0.0f, 1500.0f, "%.0f");
     changed |= ImGui::SliderFloat("Descent (s)", &g_intro_s, 1.0f, 15.0f, "%.1f");

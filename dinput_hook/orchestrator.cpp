@@ -51,7 +51,7 @@ static bool g_full_physics = true;// keep every AI pod off the on-rails LOD path
 static bool g_ai_damage = true;   // AI take fire damage and can explode like a human
 static bool g_ai_repair =
     false;// let AI repair (off: fires burn until the engine blows -- more drama)
-static float g_repair_start = 0.8f;     // damage on any segment before an AI bothers (0.8 = 20% health left)
+static float g_repair_start = 0.8f;     // damage on the worst segment before an AI bothers (0.8 = 20% health left)
 static float g_repair_stop = 0.2f;      // repair until the worst engine is this clean
 static float g_repair_turn_limit = 150.0f;// |turnRateTarget| below this counts as a straight
 static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
@@ -279,14 +279,29 @@ static const int BINDER_IGNITION_SFX = 0x74;
 // calls swrSound_SelectTrackMusic(planet, track, 0) to queue the track theme. Race TV holds the
 // countdown and the orbit is skippable, so that select never ran; the judge's per-frame
 // SetMusicFade(1) then arms an empty queue and the race runs silent. Do the select once per race.
+// The select alone was not enough: swrSound_UpdateMusic's arm step plays the queued track at the
+// gain the channel already holds (zero here, so playASoundImpl drops it) and then fades down toward
+// SetMusicFade(0), which clears the queue again. So hold the gain up and re-arm every frame while
+// the loop owns the screen -- the pattern swrObjJdge_F3 uses for a human race -- and kick the first
+// play directly (loop = 1, so UpdateMusic's own play dedups onto the same voice).
+static void sustain_track_music() {
+    if (!g_armed || swrSound_queuedMusicId <= 0)
+        return;
+    swrSound_musicGain = 1.0f;
+    swrSound_SetMusicFade(1);
+}
+
 static void arm_track_music(const swrObjJdge *jdge) {
     if (g_music_armed || jdge == NULL)
         return;
     g_music_armed = true;
     swrSound_SelectTrackMusic(jdge->planetId, jdge->planet_track_number, 0);
+    swrSound_musicGain = 1.0f;
     swrSound_SetMusicFade(1);
-    fprintf(hook_log, "[orchestrator] track music armed (planet %d track %d)\n",
-            (int) jdge->planetId, (int) jdge->planet_track_number);
+    if (swrSound_queuedMusicId > 0)
+        playASound(swrSound_queuedMusicId, 7, 0.25f, 1.0f, 1);
+    fprintf(hook_log, "[orchestrator] track music armed (planet %d track %d, sfx 0x%x)\n",
+            (int) jdge->planetId, (int) jdge->planet_track_number, swrSound_queuedMusicId);
     fflush(hook_log);
 }
 
@@ -484,6 +499,8 @@ static void supervise_ai_damage(swrRace *pod) {
             const float r = (float) rand() / (float) RAND_MAX;
             swrRace_TakeDamage((int) pod, i, (r * 0.1f + 0.1f) * dt);
         }
+        // swrRace_TakeDamage ADDS into engineHealth and clamps at 1.0, so despite the name the
+        // field is accumulated damage: 0 pristine, 1 destroyed. `worst` is the sickest segment.
         worst = std::max(worst, pod->engineHealth[i]);
     }
     // Repair like a driver would: only once a segment is genuinely in trouble (g_repair_start, 0.8
@@ -791,6 +808,7 @@ void orchestrator_Service() {
         const int state = jdge->flag & 0xf;
         const DWORD now = GetTickCount();
         arm_track_music(jdge);
+        sustain_track_music();
 
         if (g_skip_requested || g_restart_requested) {
             if (g_restart_requested)
