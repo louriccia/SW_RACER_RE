@@ -45,10 +45,10 @@ static float g_face_true_up = 1.0f;
 static float g_face_true_fov = 0.75f;// FOV multiplier (a tighter lens on the pilot)
 static float g_profile_band_deg = 35.0f;// azimuths within this of dead-side are pushed off it
 static bool g_handheld = true;          // grid / close shots get an operator's wobble
-static float g_handheld_amp = 1.0f;
+static float g_handheld_amp = 0.35f;
 static float g_handheld_speed = 1.6f;
 static float g_grid_dist = 22.0f;   // grid shot: from the cockpit
-static float g_grid_height = 6.0f;
+static float g_grid_height = 0.0f;// level with the cockpit: an operator standing on the grid
 static float g_grid_az_min = 25.0f, g_grid_az_max = 60.0f;// degrees off the nose
 static float g_face_dist = 30.0f;  // face cam: ahead of the pod
 static float g_face_height = 7.0f; // ... and up
@@ -63,7 +63,7 @@ static float g_trackside_aim_smooth = 0.15f;
 static float g_trackside_zoom = 0.45f;// FOV multiplier at plant distance (1 = no zoom); eases to 1 as the pod arrives
 static float g_trackside_zoom_near = 90.0f;// fully zoomed out by the time the pod is this close
 static float g_drone_height = 95.0f; // world units above the pod
-static const int CFG_VERSION = 8;    // bump when a default should override a stored value
+static const int CFG_VERSION = 9;    // bump when a default should override a stored value
 static float g_drone_back = 85.0f;   // behind the pod along its horizontal heading
 static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
 static float g_drone_smooth = 0.5f;  // position time constant (s)
@@ -937,10 +937,8 @@ static void load_config() {
     g_face_true_fov = config::get_float(INI_SECTION, "face_true_fov", g_face_true_fov);
     g_profile_band_deg = config::get_float(INI_SECTION, "profile_band_deg", g_profile_band_deg);
     g_handheld = config::get_int(INI_SECTION, "handheld", g_handheld) != 0;
-    g_handheld_amp = config::get_float(INI_SECTION, "handheld_amp", g_handheld_amp);
     g_handheld_speed = config::get_float(INI_SECTION, "handheld_speed", g_handheld_speed);
     g_grid_dist = config::get_float(INI_SECTION, "grid_dist", g_grid_dist);
-    g_grid_height = config::get_float(INI_SECTION, "grid_height", g_grid_height);
     g_grid_az_min = config::get_float(INI_SECTION, "grid_az_min", g_grid_az_min);
     g_grid_az_max = config::get_float(INI_SECTION, "grid_az_max", g_grid_az_max);
     g_w_chase_far = config::get_int(INI_SECTION, "shot_chase_far", g_w_chase_far);
@@ -978,10 +976,14 @@ static void load_config() {
     if (stored_version >= 7) {// v7: chase weight 2 -> 1
         g_w_chase = config::get_int(INI_SECTION, "shot_chase", g_w_chase);
     }
-    if (stored_version >= CFG_VERSION) {// v8: closer drone, fly-over cap halved
+    if (stored_version >= 8) {// v8: closer drone, fly-over cap halved
         g_drone_height = config::get_float(INI_SECTION, "drone_height", g_drone_height);
         g_drone_back = config::get_float(INI_SECTION, "drone_back", g_drone_back);
         g_drone_blend_max = config::get_float(INI_SECTION, "drone_blend_max", g_drone_blend_max);
+    }
+    if (stored_version >= CFG_VERSION) {// v9: ground-level grid shot, gentler handheld
+        g_grid_height = config::get_float(INI_SECTION, "grid_height", g_grid_height);
+        g_handheld_amp = config::get_float(INI_SECTION, "handheld_amp", g_handheld_amp);
     }
     g_min_shot_s = config::get_float(INI_SECTION, "min_shot_s", g_min_shot_s);
     g_drone_blend_s = config::get_float(INI_SECTION, "drone_blend_s", g_drone_blend_s);

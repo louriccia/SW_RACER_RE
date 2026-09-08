@@ -57,6 +57,7 @@ static float g_repair_delay_s = 4.0f;// ... and then it waits this long (+/-50%)
 static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
 static int g_hero_count = 5;// grid hold: cut to this many random racers with announcer lines (0 = off)
 static bool g_ignite = true;          // after the introductions: the field lights its energy binders
+static bool g_music_stings = true;    // planet fanfare on the opening shot, awards music on the win
 static float g_ignite_spread_s = 2.5f;// ... one pod after another over this long
 static const int CFG_VERSION = 3;// bump when a default should override a stored value
 static bool g_shuffle_grid = true; // random starting grid (stock: roster order, favourite up front)
@@ -266,6 +267,28 @@ static void reset_race_watch() {
 // introductions, on a wide drone, with the same sound.
 static float *const g_binder_ignition_timer = (float *) 0x0050caf8;
 static const int BINDER_IGNITION_SFX = 0x74;
+
+// swrSound_SelectPlanetIntroMusic queues swrMusicPlanetIntroTable[planet % 12] -- the planet's
+// arrival fanfare (mt01desert / mb00aquilarisintro / me00spiceintro / mx091lavacaves) -- as the
+// music track and arms a fade-in. Like the rest of the sound layer it returns without doing
+// anything when pods exist and NumLocalPlayers() == 0, so a local player is lent for the call.
+static const uint32_t SWRSOUND_SELECTPLANETINTROMUSIC_ADDR = 0x00427ad0;
+typedef unsigned int(__cdecl *swrSound_SelectPlanetIntroMusic_t)(unsigned int planet);
+
+// m099awards2, the awards fanfare swrObjHang_UpdateResultsIntro plays over the results reveal
+// (channel 7, the music channel, at 0.8 gain).
+static const int VICTORY_MUSIC_SFX = 0xa1;
+
+static void play_planet_sting(const swrObjJdge *jdge) {
+    if (!g_music_stings || jdge == NULL)
+        return;
+    swrScore *saved = firstLocalPlayer;
+    if (firstLocalPlayer == NULL && swrScoresPtr != NULL)
+        firstLocalPlayer = swrScoresPtr;
+    ((swrSound_SelectPlanetIntroMusic_t) SWRSOUND_SELECTPLANETINTROMUSIC_ADDR)(
+        (unsigned int) jdge->planetId);
+    firstLocalPlayer = saved;
+}
 static const float BINDER_STAGGER_S = 0.1f;// per entity id
 
 static void ignite_field(const swrObjJdge *jdge, DWORD now) {
@@ -331,6 +354,7 @@ static void showcase_heroes(const swrObjJdge *jdge, DWORD now) {
             director_GridIntro(slot);
             overlay_SetHighlightSlot(slot);
         }
+        play_planet_sting(jdge);
         g_hero_next_ms = now + (DWORD) (director_GridIntroSeconds() * 1000.0f) + 500;
         return;
     }
@@ -835,6 +859,8 @@ void orchestrator_Service() {
                 g_first_finish_ms = now;
                 g_cooldown_end_ms = now + (DWORD) (g_cooldown_s * 1000.0f);
                 g_next_track = pick_track(hang->track_index);
+                if (g_music_stings)
+                    playASound(VICTORY_MUSIC_SFX, 7, 0.25f, 0.8f, 0);
                 set_status("race %d: winner in; next race (track %d, %s) in %.0fs", g_races_started,
                            g_next_track, track_name(g_next_track), g_cooldown_s);
                 emit(ORCH_WINNER_IN);
@@ -930,6 +956,7 @@ static void load_config() {
         g_repair_start = config::get_float(INI_SECTION, "repair_start", g_repair_start);
     g_repair_delay_s = config::get_float(INI_SECTION, "repair_delay_s", g_repair_delay_s);
     g_ignite = config::get_int(INI_SECTION, "ignite", g_ignite) != 0;
+    g_music_stings = config::get_int(INI_SECTION, "music_stings", g_music_stings) != 0;
     g_ignite_spread_s = config::get_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
     g_shuffle_grid = config::get_int(INI_SECTION, "shuffle_grid", g_shuffle_grid) != 0;
     g_no_blue_flash =
@@ -955,6 +982,7 @@ static void save_config() {
     config::set_float(INI_SECTION, "repair_stop", g_repair_stop);
     config::set_float(INI_SECTION, "repair_delay_s", g_repair_delay_s);
     config::set_int(INI_SECTION, "ignite", g_ignite);
+    config::set_int(INI_SECTION, "music_stings", g_music_stings);
     config::set_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
     config::set_int(INI_SECTION, "ai_lighting", g_ai_lighting);
     config::set_int(INI_SECTION, "hero_count", g_hero_count);
@@ -1002,6 +1030,7 @@ static void panel_orchestrator() {
     changed |= ImGui::SliderInt("Grid showcase: racers introduced by the announcer", &g_hero_count, 0, 10);
     changed |= ImGui::Checkbox("Grid: the field ignites its binders after the introductions", &g_ignite);
     changed |= ImGui::SliderFloat("Ignition spread (s)", &g_ignite_spread_s, 0.5f, 8.0f, "%.1f");
+    changed |= ImGui::Checkbox("Planet fanfare on the opening shot, awards music on the win", &g_music_stings);
     if (ImGui::Button("Reset sound channels (if audio has died)")) {
         log_sound_health();
         swrSound_ResetRequestedVoices();
