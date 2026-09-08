@@ -320,12 +320,12 @@ static void ignite_field(const swrObjJdge *jdge, DWORD now) {
         *g_binder_ignition_timer = 0.0f;
         g_hero_hold_until_ms = now + (DWORD) (g_ignite_spread_s * 1000.0f) + 1500;
         playASound(BINDER_IGNITION_SFX, 6, 0.25f, 0.5f, 0);
-        int slot = -1;// wide shot of the pack: a drone over a mid-grid pod
+        int slot = -1;// trackside pan down the grid while the beams come up
         for (int i = jdge->num_players / 2; i < jdge->num_players && i < MAX_RACERS && slot < 0; i++)
             if (swrScoresPtr[i].obj_test_ptr != NULL)
                 slot = i;
         if (slot >= 0 && director_IsEnabled()) {
-            director_GridWide(slot);
+            director_GridIgnition(slot, g_ignite_spread_s + 1.5f);
             overlay_SetHighlightSlot(slot);
         }
         fprintf(hook_log, "[orchestrator] race %d: binders igniting\n", g_races_started);

@@ -52,6 +52,9 @@ static float g_handheld_speed = 1.6f;
 static float g_handheld_zoom_move_s = 5.0f;// seconds for one full push in / pull out
 static float g_grid_pan = 16.0f;        // grid shot: the aim sweeps this far along the pod
 static float g_grid_pan_s = 9.0f;       // ... over this long, one way (direction is random)
+static float g_ign_side = 90.0f;        // ignition shot: beside the grid (the crowd's side)
+static float g_ign_height = 10.0f;      // ... a little above the pods
+static float g_ign_lead = 60.0f;        // ... and this far back off the first pod
 static float g_grid_dist = 22.0f;   // grid shot: from the cockpit
 static float g_grid_height = 0.0f;// level with the cockpit: an operator standing on the grid
 static float g_grid_az_min = 25.0f, g_grid_az_max = 60.0f;// degrees off the nose
@@ -110,10 +113,11 @@ enum Shot {
     SHOT_FP_WIDE,
     SHOT_FACE_TRUE,// the true-cockpit rig reversed: rides the pilot's node, looking at the face
     SHOT_GRID,     // pre-race only: a front three-quarter on a stationary pod
+    SHOT_IGNITION, // pre-race only: trackside, panning down the grid as the binders light
 };
-static const char *SHOT_NAMES[] = {"chase",   "drone",  "orbit",   "cockpit",   "trackside",
-                                   "intro",   "face",   "chase far", "bumper",  "fp wide",
-                                   "face cam", "grid"};
+static const char *SHOT_NAMES[] = {"chase",    "drone", "orbit",     "cockpit", "trackside",
+                                   "intro",    "face",  "chase far", "bumper",  "fp wide",
+                                   "face cam", "grid",  "ignition"};
 
 // The game view a shot runs on (our override shots ride on chase near).
 static int shot_stock_mode(Shot s) {
@@ -149,6 +153,9 @@ static float g_grid_az = 0.6f;// this shot's azimuth off the nose (radians, sign
 static rdVector3 g_grid_pos;  // planted once per shot: the operator stands still
 static rdVector3 g_grid_fwd;  // the pod's heading at plant time (the pan axis)
 static float g_grid_pan_dir = 1.0f;
+static rdVector3 g_ign_pos, g_ign_a, g_ign_b;// planted camera, and the ends of the grid line
+static bool g_ign_planted = false;
+static float g_ign_pan_s = 4.0f;
 static float g_zoom_cur = 1.0f, g_zoom_target = 1.0f;
 static float g_zoom_dir = 1.0f;
 static DWORD g_zoom_hold_until_ms = 0;
@@ -261,6 +268,7 @@ static void set_shot(Shot s) {
     g_orbit_ang_seeded = false;
     g_trackside_planted = false;
     g_grid_planted = false;
+    g_ign_planted = false;
     g_grid_pan_dir = (rand() & 1) ? 1.0f : -1.0f;
     g_zoom_cur = 1.0f;
     g_zoom_target = 1.0f;
@@ -441,7 +449,7 @@ void director_Service() {
 
     const RaceTelemetryRow *cur = row_for_slot(t, g_target_slot);
     const bool manual_hold = now < g_manual_until_ms;
-    if (g_shot == SHOT_INTRO || g_shot == SHOT_GRID)
+    if (g_shot == SHOT_INTRO || g_shot == SHOT_GRID || g_shot == SHOT_IGNITION)
         set_shot(SHOT_DRONE);// pre-race shots do not survive the green light
 
     // The win is never off screen: once the leader is within g_finish_lock_s of the line, cut to
@@ -543,9 +551,10 @@ void director_Showcase(int slot) {
     cut_to(slot, "showcase");
 }
 
-void director_GridWide(int slot) {
+void director_GridIgnition(int slot, float pan_seconds) {
     cut_to(slot, "showcase");
-    set_shot(SHOT_DRONE);
+    g_ign_pan_s = pan_seconds > 0.5f ? pan_seconds : 0.5f;
+    set_shot(SHOT_IGNITION);
 }
 
 float director_GridIntroSeconds() {
@@ -632,6 +641,7 @@ static float handheld_amp() {
     switch (g_shot) {
         case SHOT_GRID:
         case SHOT_INTRO:
+        case SHOT_IGNITION:
             return 1.0f;
         case SHOT_FACE:
         case SHOT_FACE_TRUE:
@@ -841,6 +851,52 @@ static void shot_trackside(swrObjcMan *cman, const swrRace *pod) {
 
 // Trackside zoom: a long lens while the pod is far up the road, pulling out to the normal FOV as
 // it arrives, like a trackside operator following the approach.
+// Binder ignition: a crowd-side camera that pans down the grid while the beams light. The ripple
+// runs in entity-id order (swrRace_UpdateEnergyBinder lights a pod once the global timer passes
+// 0.1 s x its id), so the aim travels from the lowest-id pod to the highest, and the camera stands
+// off to one side of the line the way a grandstand would.
+static void shot_ignition(swrObjcMan *cman, const swrRace *pod) {
+    if (!g_ign_planted) {
+        const swrRace *first = NULL, *last = NULL;
+        for (int i = 0; i < RACE_TELEMETRY_MAX_ROWS; i++) {
+            const swrRace *p = swrScoresPtr[i].obj_test_ptr;
+            if (p == NULL)
+                continue;
+            if (first == NULL || p->obj.id < first->obj.id)
+                first = p;
+            if (last == NULL || p->obj.id > last->obj.id)
+                last = p;
+        }
+        if (first == NULL)
+            first = pod;
+        if (last == NULL)
+            last = pod;
+        g_ign_a = {first->transform.vD.x, first->transform.vD.y, first->transform.vD.z};
+        g_ign_b = {last->transform.vD.x, last->transform.vD.y, last->transform.vD.z};
+        // Beside the middle of the line, on the pods' right, backed off the first pod so the whole
+        // grid is in frame at the start of the pan.
+        const rdVector3 r = {pod->transform.vA.x, pod->transform.vA.y, pod->transform.vA.z};
+        const rdVector3 u = {pod->transform.vC.x, pod->transform.vC.y, pod->transform.vC.z};
+        const rdVector3 f = {pod->transform.vB.x, pod->transform.vB.y, pod->transform.vB.z};
+        const rdVector3 mid = {(g_ign_a.x + g_ign_b.x) * 0.5f, (g_ign_a.y + g_ign_b.y) * 0.5f,
+                               (g_ign_a.z + g_ign_b.z) * 0.5f};
+        g_ign_pos = {mid.x + r.x * g_ign_side - f.x * g_ign_lead + u.x * g_ign_height,
+                     mid.y + r.y * g_ign_side - f.y * g_ign_lead + u.y * g_ign_height,
+                     mid.z + r.z * g_ign_side - f.z * g_ign_lead + u.z * g_ign_height};
+        g_ign_planted = true;
+    }
+    const float t = g_ign_pan_s > 0.0f
+                        ? std::clamp((GetTickCount() - g_shot_start_ms) / (g_ign_pan_s * 1000.0f),
+                                     0.0f, 1.0f)
+                        : 1.0f;
+    const rdVector3 aim = {g_ign_a.x + (g_ign_b.x - g_ign_a.x) * t,
+                           g_ign_a.y + (g_ign_b.y - g_ign_a.y) * t,
+                           g_ign_a.z + (g_ign_b.z - g_ign_a.z) * t + 2.0f};
+    ease_to(g_ign_pos, aim, 0.0f);
+    g_cam_pos = g_ign_pos;
+    write_camera(cman);
+}
+
 // Grid: a front three-quarter on a pod that is not moving yet, framed on the cockpit, close
 // enough to read the pilot. Rigid (the pod is stationary) with the handheld drift on top.
 static void shot_grid(swrObjcMan *cman, const swrRace *pod) {
@@ -976,6 +1032,9 @@ static bool camera_override(swrObjcMan *cman) {
         case SHOT_GRID:
             shot_grid(cman, pod);
             return true;
+        case SHOT_IGNITION:
+            shot_ignition(cman, pod);
+            return true;
         default:
             return false;
     }
@@ -1025,6 +1084,9 @@ static void load_config() {
     g_handheld_speed = config::get_float(INI_SECTION, "handheld_speed", g_handheld_speed);
     g_grid_pan = config::get_float(INI_SECTION, "grid_pan", g_grid_pan);
     g_grid_pan_s = config::get_float(INI_SECTION, "grid_pan_s", g_grid_pan_s);
+    g_ign_side = config::get_float(INI_SECTION, "ignition_side", g_ign_side);
+    g_ign_height = config::get_float(INI_SECTION, "ignition_height", g_ign_height);
+    g_ign_lead = config::get_float(INI_SECTION, "ignition_lead", g_ign_lead);
     g_grid_dist = config::get_float(INI_SECTION, "grid_dist", g_grid_dist);
     g_grid_az_min = config::get_float(INI_SECTION, "grid_az_min", g_grid_az_min);
     g_grid_az_max = config::get_float(INI_SECTION, "grid_az_max", g_grid_az_max);
@@ -1116,6 +1178,9 @@ static void save_config() {
     config::set_float(INI_SECTION, "handheld_zoom_move_s", g_handheld_zoom_move_s);
     config::set_float(INI_SECTION, "grid_pan", g_grid_pan);
     config::set_float(INI_SECTION, "grid_pan_s", g_grid_pan_s);
+    config::set_float(INI_SECTION, "ignition_side", g_ign_side);
+    config::set_float(INI_SECTION, "ignition_height", g_ign_height);
+    config::set_float(INI_SECTION, "ignition_lead", g_ign_lead);
     config::set_float(INI_SECTION, "grid_dist", g_grid_dist);
     config::set_float(INI_SECTION, "grid_height", g_grid_height);
     config::set_float(INI_SECTION, "grid_az_min", g_grid_az_min);
@@ -1208,6 +1273,10 @@ static void panel_director() {
     changed |= ImGui::SliderFloat("Angle off the nose, max (deg)", &g_grid_az_max, 0.0f, 80.0f, "%.0f");
     changed |= ImGui::SliderFloat("Pan across the pod (units)", &g_grid_pan, 0.0f, 60.0f, "%.0f");
     changed |= ImGui::SliderFloat("Pan duration (s)", &g_grid_pan_s, 1.0f, 30.0f, "%.0f");
+    ImGui::SeparatorText("Binder ignition shot");
+    changed |= ImGui::SliderFloat("Beside the grid", &g_ign_side, 20.0f, 400.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Height##ign", &g_ign_height, -10.0f, 100.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Back off the first pod", &g_ign_lead, -100.0f, 300.0f, "%.0f");
     ImGui::SeparatorText("Grid intro");
     changed |= ImGui::SliderFloat("Start height above the drone view", &g_intro_height, 0.0f, 1500.0f, "%.0f");
     changed |= ImGui::SliderFloat("Descent (s)", &g_intro_s, 1.0f, 15.0f, "%.1f");
@@ -1281,6 +1350,9 @@ static void panel_director() {
     ImGui::SameLine();
     if (ImGui::Button("Grid"))
         set_shot(SHOT_GRID);
+    ImGui::SameLine();
+    if (ImGui::Button("Ignition"))
+        set_shot(SHOT_IGNITION);
     ImGui::SameLine();
     if (ImGui::Button("Far"))
         set_shot(SHOT_CHASE_FAR);
