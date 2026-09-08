@@ -88,7 +88,9 @@ static float g_orbit_radius = 60.0f;// camera distance from the followed pod
 static float g_orbit_height = 18.0f;
 static float g_orbit_smooth = 0.4f;
 static float g_cockpit_max_s = 8.0f;// cockpit shots are short
-static float g_occlusion_s = 1.2f;  // free camera blocked by the track this long -> back to chase
+static float g_occlusion_s = 1.2f;  // free camera STILL blocked this long once closed in -> cut
+static float g_close_rate = 0.9f;   // how fast a blocked shot closes in (fraction per second)
+static float g_close_recover = 0.3f;// ... and eases back out once the view is clear
 static float g_roll_scale = 0.3f;   // roll kept on the shots that inherit the pod's (1 = stock)
 static float g_intro_height = 380.0f;// grid intro: the drone starts this far above its normal height
 static float g_intro_s = 4.5f;       // ... and descends onto the grid over this long
@@ -150,6 +152,9 @@ static rdVector3 g_trackside_fwd;// spline tangent at the camera (pass-by test)
 static bool g_trackside_planted = false;
 static DWORD g_blend_until_ms = 0;// drone -> drone: the camera flies rather than cuts until then
 static DWORD g_blocked_since_ms = 0;// free-camera line of sight to the pod lost at (0 = clear)
+static float g_close = 1.0f;        // 1 = the shot's own framing, less = pulled in past an obstruction
+static rdVector3 g_trackside_base;  // the spline point the trackside camera is offset from
+static rdVector3 g_trackside_right, g_trackside_up;// and the offset axes, so it can slide in
 static DWORD g_win_seen_ms = 0;     // the winner crossed the line at (0 = not yet)
 static DWORD g_intro_start_ms = 0;
 static float g_face_sign = 1.0f;
@@ -251,6 +256,7 @@ static int nearest_rival(const RaceTelemetry *t, int slot, float max_dist) {
 }
 
 static float avoid_profile(float az);// defined with the framing helpers below
+static float close_floor(Shot s);   // ... as is the blocked-shot close-in floor
 
 static void set_shot(Shot s) {
     if (g_shot == SHOT_COCKPIT && s != SHOT_COCKPIT)
@@ -273,6 +279,7 @@ static void set_shot(Shot s) {
     g_trackside_planted = false;
     g_grid_planted = false;
     g_ign_planted = false;
+    g_close = 1.0f;
     g_grid_pan_dir = (rand() & 1) ? 1.0f : -1.0f;
     g_zoom_cur = 1.0f;
     g_zoom_target = 1.0f;
@@ -535,18 +542,23 @@ void director_Service() {
         // so the occlusion cut also waits out the minimum shot length)
         if (g_shot == SHOT_DRONE || g_shot == SHOT_ORBIT || g_shot == SHOT_TRACKSIDE) {
             const swrRace *pod = swrScoresPtr[g_target_slot].obj_test_ptr;
+            const float dt = (float) swrRace_deltaTimeSecs;
+            const float floor_close = close_floor(g_shot);
             if (pod != NULL && view_blocked(pod)) {
+                g_close = std::max(floor_close, g_close - g_close_rate * dt);
+                const bool as_close_as_it_goes = g_close <= floor_close + 0.01f;
                 if (g_blocked_since_ms == 0)
                     g_blocked_since_ms = now;
-                else if (!shot_young &&
+                else if (!shot_young && as_close_as_it_goes &&
                          now - g_blocked_since_ms > (DWORD) (g_occlusion_s * 1000.0f)) {
-                    fprintf(hook_log, "[director] %s shot blocked by the track\n",
+                    fprintf(hook_log, "[director] %s shot blocked even up close, cutting\n",
                             SHOT_NAMES[g_shot]);
                     fflush(hook_log);
                     next_shot(t);
                 }
             } else {
                 g_blocked_since_ms = 0;
+                g_close = std::min(1.0f, g_close + g_close_recover * dt);
             }
         }
         if (g_shot == SHOT_ORBIT) {
@@ -636,6 +648,22 @@ static void ease_to(const rdVector3 &want_pos, const rdVector3 &want_aim, float 
     g_cam_aim.x += (want_aim.x - g_cam_aim.x) * b;
     g_cam_aim.y += (want_aim.y - g_cam_aim.y) * b;
     g_cam_aim.z += (want_aim.z - g_cam_aim.z) * b;
+}
+
+// A blocked shot moves toward its subject instead of giving up on it: terrain between camera and
+// pod is usually a ridge or a tunnel mouth that a closer camera clears. Each shot has a floor on
+// how far in it will come; only when it is that close and STILL blocked does the director cut.
+static float close_floor(Shot s) {
+    switch (s) {
+        case SHOT_DRONE:
+            return 0.3f;
+        case SHOT_TRACKSIDE:
+            return 0.15f;
+        case SHOT_ORBIT:
+            return 0.5f;
+        default:
+            return 1.0f;
+    }
 }
 
 // Broadcast framing rule: a camera square to the pod's flank reads as a flat profile -- the pod
@@ -740,9 +768,10 @@ static void shot_drone(swrObjcMan *cman, const swrRace *pod) {
     float fx, fy;
     heading_xy(pod, &fx, &fy);
     const rdVector3 p = {pod->transform.vD.x, pod->transform.vD.y, pod->transform.vD.z};
-    const rdVector3 want_pos = {p.x - fx * g_drone_back, p.y - fy * g_drone_back,
-                                p.z + g_drone_height};
-    const rdVector3 want_aim = {p.x + fx * g_drone_ahead, p.y + fy * g_drone_ahead, p.z};
+    const rdVector3 want_pos = {p.x - fx * g_drone_back * g_close, p.y - fy * g_drone_back * g_close,
+                                p.z + g_drone_height * g_close};
+    const rdVector3 want_aim = {p.x + fx * g_drone_ahead * g_close,
+                                p.y + fy * g_drone_ahead * g_close, p.z};
     const bool flying = g_blend_until_ms != 0 && GetTickCount() < g_blend_until_ms;
     ease_to(want_pos, want_aim, flying ? std::max(g_drone_smooth, g_drone_blend_tau) : g_drone_smooth);
     write_camera(cman);
@@ -792,8 +821,9 @@ static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *riva
             d += 6.2831853f;
         g_orbit_ang += d * a;
     }
-    const rdVector3 pos = {p.x + cosf(g_orbit_ang) * g_orbit_radius,
-                           p.y + sinf(g_orbit_ang) * g_orbit_radius, p.z + g_orbit_height};
+    const float radius = g_orbit_radius * g_close;
+    const rdVector3 pos = {p.x + cosf(g_orbit_ang) * radius, p.y + sinf(g_orbit_ang) * radius,
+                           p.z + g_orbit_height * g_close};
     const rdVector3 want_aim = {p.x * 0.35f + q.x * 0.65f, p.y * 0.35f + q.y * 0.65f,
                                 p.z * 0.35f + q.z * 0.65f + 2.0f};
     ease_to(pos, want_aim, 0.12f);
@@ -858,10 +888,13 @@ static bool plant_trackside(const swrRace *pod) {
         if (sqrtf(dx * dx + dy * dy + dz * dz) >= g_trackside_ahead)
             break;
     }
-    const float side = (rand() & 1) ? g_trackside_side : -g_trackside_side;
-    g_trackside_pos = {m.vD.x + m.vA.x * side + m.vC.x * g_trackside_height,
-                       m.vD.y + m.vA.y * side + m.vC.y * g_trackside_height,
-                       m.vD.z + m.vA.z * side + m.vC.z * g_trackside_height};
+    const float side = (rand() & 1) ? 1.0f : -1.0f;
+    g_trackside_base = {m.vD.x, m.vD.y, m.vD.z};
+    g_trackside_right = {m.vA.x * side, m.vA.y * side, m.vA.z * side};
+    g_trackside_up = {m.vC.x, m.vC.y, m.vC.z};
+    g_trackside_pos = {m.vD.x + g_trackside_right.x * g_trackside_side + m.vC.x * g_trackside_height,
+                       m.vD.y + g_trackside_right.y * g_trackside_side + m.vC.y * g_trackside_height,
+                       m.vD.z + g_trackside_right.z * g_trackside_side + m.vC.z * g_trackside_height};
     g_trackside_fwd = {m.vB.x, m.vB.y, 0.0f};
     const float l = sqrtf(g_trackside_fwd.x * g_trackside_fwd.x + g_trackside_fwd.y * g_trackside_fwd.y);
     if (l > 1e-3f) {
@@ -873,7 +906,7 @@ static bool plant_trackside(const swrRace *pod) {
         const float dx = g_trackside_pos.x - start.x, dy = g_trackside_pos.y - start.y,
                     dz = g_trackside_pos.z - start.z;
         fprintf(hook_log, "[director] trackside planted %.0f units from the pod (side %+.0f)\n",
-                sqrtf(dx * dx + dy * dy + dz * dz), side);
+                sqrtf(dx * dx + dy * dy + dz * dz), side * g_trackside_side);
         fflush(hook_log);
     }
     return true;
@@ -884,6 +917,13 @@ static void shot_trackside(swrObjcMan *cman, const swrRace *pod) {
         set_shot(SHOT_CHASE);
         return;
     }
+    // Re-derive the stand from the spline frame every frame: while the view is blocked g_close
+    // walks down and the camera slides in toward the track, rather than holding a blind angle.
+    const float side = g_trackside_side * g_close;
+    const float up = g_trackside_height * g_close;
+    g_trackside_pos = {g_trackside_base.x + g_trackside_right.x * side + g_trackside_up.x * up,
+                       g_trackside_base.y + g_trackside_right.y * side + g_trackside_up.y * up,
+                       g_trackside_base.z + g_trackside_right.z * side + g_trackside_up.z * up};
     const rdVector3 want_aim = {pod->transform.vD.x, pod->transform.vD.y, pod->transform.vD.z};
     ease_to(g_trackside_pos, want_aim, g_trackside_aim_smooth);
     g_cam_pos = g_trackside_pos;// the position never eases: a tripod, not a drone
@@ -1187,6 +1227,8 @@ static void load_config() {
     }
     g_finish_lock_s = config::get_float(INI_SECTION, "finish_lock_s", g_finish_lock_s);
     g_roll_scale = config::get_float(INI_SECTION, "roll_scale", g_roll_scale);
+    g_close_rate = config::get_float(INI_SECTION, "close_rate", g_close_rate);
+    g_close_recover = config::get_float(INI_SECTION, "close_recover", g_close_recover);
     g_intro_height = config::get_float(INI_SECTION, "intro_height", g_intro_height);
     g_intro_s = config::get_float(INI_SECTION, "intro_s", g_intro_s);
     if (stored_version >= 6) {// v6: orbit weight 2 -> 4
@@ -1303,6 +1345,8 @@ static void save_config() {
     config::set_float(INI_SECTION, "occlusion_s", g_occlusion_s);
     config::set_float(INI_SECTION, "finish_lock_s", g_finish_lock_s);
     config::set_float(INI_SECTION, "roll_scale", g_roll_scale);
+    config::set_float(INI_SECTION, "close_rate", g_close_rate);
+    config::set_float(INI_SECTION, "close_recover", g_close_recover);
     config::set_float(INI_SECTION, "intro_height", g_intro_height);
     config::set_float(INI_SECTION, "intro_s", g_intro_s);
     config::save();
@@ -1335,7 +1379,9 @@ static void panel_director() {
     changed |= ImGui::SliderInt("Chase far (stock)", &g_w_chase_far, 0, 10);
     changed |= ImGui::SliderInt("Bumper (stock first person)", &g_w_bumper, 0, 10);
     changed |= ImGui::SliderInt("First person wide (stock)", &g_w_fp_wide, 0, 10);
-    changed |= ImGui::SliderFloat("Cut when the track blocks the view for (s)", &g_occlusion_s, 0.2f, 5.0f, "%.1f");
+    changed |= ImGui::SliderFloat("Cut when still blocked up close for (s)", &g_occlusion_s, 0.2f, 5.0f, "%.1f");
+    changed |= ImGui::SliderFloat("Close-in rate when blocked", &g_close_rate, 0.0f, 3.0f, "%.2f");
+    changed |= ImGui::SliderFloat("Ease back out rate", &g_close_recover, 0.0f, 2.0f, "%.2f");
     changed |= ImGui::SliderFloat("Cut to the leader this long before the win (s)", &g_finish_lock_s, 0.0f, 30.0f, "%.0f");
     changed |= ImGui::SliderFloat("Camera roll kept (1 = stock)", &g_roll_scale, 0.0f, 1.0f, "%.2f");
     ImGui::SeparatorText("Face cam");
