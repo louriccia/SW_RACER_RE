@@ -291,12 +291,42 @@ static void set_shot(Shot s) {
         playercam_SetStockMode(cman, shot_stock_mode(s));
 }
 
+// Shots rigidly attached to the pod: they inherit its orientation, so a spinout (or the death
+// tumble) turns them into an unwatchable spinning frame. The external shots are unaffected.
+static bool shot_is_attached(Shot s) {
+    switch (s) {
+        case SHOT_COCKPIT:
+        case SHOT_FACE:
+        case SHOT_FACE_TRUE:
+        case SHOT_BUMPER:
+        case SHOT_FP_WIDE:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool pod_spinning(const swrRace *pod) {
+    if (pod == NULL)
+        return false;
+    const int spin = swrObjTest_FLAG1_EXPLODING | swrObjTest_FLAG1_EXPLODING_LEFT |
+                     swrObjTest_FLAG1_EXPLODING_RIGHT;
+    return (pod->flags1 & spin) != 0 || (pod->flags0 & swrObjTest_FLAG0_DEAD) != 0;
+}
+
 // Roll a shot for the new target; orbit only when a rival is in range.
 static Shot pick_shot(const RaceTelemetry *t, int slot) {
     g_orbit_rival = nearest_rival(t, slot, g_orbit_dist);
     const int wo = g_orbit_rival >= 0 ? g_w_orbit : 0;
-    const int total = g_w_chase + g_w_drone + wo + g_w_cockpit + g_w_trackside + g_w_face +
-                      g_w_face_true + g_w_chase_far + g_w_bumper + g_w_fp_wide;
+    const bool spin =
+        swrScoresPtr != NULL && slot >= 0 ? pod_spinning(swrScoresPtr[slot].obj_test_ptr) : false;
+    const int wcp = spin ? 0 : g_w_cockpit;
+    const int wfa = spin ? 0 : g_w_face;
+    const int wft = spin ? 0 : g_w_face_true;
+    const int wbu = spin ? 0 : g_w_bumper;
+    const int wfw = spin ? 0 : g_w_fp_wide;
+    const int total = g_w_chase + g_w_drone + wo + wcp + g_w_trackside + wfa + wft + g_w_chase_far +
+                      wbu + wfw;
     if (total <= 0)
         return SHOT_CHASE;
     int roll = rand() % total;
@@ -309,24 +339,24 @@ static Shot pick_shot(const RaceTelemetry *t, int slot) {
     if (roll < wo)
         return SHOT_ORBIT;
     roll -= wo;
-    if (roll < g_w_cockpit)
+    if (roll < wcp)
         return SHOT_COCKPIT;
-    roll -= g_w_cockpit;
+    roll -= wcp;
     if (roll < g_w_trackside)
         return SHOT_TRACKSIDE;
     roll -= g_w_trackside;
-    if (roll < g_w_face)
+    if (roll < wfa)
         return SHOT_FACE;
-    roll -= g_w_face;
-    if (roll < g_w_face_true)
+    roll -= wfa;
+    if (roll < wft)
         return SHOT_FACE_TRUE;
-    roll -= g_w_face_true;
+    roll -= wft;
     if (roll < g_w_chase_far)
         return SHOT_CHASE_FAR;
     roll -= g_w_chase_far;
-    if (roll < g_w_bumper)
+    if (roll < wbu)
         return SHOT_BUMPER;
-    return SHOT_FP_WIDE;
+    return wfw > 0 ? SHOT_FP_WIDE : SHOT_DRONE;
 }
 
 // A shot that ran its course (trackside pass-by, cockpit timer, rival gone, view blocked) hands
@@ -491,6 +521,13 @@ void director_Service() {
 
     // Shot upkeep: orbit needs its rival in range; cockpit shots are short; a free camera that
     // loses sight of the pod behind the track for a while drops back to the chase view.
+    if (!must_cut && shot_is_attached(g_shot) && swrScoresPtr != NULL && g_target_slot >= 0 &&
+        pod_spinning(swrScoresPtr[g_target_slot].obj_test_ptr)) {
+        fprintf(hook_log, "[director] %s shot: pod spinning out, going external\n",
+                SHOT_NAMES[g_shot]);
+        fflush(hook_log);
+        set_shot(SHOT_DRONE);
+    }
     if (!must_cut) {
         // (a trackside camera planted ahead often has terrain between it and the approaching pod,
         // so the occlusion cut also waits out the minimum shot length)
