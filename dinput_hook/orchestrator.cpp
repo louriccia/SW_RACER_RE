@@ -117,6 +117,7 @@ enum MusicPhase { MUSIC_PHASE_NONE = 0, MUSIC_PHASE_GRID, MUSIC_PHASE_RACE, MUSI
 static MusicPhase g_music_phase = MUSIC_PHASE_NONE;
 static int g_sting_sfx = -1;// the grid fanfare's id, so its voice can be stopped at the green light
 static int g_theme_sfx = -1;// ... and the track theme's, for the winner's fanfare
+static DWORD g_sting_until_ms = 0;// the grid fanfare is still playing until this tick
 static const int SHARED_AI_BANK =
     10;// the one light bank every AI pod reads (see apply_ai_lighting)
 static float g_last_progress[MAX_RACERS];
@@ -260,6 +261,7 @@ static void reset_race_watch() {
     g_music_phase = MUSIC_PHASE_NONE;
     g_sting_sfx = -1;
     g_theme_sfx = -1;
+    g_sting_until_ms = 0;
 }
 
 // Grid showcase: while the grid is held, cut to a few random racers in turn and play the
@@ -335,8 +337,13 @@ static void arm_music(const swrObjJdge *jdge, int state) {
         swrSound_currentMusicId = -1;
         const int planet = std::clamp((int) jdge->planetId, 0, 7);
         g_sting_sfx = (int) swrMusicPlanetIntroTable[planet];
-        if (g_sting_sfx > 0)
+        if (g_sting_sfx > 0) {
             playASound(g_sting_sfx, 7, 0.25f, 1.0f, 0);
+            // The announcer waits it out: a commentator line under the fanfare loses to it.
+            const swrSoundDescriptor *e = (const swrSoundDescriptor *) swrSound_GetEntry(g_sting_sfx);
+            g_sting_until_ms =
+                GetTickCount() + (e != NULL && e->durationMs > 0 ? e->durationMs : 8000);
+        }
         fprintf(hook_log, "[orchestrator] planet sting: music sfx 0x%x (once)\n", g_sting_sfx);
         fflush(hook_log);
         return;
@@ -438,7 +445,11 @@ static void showcase_heroes(const swrObjJdge *jdge, DWORD now) {
             director_GridIntro(slot);
             overlay_SetHighlightSlot(slot);
         }
-        g_hero_next_ms = now + (DWORD) (director_GridIntroSeconds() * 1000.0f) + 500;
+        // Hold the opening drone until the descent AND the planet fanfare are both done.
+        DWORD ready = now + (DWORD) (director_GridIntroSeconds() * 1000.0f) + 500;
+        if (g_sting_until_ms > ready)
+            ready = g_sting_until_ms + 400;
+        g_hero_next_ms = ready;
         return;
     }
     if (now < g_hero_next_ms)
