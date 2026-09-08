@@ -57,9 +57,9 @@ static float g_repair_turn_limit = 150.0f;// |turnRateTarget| below this counts 
 static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
 static int g_hero_count = 5;// grid hold: cut to this many random racers with announcer lines (0 = off)
 static bool g_ignite = true;          // after the introductions: the field lights its energy binders
-static float g_ignite_spread_s = 2.5f;// ... one pod after another over this long
-static float g_ignite_pan_s = 11.0f;  // and the crowd shot pans the grid over this long
-static const int CFG_VERSION = 3;// bump when a default should override a stored value
+static float g_ignite_spread_s = 8.0f;// ... one pod after another over this long; the crowd
+                                      // shot's pan runs with it and ends when the last one lights
+static const int CFG_VERSION = 4;// bump when a default should override a stored value
 static bool g_shuffle_grid = true; // random starting grid (stock: roster order, favourite up front)
 static bool g_no_blue_flash = true;// keep the respawn light override off the shared AI light bank
 static float g_snapshot_s = 20.0f; // periodic field snapshot to hook.log (0 = off)
@@ -295,40 +295,50 @@ static void sustain_track_music() {
     swrSound_SetMusicFade(1);
 }
 
-static void play_music_id(int sfx, const char *what) {
-    if (sfx <= 0)
-        return;
-    // Free the one stream (swrSoundStream_file) before starting another streamed entry: parking the
-    // queue leaves the old looping voice playing and holding it.
-    if (swrSound_queuedMusicId > 0 && swrSound_queuedMusicId != sfx)
-        swrSound_StopVoiceById(swrSound_queuedMusicId);
-    swrSound_queuedMusicId = sfx;
-    swrSound_musicGain = 1.0f;
-    swrSound_SetMusicFade(1);
-    playASound(sfx, 7, 0.25f, 1.0f, 1);
-    fprintf(hook_log, "[orchestrator] %s: music sfx 0x%x\n", what, sfx);
-    fflush(hook_log);
+// Free the one stream (swrSoundStream_file) before starting another streamed entry: parking the
+// queue leaves the outgoing looping voice playing and holding it.
+static void stop_music_voice(int sfx) {
+    if (sfx > 0)
+        swrSound_StopVoiceById(sfx);
 }
 
+static int g_sting_sfx = -1;// the grid fanfare's id, so its voice can be stopped at the green light
+
 // Grid: the planet's arrival fanfare (swrMusicPlanetIntroTable, the sting the game plays when you
-// touch down on a planet) instead of the race theme.
+// touch down on a planet), ONCE. A one-shot voice with an empty controller queue: with nothing
+// queued, swrSound_UpdateMusic has nothing to re-issue, so the sting is not looped or faded and the
+// grid runs quiet after it finishes.
 static void arm_music(const swrObjJdge *jdge, int state) {
     if (jdge == NULL)
         return;
-    const bool on_grid = state == 0 || state == 5;
-    if (on_grid) {
+    if (state == 0 || state == 5) {
         if (g_music_phase != MUSIC_PHASE_NONE)
             return;
         g_music_phase = MUSIC_PHASE_GRID;
+        stop_music_voice(swrSound_queuedMusicId);
+        swrSound_queuedMusicId = -1;
+        swrSound_currentMusicId = -1;
         const int planet = std::clamp((int) jdge->planetId, 0, 7);
-        play_music_id((int) swrMusicPlanetIntroTable[planet], "planet sting");
+        g_sting_sfx = (int) swrMusicPlanetIntroTable[planet];
+        if (g_sting_sfx > 0)
+            playASound(g_sting_sfx, 7, 0.25f, 1.0f, 0);
+        fprintf(hook_log, "[orchestrator] planet sting: music sfx 0x%x (once)\n", g_sting_sfx);
+        fflush(hook_log);
         return;
     }
     if (g_music_phase == MUSIC_PHASE_RACE)
         return;
     g_music_phase = MUSIC_PHASE_RACE;
+    stop_music_voice(g_sting_sfx);
+    g_sting_sfx = -1;
     swrSound_SelectTrackMusic(jdge->planetId, jdge->planet_track_number, 0);
-    play_music_id(swrSound_queuedMusicId, "track theme");
+    const int sfx = swrSound_queuedMusicId;
+    swrSound_musicGain = 1.0f;
+    swrSound_SetMusicFade(1);
+    if (sfx > 0)
+        playASound(sfx, 7, 0.25f, 1.0f, 1);
+    fprintf(hook_log, "[orchestrator] track theme: music sfx 0x%x\n", sfx);
+    fflush(hook_log);
 }
 
 static const float BINDER_STAGGER_S = 0.1f;// per entity id
@@ -340,15 +350,14 @@ static void ignite_field(const swrObjJdge *jdge, DWORD now) {
     if (g_ignite_start_ms == 0) {
         g_ignite_start_ms = now;
         *g_binder_ignition_timer = 0.0f;
-        g_hero_hold_until_ms =
-            now + (DWORD) (std::max(g_ignite_spread_s, g_ignite_pan_s) * 1000.0f) + 1500;
+        g_hero_hold_until_ms = now + (DWORD) (g_ignite_spread_s * 1000.0f) + 1200;
         playASound(BINDER_IGNITION_SFX, 6, 0.25f, 0.5f, 0);
         int slot = -1;// trackside pan down the grid while the beams come up
         for (int i = jdge->num_players / 2; i < jdge->num_players && i < MAX_RACERS && slot < 0; i++)
             if (swrScoresPtr[i].obj_test_ptr != NULL)
                 slot = i;
         if (slot >= 0 && director_IsEnabled()) {
-            director_GridIgnition(slot, g_ignite_pan_s);
+            director_GridIgnition(slot, g_ignite_spread_s);
             overlay_SetHighlightSlot(slot);
         }
         fprintf(hook_log, "[orchestrator] race %d: binders igniting\n", g_races_started);
@@ -983,8 +992,8 @@ static void load_config() {
     g_repair_start = config::get_float(INI_SECTION, "repair_start", g_repair_start);
     g_repair_turn_limit = config::get_float(INI_SECTION, "repair_turn_limit", g_repair_turn_limit);
     g_ignite = config::get_int(INI_SECTION, "ignite", g_ignite) != 0;
-    g_ignite_spread_s = config::get_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
-    g_ignite_pan_s = config::get_float(INI_SECTION, "ignite_pan_s", g_ignite_pan_s);
+    if (stored_version >= CFG_VERSION)// v4: one duration for the beams and the crowd pan
+        g_ignite_spread_s = config::get_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
     g_shuffle_grid = config::get_int(INI_SECTION, "shuffle_grid", g_shuffle_grid) != 0;
     g_no_blue_flash =
         config::get_int(INI_SECTION, "no_blue_flash", g_no_blue_flash) != 0;
@@ -1010,7 +1019,6 @@ static void save_config() {
     config::set_float(INI_SECTION, "repair_turn_limit", g_repair_turn_limit);
     config::set_int(INI_SECTION, "ignite", g_ignite);
     config::set_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
-    config::set_float(INI_SECTION, "ignite_pan_s", g_ignite_pan_s);
     config::set_int(INI_SECTION, "ai_lighting", g_ai_lighting);
     config::set_int(INI_SECTION, "hero_count", g_hero_count);
     config::set_int(INI_SECTION, "cfg_version", CFG_VERSION);
@@ -1054,8 +1062,7 @@ static void panel_orchestrator() {
     changed |= ImGui::Checkbox("Light AI pods from the followed pod's light bank", &g_ai_lighting);
     changed |= ImGui::SliderInt("Grid showcase: racers introduced by the announcer", &g_hero_count, 0, 10);
     changed |= ImGui::Checkbox("Grid: the field ignites its binders after the introductions", &g_ignite);
-    changed |= ImGui::SliderFloat("Ignition spread (s)", &g_ignite_spread_s, 0.5f, 8.0f, "%.1f");
-    changed |= ImGui::SliderFloat("Ignition camera pan (s)", &g_ignite_pan_s, 2.0f, 30.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Ignition + pan duration (s)", &g_ignite_spread_s, 1.0f, 20.0f, "%.1f");
     if (ImGui::Button("Reset sound channels (if audio has died)")) {
         log_sound_health();
         swrSound_ResetRequestedVoices();
