@@ -51,14 +51,13 @@ static bool g_full_physics = true;// keep every AI pod off the on-rails LOD path
 static bool g_ai_damage = true;   // AI take fire damage and can explode like a human
 static bool g_ai_repair =
     false;// let AI repair (off: fires burn until the engine blows -- more drama)
-static float g_repair_start = 0.7f; // worst engine damage (0..1) before an AI even thinks about repairing
-static float g_repair_stop = 0.2f;
-static float g_repair_delay_s = 4.0f;// ... and then it waits this long (+/-50%) before starting
+static float g_repair_stop = 0.2f;      // repair until the worst engine is this clean
+static float g_repair_turn_limit = 150.0f;// |turnRateTarget| below this counts as a straight
 static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
 static int g_hero_count = 5;// grid hold: cut to this many random racers with announcer lines (0 = off)
 static bool g_ignite = true;          // after the introductions: the field lights its energy binders
-static bool g_music_stings = true;    // planet fanfare on the opening shot, awards music on the win
 static float g_ignite_spread_s = 2.5f;// ... one pod after another over this long
+static float g_ignite_pan_s = 11.0f;  // and the crowd shot pans the grid over this long
 static const int CFG_VERSION = 3;// bump when a default should override a stored value
 static bool g_shuffle_grid = true; // random starting grid (stock: roster order, favourite up front)
 static bool g_no_blue_flash = true;// keep the respawn light override off the shared AI light bank
@@ -111,18 +110,12 @@ static DWORD g_hero_next_ms = 0;
 static DWORD g_hero_hold_until_ms = 0;// keep the grid until the last intro has finished
 static bool g_hero_used[MAX_RACERS];
 static DWORD g_ignite_start_ms = 0;// 0 = not yet
-// What to do with the music once the sting currently playing is done.
-enum MusicAfter { MUSIC_AFTER_NONE = 0, MUSIC_AFTER_TRACK_THEME, MUSIC_AFTER_SILENCE };
-static MusicAfter g_music_after = MUSIC_AFTER_NONE;
-static DWORD g_music_after_ms = 0;// not before this (a fanfare plays out first)
-static int g_music_trace = 0;     // frames of music tracing left after a sting is queued
 static const int SHARED_AI_BANK =
     10;// the one light bank every AI pod reads (see apply_ai_lighting)
 static float g_last_progress[MAX_RACERS];
 static DWORD g_last_progress_ms[MAX_RACERS];
 static int g_snaps[MAX_RACERS];
 static bool g_dnf_marked[MAX_RACERS];
-static DWORD g_repair_due_ms[MAX_RACERS];// per slot: repair may start at (0 = not pending)
 static int g_snaps_total = 0;
 static int g_dnf_total = 0;
 static int g_ai_explosions = 0;
@@ -245,7 +238,6 @@ static void reset_race_watch() {
         g_last_progress_ms[i] = 0;
         g_snaps[i] = 0;
         g_dnf_marked[i] = false;
-        g_repair_due_ms[i] = 0;
     }
     g_first_finish_ms = 0;
     g_fini_fired = false;
@@ -258,8 +250,6 @@ static void reset_race_watch() {
     g_hero_hold_until_ms = 0;
     memset(g_hero_used, 0, sizeof(g_hero_used));
     g_ignite_start_ms = 0;
-    g_music_after = MUSIC_AFTER_NONE;
-    g_music_after_ms = 0;
 }
 
 // Grid showcase: while the grid is held, cut to a few random racers in turn and play the
@@ -275,90 +265,14 @@ static void reset_race_watch() {
 static float *const g_binder_ignition_timer = (float *) 0x0050caf8;
 static const int BINDER_IGNITION_SFX = 0x74;
 
-// The planet's arrival fanfare (mt01desert / mb00aquilarisintro / me00spiceintro / mx091lavacaves),
-// per planet in swrMusicPlanetIntroTable, and the awards fanfare for the win. Every one is a
-// megabyte-plus wav, so they are STREAMED bank entries -- and there is exactly one stream
-// (swrSoundStream_file). Firing one from the music controller's one-shot slot re-primed that
-// stream against the race theme whenever the mixer re-issued the voice, which is what made the
-// music stutter and restart. Swap them in as the LOOPING track the controller already manages
-// instead: swrSound_queuedMusicId + SetMusicFade(1) is exactly how race music plays, one stream at
-// a time, and the track theme is swapped back afterwards.
+// Music is left to the game. Driving the streamed-music controller from here (planet arrival
+// fanfare on the opening shot, awards fanfare on the win) went three rounds and never produced an
+// audible sting: the entries are megabyte-plus streamed banks, there is one stream, and the fade
+// machine plays a freshly queued track at the gain the channel already holds before fading it down.
+// The last attempt silenced the race music too. If it is revisited: stop the live music voice with
+// swrSound_StopVoiceById first (parking the queue leaves the looping voice playing and holding the
+// stream), or give the sting a non-streamed bank entry of its own.
 
-// m099awards2, the awards fanfare swrObjHang_UpdateResultsIntro plays over the results reveal
-// (channel 7, the music channel, at 0.8 gain).
-static const int VICTORY_MUSIC_SFX = 0xa1;
-
-// swrSound_UpdateMusic's "arm" step plays the queued track at the gain the channel *already* has
-// and then switches the fade machine to a fade-down, so a track queued while that gain sat at zero
-// was skipped by the mixer (playASoundImpl drops a zero-gain play) and then faded out of existence
-// before it could start -- the sting queued, logged, and never sounded. Lift the gain when queuing
-// and re-arm every frame for as long as the sting is ours, which is what swrObjJdge_F3 does to keep
-// race music alive while nobody local is racing.
-static void sustain_music() {
-    if (g_music_after == MUSIC_AFTER_NONE)
-        return;
-    swrSound_musicGain = 1.0f;
-    swrSound_SetMusicFade(1);
-    // Trace while a sting should be sounding: the mixer state says whether the id ever reached a
-    // voice slot (requested -> live) or was dropped before that.
-    if (g_music_trace > 0 && --g_music_trace % 20 == 0) {
-        int req = -1, live = -1;
-        for (int i = 0; i < 8; i++) {
-            if (swrSound_voicesRequested[i].id == swrSound_queuedMusicId)
-                req = swrSound_voicesRequested[i].activeSoundId;
-            if (swrSound_voicesLive[i].id == swrSound_queuedMusicId)
-                live = swrSound_voicesLive[i].activeSoundId;
-        }
-        fprintf(hook_log,
-                "[orchestrator] music trace: queued %d current %d mode %d gain %.2f music_vol %d "
-                "req %d live %d\n",
-                swrSound_queuedMusicId, swrSound_currentMusicId, swrSound_musicFadeMode,
-                swrSound_musicGain, (int) sound_music_volume, req, live);
-        fflush(hook_log);
-    }
-}
-
-static void play_music(int sfx, const char *what, MusicAfter after, DWORD after_ms) {
-    swrSound_currentMusicId = -1;// drop anything sitting in the controller's one-shot slot
-    swrSound_queuedMusicId = sfx;
-    swrSound_musicGain = 1.0f;
-    swrSound_SetMusicFade(1);
-    g_music_after = after;
-    g_music_after_ms = after_ms;
-    g_music_trace = 200;
-    fprintf(hook_log, "[orchestrator] %s: music sfx 0x%x\n", what, sfx);
-    fflush(hook_log);
-}
-
-static void play_planet_sting(const swrObjJdge *jdge) {
-    if (!g_music_stings || jdge == NULL)
-        return;
-    const int planet = std::clamp((int) jdge->planetId, 0, 7);
-    const int sfx = (int) swrMusicPlanetIntroTable[planet];
-    if (sfx > 0)
-        play_music(sfx, "planet sting", MUSIC_AFTER_TRACK_THEME, 0);
-}
-
-// The track theme comes in at the green light; after the winner's fanfare the broadcast goes quiet
-// until the next race's planet sting (the judge re-arms the controller every frame while nobody
-// local is racing, but with nothing queued it plays nothing).
-static void service_music(const swrObjJdge *jdge) {
-    if (g_music_after == MUSIC_AFTER_NONE || jdge == NULL || GetTickCount() < g_music_after_ms)
-        return;
-    const MusicAfter what = g_music_after;
-    g_music_after = MUSIC_AFTER_NONE;
-    if (what == MUSIC_AFTER_TRACK_THEME) {
-        swrSound_SelectTrackMusic(jdge->planetId, jdge->planet_track_number, 1);
-        swrSound_SetMusicFade(1);
-        fprintf(hook_log, "[orchestrator] track music restored\n");
-    } else {
-        swrSound_queuedMusicId = -1;
-        swrSound_currentMusicId = -1;
-        swrSound_SetMusicFade(0);
-        fprintf(hook_log, "[orchestrator] music stopped after the fanfare\n");
-    }
-    fflush(hook_log);
-}
 static const float BINDER_STAGGER_S = 0.1f;// per entity id
 
 static void ignite_field(const swrObjJdge *jdge, DWORD now) {
@@ -368,14 +282,15 @@ static void ignite_field(const swrObjJdge *jdge, DWORD now) {
     if (g_ignite_start_ms == 0) {
         g_ignite_start_ms = now;
         *g_binder_ignition_timer = 0.0f;
-        g_hero_hold_until_ms = now + (DWORD) (g_ignite_spread_s * 1000.0f) + 1500;
+        g_hero_hold_until_ms =
+            now + (DWORD) (std::max(g_ignite_spread_s, g_ignite_pan_s) * 1000.0f) + 1500;
         playASound(BINDER_IGNITION_SFX, 6, 0.25f, 0.5f, 0);
         int slot = -1;// trackside pan down the grid while the beams come up
         for (int i = jdge->num_players / 2; i < jdge->num_players && i < MAX_RACERS && slot < 0; i++)
             if (swrScoresPtr[i].obj_test_ptr != NULL)
                 slot = i;
         if (slot >= 0 && director_IsEnabled()) {
-            director_GridIgnition(slot, g_ignite_spread_s + 1.5f);
+            director_GridIgnition(slot, g_ignite_pan_s);
             overlay_SetHighlightSlot(slot);
         }
         fprintf(hook_log, "[orchestrator] race %d: binders igniting\n", g_races_started);
@@ -424,7 +339,6 @@ static void showcase_heroes(const swrObjJdge *jdge, DWORD now) {
             director_GridIntro(slot);
             overlay_SetHighlightSlot(slot);
         }
-        play_planet_sting(jdge);
         g_hero_next_ms = now + (DWORD) (director_GridIntroSeconds() * 1000.0f) + 500;
         return;
     }
@@ -555,35 +469,18 @@ static void supervise_ai_damage(swrRace *pod) {
         }
         worst = std::max(worst, pod->engineHealth[i]);
     }
-    // Repair is neglected: nothing happens until the worst engine passes g_repair_start (a fire on
-    // its own is not enough), and even then the pod carries on for a randomised delay before it
-    // starts. Once started it repairs down to g_repair_stop unless it boosts.
+    // Repair like a driver would: a hand comes off the controls only where the track allows it, so
+    // an AI repairs on a straight and stops the moment it has to steer again (or boosts). Nothing
+    // is repaired below g_repair_stop, which is also where a repair in progress finishes.
     bool repairing = false;
     if (g_ai_repair) {
-        const int slot = pod->score_ptr != NULL && swrScoresPtr != NULL
-                             ? (int) (pod->score_ptr - swrScoresPtr)
-                             : -1;
-        const DWORD now = GetTickCount();
+        const bool straight = fabsf(pod->turnRateTarget) < g_repair_turn_limit;
         const bool boosting = (pod->flags0 & swrObjTest_FLAG0_BOOSTING) != 0;
         repairing = (pod->flags0 & swrObjTest_FLAG0_REPAIRING) != 0;
-        if (slot >= 0 && slot < MAX_RACERS) {
-            if (!repairing) {
-                if (worst > g_repair_start) {
-                    if (g_repair_due_ms[slot] == 0) {
-                        const float jitter = 0.5f + (float) rand() / (float) RAND_MAX;// 0.5..1.5
-                        g_repair_due_ms[slot] = now + (DWORD) (g_repair_delay_s * jitter * 1000.0f);
-                    }
-                    if (now >= g_repair_due_ms[slot] && !boosting)
-                        repairing = true;
-                } else {
-                    g_repair_due_ms[slot] = 0;
-                }
-            }
-            if (repairing && (worst < g_repair_stop || boosting)) {
-                repairing = false;
-                g_repair_due_ms[slot] = 0;
-            }
-        }
+        if (!repairing)
+            repairing = straight && !boosting && worst > g_repair_stop;
+        else if (!straight || boosting || worst < g_repair_stop)
+            repairing = false;
     }
     if (repairing)
         pod->flags0 = (swrObjTest_FLAG0) (pod->flags0 | swrObjTest_FLAG0_REPAIRING);
@@ -870,8 +767,6 @@ void orchestrator_Service() {
         overlay_SetFooter("");
     }
 
-    sustain_music();
-
     swrObjJdge *jdge = get_jdge();
     const bool in_race = jdge != NULL && !jdge_asleep(jdge) && swrJdge_Cleared == 0;
     if (in_race) {
@@ -903,7 +798,6 @@ void orchestrator_Service() {
         // The orbit (state 5) may be skipped by the cutscene toggles, so the hold lives in the
         // countdown (state 0): its timer is pinned above the 3-2-1 light windows until the hold
         // elapses, then runs out normally.
-        service_music(jdge);
         if ((state == 5 || state == 0) && !any_racing) {
             if (g_grid_hold_start_ms == 0)
                 g_grid_hold_start_ms = now;
@@ -921,7 +815,6 @@ void orchestrator_Service() {
             }
         }
         if (state == 1 || state == 2) {
-            service_music(jdge);
             log_snapshot(jdge, now);
             if (g_unstick)
                 supervise_stuck(jdge, now);
@@ -933,13 +826,6 @@ void orchestrator_Service() {
                 g_first_finish_ms = now;
                 g_cooldown_end_ms = now + (DWORD) (g_cooldown_s * 1000.0f);
                 g_next_track = pick_track(hang->track_index);
-                if (g_music_stings) {
-                    const swrSoundDescriptor *e =
-                        (const swrSoundDescriptor *) swrSound_GetEntry(VICTORY_MUSIC_SFX);
-                    const DWORD len = e != NULL && e->durationMs > 0 ? e->durationMs : 15000;
-                    play_music(VICTORY_MUSIC_SFX, "victory fanfare", MUSIC_AFTER_SILENCE,
-                               now + len);
-                }
                 set_status("race %d: winner in; next race (track %d, %s) in %.0fs", g_races_started,
                            g_next_track, track_name(g_next_track), g_cooldown_s);
                 emit(ORCH_WINNER_IN);
@@ -1031,12 +917,10 @@ static void load_config() {
     const int stored_version = config::get_int(INI_SECTION, "cfg_version", 1);
     if (stored_version >= 2)// v2: 5 heroes
         g_hero_count = config::get_int(INI_SECTION, "hero_count", g_hero_count);
-    if (stored_version >= CFG_VERSION)// v3: neglected repairs (threshold 0.7 + delay)
-        g_repair_start = config::get_float(INI_SECTION, "repair_start", g_repair_start);
-    g_repair_delay_s = config::get_float(INI_SECTION, "repair_delay_s", g_repair_delay_s);
+    g_repair_turn_limit = config::get_float(INI_SECTION, "repair_turn_limit", g_repair_turn_limit);
     g_ignite = config::get_int(INI_SECTION, "ignite", g_ignite) != 0;
-    g_music_stings = config::get_int(INI_SECTION, "music_stings", g_music_stings) != 0;
     g_ignite_spread_s = config::get_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
+    g_ignite_pan_s = config::get_float(INI_SECTION, "ignite_pan_s", g_ignite_pan_s);
     g_shuffle_grid = config::get_int(INI_SECTION, "shuffle_grid", g_shuffle_grid) != 0;
     g_no_blue_flash =
         config::get_int(INI_SECTION, "no_blue_flash", g_no_blue_flash) != 0;
@@ -1057,12 +941,11 @@ static void save_config() {
     config::set_int(INI_SECTION, "full_physics", g_full_physics);
     config::set_int(INI_SECTION, "ai_damage", g_ai_damage);
     config::set_int(INI_SECTION, "ai_repair", g_ai_repair);
-    config::set_float(INI_SECTION, "repair_start", g_repair_start);
     config::set_float(INI_SECTION, "repair_stop", g_repair_stop);
-    config::set_float(INI_SECTION, "repair_delay_s", g_repair_delay_s);
+    config::set_float(INI_SECTION, "repair_turn_limit", g_repair_turn_limit);
     config::set_int(INI_SECTION, "ignite", g_ignite);
-    config::set_int(INI_SECTION, "music_stings", g_music_stings);
     config::set_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
+    config::set_float(INI_SECTION, "ignite_pan_s", g_ignite_pan_s);
     config::set_int(INI_SECTION, "ai_lighting", g_ai_lighting);
     config::set_int(INI_SECTION, "hero_count", g_hero_count);
     config::set_int(INI_SECTION, "cfg_version", CFG_VERSION);
@@ -1099,17 +982,14 @@ static void panel_orchestrator() {
     if (g_ai_repair) {
         ImGui::SameLine();
         ImGui::SetNextItemWidth(90.0f);
-        changed |= ImGui::SliderFloat("start##rep", &g_repair_start, 0.2f, 0.95f, "%.2f");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(90.0f);
-        changed |= ImGui::SliderFloat("stop##rep", &g_repair_stop, 0.0f, 0.5f, "%.2f");
-        changed |= ImGui::SliderFloat("Repair delay once over the threshold (s, +/-50%)", &g_repair_delay_s, 0.0f, 20.0f, "%.1f");
+        changed |= ImGui::SliderFloat("until##rep", &g_repair_stop, 0.0f, 0.5f, "%.2f");
+        changed |= ImGui::SliderFloat("Straightaway (max |turn rate| to repair)", &g_repair_turn_limit, 20.0f, 400.0f, "%.0f");
     }
     changed |= ImGui::Checkbox("Light AI pods from the followed pod's light bank", &g_ai_lighting);
     changed |= ImGui::SliderInt("Grid showcase: racers introduced by the announcer", &g_hero_count, 0, 10);
     changed |= ImGui::Checkbox("Grid: the field ignites its binders after the introductions", &g_ignite);
     changed |= ImGui::SliderFloat("Ignition spread (s)", &g_ignite_spread_s, 0.5f, 8.0f, "%.1f");
-    changed |= ImGui::Checkbox("Planet fanfare on the opening shot, awards music on the win", &g_music_stings);
+    changed |= ImGui::SliderFloat("Ignition camera pan (s)", &g_ignite_pan_s, 2.0f, 30.0f, "%.0f");
     if (ImGui::Button("Reset sound channels (if audio has died)")) {
         log_sound_health();
         swrSound_ResetRequestedVoices();
