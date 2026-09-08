@@ -36,6 +36,11 @@ void playercam_SetFovOverride(PlayerCamFovFn fn);
 // scale applies as for the player's true cockpit.
 struct swrRace;
 void playercam_ApplyTrueCockpit(swrObjcMan *cman, swrRace *racer);
+// The same rig reversed: on the cockpit node, `forward` ahead of the pilot's eye point and
+// `up` above it, looking back at the pilot (a true face cam).
+void playercam_ApplyReverseCockpit(swrObjcMan *cman, swrRace *racer, float forward, float up);
+// Perlin noise (the camera-shake source), for other camera modules.
+float playercam_Noise(float x, float y, float z);
 void playercam_SetExternalCockpit(bool active);
 // One of the game's own views for a camera-man: 1 chase near, 2 chase far, 4 first person
 // (bumper), 5 first person wide.

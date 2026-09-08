@@ -508,6 +508,36 @@ void playercam_SetStockMode(swrObjcMan *cman, int mode) {
 void playercam_SetExternalCockpit(bool active) {
     g_external_cockpit = active;
 }
+float playercam_Noise(float x, float y, float z) {
+    return perlin::noise(x, y, z);
+}
+
+// The true-cockpit rig turned around: the camera rides the pilot's own cockpit node (so it inherits
+// the head bob and tilt the chassis transform does not carry), sits `forward` in front of it and
+// `up` above, and looks back down the pod at the pilot.
+void playercam_ApplyReverseCockpit(swrObjcMan *cman, swrRace *racer, float forward, float up) {
+    rdMatrix44 ck = racer->cockpitXf;
+    rdVector_Normalize3Acc((rdVector3 *) &ck.vA);
+    rdVector_Normalize3Acc((rdVector3 *) &ck.vB);
+    rdVector_Normalize3Acc((rdVector3 *) &ck.vC);
+    const int pilot = pilot_index(racer);
+    const float eye_fwd = pilot >= 0 ? COCKPIT_EYE_FORWARD[pilot] : 0.0f;
+    const float eye_up = pilot >= 0 ? COCKPIT_EYE_UP[pilot] : 0.0f;
+    rdVector3 head = {ck.vD.x + ck.vB.x * eye_fwd + ck.vC.x * eye_up,
+                      ck.vD.y + ck.vB.y * eye_fwd + ck.vC.y * eye_up,
+                      ck.vD.z + ck.vB.z * eye_fwd + ck.vC.z * eye_up};
+    rdVector3 from = {head.x + ck.vB.x * forward + ck.vC.x * up,
+                      head.y + ck.vB.y * forward + ck.vC.y * up,
+                      head.z + ck.vB.z * forward + ck.vC.z * up};
+    swrTranslationRotation tr;
+    rdMatrix44 out;
+    BuildLookAtTransform(&from, &head, &out, &tr, 0.0f);
+    cman->unk20_mat = out;
+    cman->focusTransform_mat.vD.x = head.x;
+    cman->focusTransform_mat.vD.y = head.y;
+    cman->focusTransform_mat.vD.z = head.z;
+}
+
 void playercam_ApplyTrueCockpit(swrObjcMan *cman, swrRace *racer) {
     apply_true_cockpit(cman, racer);
 }
