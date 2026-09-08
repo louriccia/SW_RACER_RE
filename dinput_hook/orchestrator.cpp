@@ -57,6 +57,7 @@ static float g_repair_turn_limit = 150.0f;// |turnRateTarget| below this counts 
 static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
 static int g_hero_count = 5;// grid hold: cut to this many random racers with announcer lines (0 = off)
 static bool g_ignite = true;          // after the introductions: the field lights its energy binders
+static int g_ignite_sfx_count = 5;    // ignition sound repeats across the ripple
 static float g_ignite_spread_s = 8.0f;// ... one pod after another over this long; the crowd
                                       // shot's pan runs with it and ends when the last one lights
 static const int CFG_VERSION = 4;// bump when a default should override a stored value
@@ -111,6 +112,8 @@ static DWORD g_hero_next_ms = 0;
 static DWORD g_hero_hold_until_ms = 0;// keep the grid until the last intro has finished
 static bool g_hero_used[MAX_RACERS];
 static DWORD g_ignite_start_ms = 0;// 0 = not yet
+static int g_ignite_sfx_left = 0;  // ignition sounds still to fire this race
+static DWORD g_ignite_next_sfx_ms = 0;
 // The broadcast's music: the planet's arrival fanfare over the grid, the track theme from the
 // green light. Both go through the streamed-music controller's queue.
 enum MusicPhase { MUSIC_PHASE_NONE = 0, MUSIC_PHASE_GRID, MUSIC_PHASE_RACE, MUSIC_PHASE_VICTORY };
@@ -258,6 +261,7 @@ static void reset_race_watch() {
     g_hero_hold_until_ms = 0;
     memset(g_hero_used, 0, sizeof(g_hero_used));
     g_ignite_start_ms = 0;
+    g_ignite_sfx_left = 0;
     g_music_phase = MUSIC_PHASE_NONE;
     g_sting_sfx = -1;
     g_theme_sfx = -1;
@@ -328,7 +332,13 @@ static const int VICTORY_MUSIC_SFX = 0xa1;
 static void arm_music(const swrObjJdge *jdge, int state) {
     if (jdge == NULL)
         return;
-    if (state == 0 || state == 5) {
+    // Every pre-race state, not just the countdown: a fresh load lands in the track fly-by (4) or
+    // the pod orbit (5) before the countdown (0), and taking the race branch there set the phase to
+    // RACE, after which the grid branch was skipped for the rest of the race -- which is why the
+    // sting only ever played on the first race of a session.
+    const bool pre_race = state == 0 || state == 4 || state == 5;
+    const bool racing = state == 1 || state == 2;
+    if (pre_race) {
         if (g_music_phase != MUSIC_PHASE_NONE)
             return;
         g_music_phase = MUSIC_PHASE_GRID;
@@ -348,8 +358,8 @@ static void arm_music(const swrObjJdge *jdge, int state) {
         fflush(hook_log);
         return;
     }
-    if (g_music_phase == MUSIC_PHASE_RACE || g_music_phase == MUSIC_PHASE_VICTORY)
-        return;
+    if (!racing || g_music_phase == MUSIC_PHASE_RACE || g_music_phase == MUSIC_PHASE_VICTORY)
+        return;// other states (post-race teardown) leave the music alone
     g_music_phase = MUSIC_PHASE_RACE;
     stop_music_voice(g_sting_sfx);
     g_sting_sfx = -1;
@@ -390,7 +400,8 @@ static void ignite_field(const swrObjJdge *jdge, DWORD now) {
         g_ignite_start_ms = now;
         *g_binder_ignition_timer = 0.0f;
         g_hero_hold_until_ms = now + (DWORD) (g_ignite_spread_s * 1000.0f) + 1200;
-        playASound(BINDER_IGNITION_SFX, 6, 0.25f, 0.5f, 0);
+        g_ignite_sfx_left = g_ignite_sfx_count;
+        g_ignite_next_sfx_ms = now;
         int slot = -1;// trackside pan down the grid while the beams come up
         for (int i = jdge->num_players / 2; i < jdge->num_players && i < MAX_RACERS && slot < 0; i++)
             if (swrScoresPtr[i].obj_test_ptr != NULL)
@@ -406,6 +417,15 @@ static void ignite_field(const swrObjJdge *jdge, DWORD now) {
     if (*g_binder_ignition_timer < total + 1.0f) {
         const float rate = total / std::max(0.5f, g_ignite_spread_s);// timer units per second
         *g_binder_ignition_timer += (float) swrRace_deltaTimeSecs * rate;
+    }
+    // One ignition sound per pod would be twenty; a handful spread across the ripple, each at its
+    // own pitch, reads as the field lighting up one machine at a time.
+    if (g_ignite_sfx_left > 0 && now >= g_ignite_next_sfx_ms) {
+        const float pitch = 0.25f + (float) rand() / (float) RAND_MAX * 0.3f - 0.15f;
+        playASound(BINDER_IGNITION_SFX, 6, pitch, 0.5f, 0);
+        g_ignite_sfx_left--;
+        g_ignite_next_sfx_ms =
+            now + (DWORD) (g_ignite_spread_s * 1000.0f / (float) std::max(1, g_ignite_sfx_count));
     }
 }
 
@@ -1038,6 +1058,7 @@ static void load_config() {
     g_ignite = config::get_int(INI_SECTION, "ignite", g_ignite) != 0;
     if (stored_version >= CFG_VERSION)// v4: one duration for the beams and the crowd pan
         g_ignite_spread_s = config::get_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
+    g_ignite_sfx_count = config::get_int(INI_SECTION, "ignite_sfx_count", g_ignite_sfx_count);
     g_shuffle_grid = config::get_int(INI_SECTION, "shuffle_grid", g_shuffle_grid) != 0;
     g_no_blue_flash =
         config::get_int(INI_SECTION, "no_blue_flash", g_no_blue_flash) != 0;
@@ -1063,6 +1084,7 @@ static void save_config() {
     config::set_float(INI_SECTION, "repair_turn_limit", g_repair_turn_limit);
     config::set_int(INI_SECTION, "ignite", g_ignite);
     config::set_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
+    config::set_int(INI_SECTION, "ignite_sfx_count", g_ignite_sfx_count);
     config::set_int(INI_SECTION, "ai_lighting", g_ai_lighting);
     config::set_int(INI_SECTION, "hero_count", g_hero_count);
     config::set_int(INI_SECTION, "cfg_version", CFG_VERSION);
@@ -1107,6 +1129,7 @@ static void panel_orchestrator() {
     changed |= ImGui::SliderInt("Grid showcase: racers introduced by the announcer", &g_hero_count, 0, 10);
     changed |= ImGui::Checkbox("Grid: the field ignites its binders after the introductions", &g_ignite);
     changed |= ImGui::SliderFloat("Ignition + pan duration (s)", &g_ignite_spread_s, 1.0f, 20.0f, "%.1f");
+    changed |= ImGui::SliderInt("Ignition sounds across the ripple", &g_ignite_sfx_count, 1, 20);
     if (ImGui::Button("Reset sound channels (if audio has died)")) {
         log_sound_health();
         swrSound_ResetRequestedVoices();
