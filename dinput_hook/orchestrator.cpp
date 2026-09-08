@@ -111,7 +111,10 @@ static DWORD g_hero_next_ms = 0;
 static DWORD g_hero_hold_until_ms = 0;// keep the grid until the last intro has finished
 static bool g_hero_used[MAX_RACERS];
 static DWORD g_ignite_start_ms = 0;// 0 = not yet
-static bool g_music_armed = false; // the track theme has been queued for this race
+// The broadcast's music: the planet's arrival fanfare over the grid, the track theme from the
+// green light. Both go through the streamed-music controller's queue.
+enum MusicPhase { MUSIC_PHASE_NONE = 0, MUSIC_PHASE_GRID, MUSIC_PHASE_RACE };
+static MusicPhase g_music_phase = MUSIC_PHASE_NONE;
 static const int SHARED_AI_BANK =
     10;// the one light bank every AI pod reads (see apply_ai_lighting)
 static float g_last_progress[MAX_RACERS];
@@ -252,7 +255,7 @@ static void reset_race_watch() {
     g_hero_hold_until_ms = 0;
     memset(g_hero_used, 0, sizeof(g_hero_used));
     g_ignite_start_ms = 0;
-    g_music_armed = false;
+    g_music_phase = MUSIC_PHASE_NONE;
 }
 
 // Grid showcase: while the grid is held, cut to a few random racers in turn and play the
@@ -279,11 +282,12 @@ static const int BINDER_IGNITION_SFX = 0x74;
 // calls swrSound_SelectTrackMusic(planet, track, 0) to queue the track theme. Race TV holds the
 // countdown and the orbit is skippable, so that select never ran; the judge's per-frame
 // SetMusicFade(1) then arms an empty queue and the race runs silent. Do the select once per race.
-// The select alone was not enough: swrSound_UpdateMusic's arm step plays the queued track at the
+// Queueing alone was not enough: swrSound_UpdateMusic's arm step plays the queued track at the
 // gain the channel already holds (zero here, so playASoundImpl drops it) and then fades down toward
 // SetMusicFade(0), which clears the queue again. So hold the gain up and re-arm every frame while
 // the loop owns the screen -- the pattern swrObjJdge_F3 uses for a human race -- and kick the first
-// play directly (loop = 1, so UpdateMusic's own play dedups onto the same voice).
+// play directly. loop = 1 throughout, so UpdateMusic's own play dedups onto that one voice (a
+// loop = 0 start would not, and a second voice on a streamed entry fights the single stream).
 static void sustain_track_music() {
     if (!g_armed || swrSound_queuedMusicId <= 0)
         return;
@@ -291,18 +295,40 @@ static void sustain_track_music() {
     swrSound_SetMusicFade(1);
 }
 
-static void arm_track_music(const swrObjJdge *jdge) {
-    if (g_music_armed || jdge == NULL)
+static void play_music_id(int sfx, const char *what) {
+    if (sfx <= 0)
         return;
-    g_music_armed = true;
-    swrSound_SelectTrackMusic(jdge->planetId, jdge->planet_track_number, 0);
+    // Free the one stream (swrSoundStream_file) before starting another streamed entry: parking the
+    // queue leaves the old looping voice playing and holding it.
+    if (swrSound_queuedMusicId > 0 && swrSound_queuedMusicId != sfx)
+        swrSound_StopVoiceById(swrSound_queuedMusicId);
+    swrSound_queuedMusicId = sfx;
     swrSound_musicGain = 1.0f;
     swrSound_SetMusicFade(1);
-    if (swrSound_queuedMusicId > 0)
-        playASound(swrSound_queuedMusicId, 7, 0.25f, 1.0f, 1);
-    fprintf(hook_log, "[orchestrator] track music armed (planet %d track %d, sfx 0x%x)\n",
-            (int) jdge->planetId, (int) jdge->planet_track_number, swrSound_queuedMusicId);
+    playASound(sfx, 7, 0.25f, 1.0f, 1);
+    fprintf(hook_log, "[orchestrator] %s: music sfx 0x%x\n", what, sfx);
     fflush(hook_log);
+}
+
+// Grid: the planet's arrival fanfare (swrMusicPlanetIntroTable, the sting the game plays when you
+// touch down on a planet) instead of the race theme.
+static void arm_music(const swrObjJdge *jdge, int state) {
+    if (jdge == NULL)
+        return;
+    const bool on_grid = state == 0 || state == 5;
+    if (on_grid) {
+        if (g_music_phase != MUSIC_PHASE_NONE)
+            return;
+        g_music_phase = MUSIC_PHASE_GRID;
+        const int planet = std::clamp((int) jdge->planetId, 0, 7);
+        play_music_id((int) swrMusicPlanetIntroTable[planet], "planet sting");
+        return;
+    }
+    if (g_music_phase == MUSIC_PHASE_RACE)
+        return;
+    g_music_phase = MUSIC_PHASE_RACE;
+    swrSound_SelectTrackMusic(jdge->planetId, jdge->planet_track_number, 0);
+    play_music_id(swrSound_queuedMusicId, "track theme");
 }
 
 static const float BINDER_STAGGER_S = 0.1f;// per entity id
@@ -807,7 +833,7 @@ void orchestrator_Service() {
     if (in_race) {
         const int state = jdge->flag & 0xf;
         const DWORD now = GetTickCount();
-        arm_track_music(jdge);
+        arm_music(jdge, state);
         sustain_track_music();
 
         if (g_skip_requested || g_restart_requested) {
