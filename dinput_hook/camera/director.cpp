@@ -73,10 +73,10 @@ static float g_trackside_max_s = 22.0f; // or after this long (pod stalled / wen
 static float g_trackside_aim_smooth = 0.15f;
 static float g_trackside_zoom = 0.45f;// FOV multiplier at plant distance (1 = no zoom); eases to 1 as the pod arrives
 static float g_trackside_zoom_near = 90.0f;// fully zoomed out by the time the pod is this close
-static float g_drone_height = 68.0f; // world units above the pod
-static const int CFG_VERSION = 18;    // bump when a default should override a stored value
-static float g_drone_back = 62.0f;   // behind the pod along its horizontal heading
-static float g_drone_ahead = 60.0f;  // aim point ahead of the pod
+static float g_drone_height = 58.0f; // world units above the pod
+static const int CFG_VERSION = 19;    // bump when a default should override a stored value
+static float g_drone_back = 36.0f;   // behind the pod along its horizontal heading
+static float g_drone_ahead = 45.0f;  // aim point ahead of the pod
 static float g_drone_smooth = 0.5f;  // position time constant (s)
 static float g_drone_blend_s = 1.6f; // drone -> drone cut: fly to the new pod over this long
 static float g_drone_blend_tau = 0.55f;
@@ -1257,7 +1257,7 @@ static void load_config() {
     }
     if (stored_version >= 8)// v8: fly-over cap halved
         g_drone_blend_max = config::get_float(INI_SECTION, "drone_blend_max", g_drone_blend_max);
-    if (stored_version >= CFG_VERSION) {// v18: the drone flies lower and closer
+    if (stored_version >= CFG_VERSION) {// v19: the drone sits closer behind the pod
         g_drone_height = config::get_float(INI_SECTION, "drone_height", g_drone_height);
         g_drone_back = config::get_float(INI_SECTION, "drone_back", g_drone_back);
         g_drone_ahead = config::get_float(INI_SECTION, "drone_ahead", g_drone_ahead);
