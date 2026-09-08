@@ -57,6 +57,8 @@ static float g_repair_turn_limit = 150.0f;// |turnRateTarget| below this counts 
 static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
 static int g_hero_count = 5;// grid hold: cut to this many random racers with announcer lines (0 = off)
 static bool g_ignite = true;          // after the introductions: the field lights its energy binders
+static bool g_grid_sting = false;     // planet fanfare over the grid (competes with the
+                                      // announcer for the sequence; the commentary wins)
 static int g_ignite_sfx_count = 5;    // ignition sound repeats across the ripple
 static float g_ignite_spread_s = 8.0f;// ... one pod after another over this long; the crowd
                                       // shot's pan runs with it and ends when the last one lights
@@ -317,15 +319,6 @@ static void service_music() {
 
 // Free the one stream (swrSoundStream_file) before starting another streamed entry: parking the
 // queue leaves the outgoing looping voice playing and holding it.
-static bool voice_live(int sfx) {
-    if (sfx <= 0)
-        return false;
-    for (int i = 0; i < 8; i++)
-        if (swrSound_voicesLive[i].id == sfx && swrSound_voicesLive[i].activeSoundId != -1)
-            return true;
-    return false;
-}
-
 static void stop_music_voice(int sfx) {
     if (sfx > 0)
         swrSound_StopVoiceById(sfx);
@@ -358,12 +351,14 @@ static void arm_music(const swrObjJdge *jdge, int state) {
         swrSound_queuedMusicId = -1;
         swrSound_currentMusicId = -1;
         const int planet = std::clamp((int) jdge->planetId, 0, 7);
-        g_sting_sfx = (int) swrMusicPlanetIntroTable[planet];
+        g_sting_sfx = g_grid_sting ? (int) swrMusicPlanetIntroTable[planet] : -1;
         if (g_sting_sfx > 0) {
             playASound(g_sting_sfx, 7, 0.25f, 1.0f, 0);
             // Floor for the announcer's wait; the live-voice probe is what actually gates it.
             const swrSoundDescriptor *e = (const swrSoundDescriptor *) swrSound_GetEntry(g_sting_sfx);
-            const DWORD len = e != NULL && e->durationMs > 0 ? e->durationMs : 8000;
+            // Bounded: a wrong duration must not stall the introductions behind it.
+            const DWORD len = std::min<DWORD>(
+                e != NULL && e->durationMs > 0 ? (DWORD) e->durationMs : 8000, 12000);
             g_sting_until_ms = GetTickCount() + len;
             fprintf(hook_log, "[orchestrator] planet sting: music sfx 0x%x (once, %lu ms)\n",
                     g_sting_sfx, (unsigned long) len);
@@ -479,10 +474,9 @@ static void showcase_heroes(const swrObjJdge *jdge, DWORD now) {
         g_hero_next_ms = now + (DWORD) (director_GridIntroSeconds() * 1000.0f) + 500;
         return;
     }
-    // The opening drone holds until the fanfare has actually stopped sounding -- a commentator line
-    // started under it was inaudible and then surfaced late. The bank duration is only a floor; the
-    // mixer's live voice is the truth.
-    if (g_sting_sfx > 0 && (now < g_sting_until_ms || voice_live(g_sting_sfx)))
+    // Wait out the grid fanfare if one is playing, but never block on it: a voice slot keeps its
+    // id after the sound ends, so anything that polls the mixer for "still playing" waits forever.
+    if (now < g_sting_until_ms)
         return;
     if (now < g_hero_next_ms)
         return;
@@ -1071,6 +1065,7 @@ static void load_config() {
     if (stored_version >= CFG_VERSION)// v4: one duration for the beams and the crowd pan
         g_ignite_spread_s = config::get_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
     g_ignite_sfx_count = config::get_int(INI_SECTION, "ignite_sfx_count", g_ignite_sfx_count);
+    g_grid_sting = config::get_int(INI_SECTION, "grid_sting", g_grid_sting) != 0;
     g_shuffle_grid = config::get_int(INI_SECTION, "shuffle_grid", g_shuffle_grid) != 0;
     g_no_blue_flash =
         config::get_int(INI_SECTION, "no_blue_flash", g_no_blue_flash) != 0;
@@ -1097,6 +1092,7 @@ static void save_config() {
     config::set_int(INI_SECTION, "ignite", g_ignite);
     config::set_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
     config::set_int(INI_SECTION, "ignite_sfx_count", g_ignite_sfx_count);
+    config::set_int(INI_SECTION, "grid_sting", g_grid_sting);
     config::set_int(INI_SECTION, "ai_lighting", g_ai_lighting);
     config::set_int(INI_SECTION, "hero_count", g_hero_count);
     config::set_int(INI_SECTION, "cfg_version", CFG_VERSION);
@@ -1142,6 +1138,7 @@ static void panel_orchestrator() {
     changed |= ImGui::Checkbox("Grid: the field ignites its binders after the introductions", &g_ignite);
     changed |= ImGui::SliderFloat("Ignition + pan duration (s)", &g_ignite_spread_s, 1.0f, 20.0f, "%.1f");
     changed |= ImGui::SliderInt("Ignition sounds across the ripple", &g_ignite_sfx_count, 1, 20);
+    changed |= ImGui::Checkbox("Planet fanfare over the grid (delays the commentary)", &g_grid_sting);
     if (ImGui::Button("Reset sound channels (if audio has died)")) {
         log_sound_health();
         swrSound_ResetRequestedVoices();
