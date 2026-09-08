@@ -45,11 +45,11 @@ static float g_face_true_up = 1.0f;
 static float g_face_true_fov = 0.75f;// FOV multiplier (a tighter lens on the pilot)
 static float g_profile_band_deg = 35.0f;// azimuths within this of dead-side are pushed off it
 static bool g_handheld = true;         // grid / close shots get an operator's wobble
-static float g_handheld_rot_deg = 0.8f;// aim drift (pan / tilt), degrees
-static float g_handheld_pos = 0.4f;    // camera drift, world units
-static float g_handheld_zoom = 0.12f;  // lens breathing, as a fraction of the FOV
+static float g_handheld_rot_deg = 0.35f;// aim drift (pan / tilt), degrees
+static float g_handheld_pos = 0.18f;    // camera drift, world units
+static float g_handheld_zoom = 0.2f;    // zoom reach either side of neutral, as a fraction of FOV
 static float g_handheld_speed = 1.6f;
-static float g_handheld_zoom_tau = 1.8f;// how slowly a zoom move plays out (s)
+static float g_handheld_zoom_move_s = 5.0f;// seconds for one full push in / pull out
 static float g_grid_pan = 16.0f;        // grid shot: the aim sweeps this far along the pod
 static float g_grid_pan_s = 9.0f;       // ... over this long, one way (direction is random)
 static float g_grid_dist = 22.0f;   // grid shot: from the cockpit
@@ -68,7 +68,7 @@ static float g_trackside_aim_smooth = 0.15f;
 static float g_trackside_zoom = 0.45f;// FOV multiplier at plant distance (1 = no zoom); eases to 1 as the pod arrives
 static float g_trackside_zoom_near = 90.0f;// fully zoomed out by the time the pod is this close
 static float g_drone_height = 95.0f; // world units above the pod
-static const int CFG_VERSION = 9;    // bump when a default should override a stored value
+static const int CFG_VERSION = 10;    // bump when a default should override a stored value
 static float g_drone_back = 85.0f;   // behind the pod along its horizontal heading
 static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
 static float g_drone_smooth = 0.5f;  // position time constant (s)
@@ -150,6 +150,7 @@ static rdVector3 g_grid_pos;  // planted once per shot: the operator stands stil
 static rdVector3 g_grid_fwd;  // the pod's heading at plant time (the pan axis)
 static float g_grid_pan_dir = 1.0f;
 static float g_zoom_cur = 1.0f, g_zoom_target = 1.0f;
+static float g_zoom_dir = 1.0f;
 static DWORD g_zoom_hold_until_ms = 0;
 static bool g_grid_planted = false;
 static float g_fov_eased = 0.0f;// trackside zoom state (0 = unseeded)
@@ -904,15 +905,19 @@ static float fov_override(swrObjcMan *cman, float fov) {
     const float amp = handheld_amp();
     if (amp > 0.0f && g_handheld_zoom > 0.0f) {
         const DWORD now = GetTickCount();
+        const float reach = g_handheld_zoom * amp;
         if (now >= g_zoom_hold_until_ms) {
-            const float r = (float) rand() / (float) RAND_MAX;
-            const float reach = g_handheld_zoom * amp;
-            g_zoom_target = r < 0.4f ? 1.0f - reach : r < 0.8f ? 1.0f + reach : 1.0f;
-            g_zoom_hold_until_ms =
-                now + (DWORD) ((2.5f + 3.5f * ((float) rand() / (float) RAND_MAX)) * 1000.0f);
+            // Cross all the way to the other extreme: a half-move toward neutral is hard to read
+            // as a zoom at all. The move is linear, so it arrives in move_s and then holds.
+            g_zoom_dir = -g_zoom_dir;
+            g_zoom_target = 1.0f + g_zoom_dir * reach;
+            g_zoom_hold_until_ms = now + (DWORD) ((g_handheld_zoom_move_s + 1.0f +
+                                                   3.0f * ((float) rand() / (float) RAND_MAX)) *
+                                                  1000.0f);
         }
         const float dt = (float) swrRace_deltaTimeSecs;
-        g_zoom_cur += (g_zoom_target - g_zoom_cur) * (1.0f - expf(-dt / std::max(0.2f, g_handheld_zoom_tau)));
+        const float step = 2.0f * reach * dt / std::max(0.5f, g_handheld_zoom_move_s);
+        g_zoom_cur += std::clamp(g_zoom_target - g_zoom_cur, -step, step);
         out *= g_zoom_cur;
     }
     static Shot logged = SHOT_CHASE;
@@ -1018,10 +1023,6 @@ static void load_config() {
     g_profile_band_deg = config::get_float(INI_SECTION, "profile_band_deg", g_profile_band_deg);
     g_handheld = config::get_int(INI_SECTION, "handheld", g_handheld) != 0;
     g_handheld_speed = config::get_float(INI_SECTION, "handheld_speed", g_handheld_speed);
-    g_handheld_zoom = config::get_float(INI_SECTION, "handheld_zoom", g_handheld_zoom);
-    g_handheld_rot_deg = config::get_float(INI_SECTION, "handheld_rot_deg", g_handheld_rot_deg);
-    g_handheld_pos = config::get_float(INI_SECTION, "handheld_pos", g_handheld_pos);
-    g_handheld_zoom_tau = config::get_float(INI_SECTION, "handheld_zoom_tau", g_handheld_zoom_tau);
     g_grid_pan = config::get_float(INI_SECTION, "grid_pan", g_grid_pan);
     g_grid_pan_s = config::get_float(INI_SECTION, "grid_pan_s", g_grid_pan_s);
     g_grid_dist = config::get_float(INI_SECTION, "grid_dist", g_grid_dist);
@@ -1067,9 +1068,15 @@ static void load_config() {
         g_drone_back = config::get_float(INI_SECTION, "drone_back", g_drone_back);
         g_drone_blend_max = config::get_float(INI_SECTION, "drone_blend_max", g_drone_blend_max);
     }
-    if (stored_version >= CFG_VERSION) {// v9: ground-level grid shot
+    if (stored_version >= 9)// v9: ground-level grid shot
         g_grid_height = config::get_float(INI_SECTION, "grid_height", g_grid_height);
-        }
+    if (stored_version >= CFG_VERSION) {// v10: calmer wobble, longer / deeper zoom moves
+        g_handheld_zoom = config::get_float(INI_SECTION, "handheld_zoom", g_handheld_zoom);
+        g_handheld_rot_deg = config::get_float(INI_SECTION, "handheld_rot_deg", g_handheld_rot_deg);
+        g_handheld_pos = config::get_float(INI_SECTION, "handheld_pos", g_handheld_pos);
+        g_handheld_zoom_move_s =
+            config::get_float(INI_SECTION, "handheld_zoom_move_s", g_handheld_zoom_move_s);
+    }
     g_min_shot_s = config::get_float(INI_SECTION, "min_shot_s", g_min_shot_s);
     g_drone_blend_s = config::get_float(INI_SECTION, "drone_blend_s", g_drone_blend_s);
     g_drone_blend_tau = config::get_float(INI_SECTION, "drone_blend_tau", g_drone_blend_tau);
@@ -1106,7 +1113,7 @@ static void save_config() {
     config::set_float(INI_SECTION, "handheld_zoom", g_handheld_zoom);
     config::set_float(INI_SECTION, "handheld_rot_deg", g_handheld_rot_deg);
     config::set_float(INI_SECTION, "handheld_pos", g_handheld_pos);
-    config::set_float(INI_SECTION, "handheld_zoom_tau", g_handheld_zoom_tau);
+    config::set_float(INI_SECTION, "handheld_zoom_move_s", g_handheld_zoom_move_s);
     config::set_float(INI_SECTION, "grid_pan", g_grid_pan);
     config::set_float(INI_SECTION, "grid_pan_s", g_grid_pan_s);
     config::set_float(INI_SECTION, "grid_dist", g_grid_dist);
@@ -1192,8 +1199,8 @@ static void panel_director() {
     changed |= ImGui::SliderFloat("Handheld pan / tilt (deg)", &g_handheld_rot_deg, 0.0f, 5.0f, "%.2f");
     changed |= ImGui::SliderFloat("Handheld camera sway (units)", &g_handheld_pos, 0.0f, 5.0f, "%.2f");
     changed |= ImGui::SliderFloat("Handheld speed", &g_handheld_speed, 0.2f, 5.0f, "%.2f");
-    changed |= ImGui::SliderFloat("Handheld zoom reach (FOV x)", &g_handheld_zoom, 0.0f, 0.3f, "%.2f");
-    changed |= ImGui::SliderFloat("Zoom move duration (s)", &g_handheld_zoom_tau, 0.2f, 6.0f, "%.1f");
+    changed |= ImGui::SliderFloat("Handheld zoom reach (FOV x)", &g_handheld_zoom, 0.0f, 0.5f, "%.2f");
+    changed |= ImGui::SliderFloat("Zoom move duration (s)", &g_handheld_zoom_move_s, 1.0f, 20.0f, "%.1f");
     ImGui::SeparatorText("Grid shot");
     changed |= ImGui::SliderFloat("Distance from the cockpit", &g_grid_dist, 8.0f, 80.0f, "%.0f");
     changed |= ImGui::SliderFloat("Height##grid", &g_grid_height, -5.0f, 40.0f, "%.0f");
