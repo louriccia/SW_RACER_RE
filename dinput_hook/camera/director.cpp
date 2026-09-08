@@ -73,10 +73,10 @@ static float g_trackside_max_s = 22.0f; // or after this long (pod stalled / wen
 static float g_trackside_aim_smooth = 0.15f;
 static float g_trackside_zoom = 0.45f;// FOV multiplier at plant distance (1 = no zoom); eases to 1 as the pod arrives
 static float g_trackside_zoom_near = 90.0f;// fully zoomed out by the time the pod is this close
-static float g_drone_height = 95.0f; // world units above the pod
-static const int CFG_VERSION = 17;    // bump when a default should override a stored value
-static float g_drone_back = 85.0f;   // behind the pod along its horizontal heading
-static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
+static float g_drone_height = 68.0f; // world units above the pod
+static const int CFG_VERSION = 18;    // bump when a default should override a stored value
+static float g_drone_back = 62.0f;   // behind the pod along its horizontal heading
+static float g_drone_ahead = 60.0f;  // aim point ahead of the pod
 static float g_drone_smooth = 0.5f;  // position time constant (s)
 static float g_drone_blend_s = 1.6f; // drone -> drone cut: fly to the new pod over this long
 static float g_drone_blend_tau = 0.55f;
@@ -1195,10 +1195,12 @@ static void load_config() {
     if (stored_version >= 7) {// v7: chase weight 2 -> 1
         g_w_chase = config::get_int(INI_SECTION, "shot_chase", g_w_chase);
     }
-    if (stored_version >= 8) {// v8: closer drone, fly-over cap halved
+    if (stored_version >= 8)// v8: fly-over cap halved
+        g_drone_blend_max = config::get_float(INI_SECTION, "drone_blend_max", g_drone_blend_max);
+    if (stored_version >= CFG_VERSION) {// v18: the drone flies lower and closer
         g_drone_height = config::get_float(INI_SECTION, "drone_height", g_drone_height);
         g_drone_back = config::get_float(INI_SECTION, "drone_back", g_drone_back);
-        g_drone_blend_max = config::get_float(INI_SECTION, "drone_blend_max", g_drone_blend_max);
+        g_drone_ahead = config::get_float(INI_SECTION, "drone_ahead", g_drone_ahead);
     }
     if (stored_version >= 9)// v9: ground-level grid shot
         g_grid_height = config::get_float(INI_SECTION, "grid_height", g_grid_height);
@@ -1225,7 +1227,6 @@ static void load_config() {
     g_min_shot_s = config::get_float(INI_SECTION, "min_shot_s", g_min_shot_s);
     g_drone_blend_s = config::get_float(INI_SECTION, "drone_blend_s", g_drone_blend_s);
     g_drone_blend_tau = config::get_float(INI_SECTION, "drone_blend_tau", g_drone_blend_tau);
-    g_drone_ahead = config::get_float(INI_SECTION, "drone_ahead", g_drone_ahead);
     g_drone_smooth = config::get_float(INI_SECTION, "drone_smooth", g_drone_smooth);
     g_orbit_rate = config::get_float(INI_SECTION, "orbit_rate", g_orbit_rate);
     g_orbit_smooth = config::get_float(INI_SECTION, "orbit_smooth", g_orbit_smooth);
