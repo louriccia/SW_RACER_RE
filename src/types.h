@@ -1162,7 +1162,10 @@ extern "C"
         // control-type byte at profile+0x23 through it. swrRace_UpdateCatchup / swrRace_CalcTargetTurnRate NULL-check it.
         void* localPlayerProfile;
         int sfxChannel; // 0x10. low byte = per-racer SFX channel index (swrSound_SetSfxFlag / swrSound_TestSfxFlag)
-        int unk14;
+        // 0x14. Starting grid slot, 0 = pole. Set to the roster index by the roster builders;
+        // swrObjJdge_SpawnRacer hands it to swrObjJdge_GetSpawnTransform, which walks back from the
+        // start line in rows of 4 and 3.
+        int gridIndex;
         int* pilotId; // 0x18. points at the racer's selected pilot/vehicle index (0..22, -1 = none); selects the pilot voice bank (swrSound_ResolveSfxId bounds-checks 0..0x16) and gates pilot specials (2 = Sebulba flame attack, 0xe = Neva Kee fused engines)
         PodHandlingData podStats;
         short unk58;

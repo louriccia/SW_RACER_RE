@@ -80,6 +80,15 @@ int standings_TopPilots(int max, int *out) {
     return n;
 }
 
+int standings_RankOfPilot(int pilot_id) {
+    if (!g_enabled || pilot_id < 0)
+        return 0;
+    for (int i = 0; i < g_count; i++)
+        if (g_rows[i].pilot_id == pilot_id)
+            return i + 1;
+    return 0;
+}
+
 int standings_SeriesLength() {
     return g_series_races;
 }

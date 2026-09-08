@@ -65,9 +65,18 @@ static bool g_grid_sting = true;      // planet fanfare over the grid, before th
 static int g_ignite_sfx_count = 5;    // ignition sound repeats across the ripple
 static float g_ignite_spread_s = 8.0f;// ... one pod after another over this long; the crowd
                                       // shot's pan runs with it and ends when the last one lights
-static const int CFG_VERSION = 4;// bump when a default should override a stored value
+static const int CFG_VERSION = 5;// bump when a default should override a stored value
 static int g_seed_top = 10;// the leading N of the championship are always in the next roster
-static bool g_shuffle_grid = true; // random starting grid (stock: roster order, favourite up front)
+// Where each racer lines up. Stock is the roster order, which puts the track's favourite on the
+// front row every race.
+enum GridOrder {
+    GRID_ROSTER = 0,       // stock
+    GRID_RANDOM,           //
+    GRID_STANDINGS,        // championship leader on pole
+    GRID_STANDINGS_REVERSE,// leader at the back
+};
+static int g_grid_order = GRID_STANDINGS;
+static float g_grid_jitter = 0.2f;// noise, in fractions of the field, over the standings order
 static bool g_no_blue_flash = true;// keep the respawn light override off the shared AI light bank
 static float g_snapshot_s = 20.0f; // periodic field snapshot to hook.log (0 = off)
 
@@ -679,9 +688,6 @@ static void __cdecl swrRace_CalcTargetTurnRate_delta(swrRace *player) {
         supervise_ai_damage(player);
 }
 
-// Starting grid. swrObjJdge_SpawnRacer places each pod at grid index score->unk14 = its roster
-// slot, so the favourite (slot 1) starts on the front row every race. Shuffle the indices among the
-// racers before the spawn loop when nobody local is racing.
 // The stock roster is random bar the track's favourite, so a championship leader can sit out several
 // races in a row. Rebuild it after the builder has run: the leaders go in, the rest of the random
 // field stays. Racer i's pilot is vehicleOpponent[i - 1], i.e. i == 0 reads the vehiclePlayer byte
@@ -751,14 +757,44 @@ static void *__cdecl swrObjHang_BuildRosterSinglePlayer_delta(swrObjHang *hang, 
 
 typedef void(__cdecl *swrObjJdge_SpawnRacers_t)(swrObjJdge *judge, swrScore *scores);
 
-static void __cdecl swrObjJdge_SpawnRacers_delta(swrObjJdge *judge, swrScore *scores) {
-    if (g_armed && g_shuffle_grid && judge != NULL && scores != NULL && firstLocalPlayer == NULL) {
-        const int n = std::min(judge->num_players, MAX_RACERS);
-        for (int i = n - 1; i > 0; i--) {
-            const int j = rand() % (i + 1);
-            std::swap(scores[i].unk14, scores[j].unk14);
+static float frand01() {
+    return (float) rand() / (float) RAND_MAX;
+}
+
+// Starting grid: swrObjJdge_SpawnRacer places each pod at score->gridIndex (0 = pole), which the
+// roster builder sets to the roster slot. Sort the racers by championship position instead (or by
+// its reverse, or at random) and hand out the grid slots in that order. The jitter keeps the grid
+// from being a fixed procession of the table.
+static void order_grid(const swrObjJdge *judge, swrScore *scores) {
+    const int n = std::min((int) judge->num_players, MAX_RACERS);
+    if (n <= 1)
+        return;
+    int idx[MAX_RACERS];
+    float key[MAX_RACERS];
+    int unranked = 0;
+    for (int i = 0; i < n; i++) {
+        idx[i] = i;
+        const int pilot = scores[i].pilotId != NULL ? *scores[i].pilotId : -1;
+        int rank = standings_RankOfPilot(pilot);
+        if (rank == 0)
+            rank = n + ++unranked;// no championship position yet: behind everyone who has one
+        if (g_grid_order == GRID_RANDOM) {
+            key[i] = frand01() * (float) n;
+        } else {
+            const float base = g_grid_order == GRID_STANDINGS_REVERSE ? (float) -rank : (float) rank;
+            key[i] = base + frand01() * std::max(g_grid_jitter, 0.0f) * (float) n;
         }
-        set_status("race %d: grid shuffled", g_races_started);
+    }
+    std::stable_sort(idx, idx + n, [&](int a, int b) { return key[a] < key[b]; });
+    for (int pos = 0; pos < n; pos++)
+        scores[idx[pos]].gridIndex = pos;
+}
+
+static void __cdecl swrObjJdge_SpawnRacers_delta(swrObjJdge *judge, swrScore *scores) {
+    if (g_armed && g_grid_order != GRID_ROSTER && judge != NULL && scores != NULL &&
+        firstLocalPlayer == NULL) {
+        order_grid(judge, scores);
+        set_status("race %d: grid ordered (%d)", g_races_started, g_grid_order);
     }
     hook_call_original((swrObjJdge_SpawnRacers_t) swrObjJdge_SpawnRacers_ADDR, judge, scores);
 }
@@ -1196,7 +1232,11 @@ static void load_config() {
         g_ignite_spread_s = config::get_float(INI_SECTION, "ignite_spread_s", g_ignite_spread_s);
     g_ignite_sfx_count = config::get_int(INI_SECTION, "ignite_sfx_count", g_ignite_sfx_count);
     g_grid_sting = config::get_int(INI_SECTION, "grid_sting", g_grid_sting) != 0;
-    g_shuffle_grid = config::get_int(INI_SECTION, "shuffle_grid", g_shuffle_grid) != 0;
+    if (stored_version >= CFG_VERSION) {// v5: the grid lines up by championship position
+        g_grid_order = std::clamp(config::get_int(INI_SECTION, "grid_order", g_grid_order),
+                                  (int) GRID_ROSTER, (int) GRID_STANDINGS_REVERSE);
+        g_grid_jitter = config::get_float(INI_SECTION, "grid_jitter", g_grid_jitter);
+    }
     g_no_blue_flash =
         config::get_int(INI_SECTION, "no_blue_flash", g_no_blue_flash) != 0;
     g_snapshot_s = config::get_float(INI_SECTION, "snapshot_s", g_snapshot_s);
@@ -1228,7 +1268,8 @@ static void save_config() {
     config::set_int(INI_SECTION, "ai_lighting", g_ai_lighting);
     config::set_int(INI_SECTION, "hero_count", g_hero_count);
     config::set_int(INI_SECTION, "cfg_version", CFG_VERSION);
-    config::set_int(INI_SECTION, "shuffle_grid", g_shuffle_grid);
+    config::set_int(INI_SECTION, "grid_order", g_grid_order);
+    config::set_float(INI_SECTION, "grid_jitter", g_grid_jitter);
     config::set_int(INI_SECTION, "no_blue_flash", g_no_blue_flash);
     config::set_float(INI_SECTION, "snapshot_s", g_snapshot_s);
     config::save();
@@ -1282,7 +1323,12 @@ static void panel_orchestrator() {
         fprintf(hook_log, "[orchestrator] sound channels reset by the user\n");
         fflush(hook_log);
     }
-    changed |= ImGui::Checkbox("Random starting grid", &g_shuffle_grid);
+    static const char *GRID_ORDER_NAMES[] = {"Roster order (stock)", "Random",
+                                             "Championship order (leader on pole)",
+                                             "Reverse championship (leader at the back)"};
+    changed |= ImGui::Combo("Starting grid", &g_grid_order, GRID_ORDER_NAMES,
+                            IM_ARRAYSIZE(GRID_ORDER_NAMES));
+    changed |= ImGui::SliderFloat("Grid shuffle over that order", &g_grid_jitter, 0.0f, 1.0f, "%.2f");
     changed |= ImGui::Checkbox("No respawn blue flash on the shared AI lighting", &g_no_blue_flash);
     ImGui::SetNextItemWidth(120.0f);
     changed |= ImGui::SliderFloat("Field snapshot to log (s)", &g_snapshot_s, 0.0f, 60.0f, "%.0f");
