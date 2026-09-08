@@ -91,6 +91,7 @@ static float g_cockpit_max_s = 8.0f;// cockpit shots are short
 static float g_occlusion_s = 1.2f;  // free camera STILL blocked this long once closed in -> cut
 static float g_close_rate = 0.9f;   // how fast a blocked shot closes in (fraction per second)
 static float g_close_recover = 0.3f;// ... and eases back out once the view is clear
+static float g_block_debounce_s = 0.4f;// the ray must agree this long before the shot reacts
 static float g_roll_scale = 0.3f;   // roll kept on the shots that inherit the pod's (1 = stock)
 static float g_intro_height = 380.0f;// grid intro: the drone starts this far above its normal height
 static float g_intro_s = 4.5f;       // ... and descends onto the grid over this long
@@ -153,6 +154,8 @@ static bool g_trackside_planted = false;
 static DWORD g_blend_until_ms = 0;// drone -> drone: the camera flies rather than cuts until then
 static DWORD g_blocked_since_ms = 0;// free-camera line of sight to the pod lost at (0 = clear)
 static float g_close = 1.0f;        // 1 = the shot's own framing, less = pulled in past an obstruction
+static bool g_blocked_state = false;// debounced line-of-sight verdict
+static DWORD g_block_flip_ms = 0;   // the raw ray first disagreed with it at
 static rdVector3 g_trackside_base;  // the spline point the trackside camera is offset from
 static rdVector3 g_trackside_right, g_trackside_up;// and the offset axes, so it can slide in
 static DWORD g_win_seen_ms = 0;     // the winner crossed the line at (0 = not yet)
@@ -280,6 +283,8 @@ static void set_shot(Shot s) {
     g_grid_planted = false;
     g_ign_planted = false;
     g_close = 1.0f;
+    g_blocked_state = false;
+    g_block_flip_ms = 0;
     g_grid_pan_dir = (rand() & 1) ? 1.0f : -1.0f;
     g_zoom_cur = 1.0f;
     g_zoom_target = 1.0f;
@@ -544,7 +549,19 @@ void director_Service() {
             const swrRace *pod = swrScoresPtr[g_target_slot].obj_test_ptr;
             const float dt = (float) swrRace_deltaTimeSecs;
             const float floor_close = close_floor(g_shot);
-            if (pod != NULL && view_blocked(pod)) {
+            // Debounce the ray: a pole, a fence or a wing tip flickers the verdict frame to frame,
+            // and reacting to that made the camera wiggle in and out. The shot only believes a
+            // change once the ray has agreed with it for g_block_debounce_s.
+            const bool raw_blocked = pod != NULL && view_blocked(pod);
+            if (raw_blocked == g_blocked_state) {
+                g_block_flip_ms = 0;
+            } else if (g_block_flip_ms == 0) {
+                g_block_flip_ms = now;
+            } else if (now - g_block_flip_ms >= (DWORD) (g_block_debounce_s * 1000.0f)) {
+                g_blocked_state = raw_blocked;
+                g_block_flip_ms = 0;
+            }
+            if (g_blocked_state) {
                 g_close = std::max(floor_close, g_close - g_close_rate * dt);
                 const bool as_close_as_it_goes = g_close <= floor_close + 0.01f;
                 if (g_blocked_since_ms == 0)
@@ -1229,6 +1246,7 @@ static void load_config() {
     g_roll_scale = config::get_float(INI_SECTION, "roll_scale", g_roll_scale);
     g_close_rate = config::get_float(INI_SECTION, "close_rate", g_close_rate);
     g_close_recover = config::get_float(INI_SECTION, "close_recover", g_close_recover);
+    g_block_debounce_s = config::get_float(INI_SECTION, "block_debounce_s", g_block_debounce_s);
     g_intro_height = config::get_float(INI_SECTION, "intro_height", g_intro_height);
     g_intro_s = config::get_float(INI_SECTION, "intro_s", g_intro_s);
     if (stored_version >= 6) {// v6: orbit weight 2 -> 4
@@ -1347,6 +1365,7 @@ static void save_config() {
     config::set_float(INI_SECTION, "roll_scale", g_roll_scale);
     config::set_float(INI_SECTION, "close_rate", g_close_rate);
     config::set_float(INI_SECTION, "close_recover", g_close_recover);
+    config::set_float(INI_SECTION, "block_debounce_s", g_block_debounce_s);
     config::set_float(INI_SECTION, "intro_height", g_intro_height);
     config::set_float(INI_SECTION, "intro_s", g_intro_s);
     config::save();
@@ -1382,6 +1401,7 @@ static void panel_director() {
     changed |= ImGui::SliderFloat("Cut when still blocked up close for (s)", &g_occlusion_s, 0.2f, 5.0f, "%.1f");
     changed |= ImGui::SliderFloat("Close-in rate when blocked", &g_close_rate, 0.0f, 3.0f, "%.2f");
     changed |= ImGui::SliderFloat("Ease back out rate", &g_close_recover, 0.0f, 2.0f, "%.2f");
+    changed |= ImGui::SliderFloat("Blocked-view debounce (s)", &g_block_debounce_s, 0.0f, 2.0f, "%.2f");
     changed |= ImGui::SliderFloat("Cut to the leader this long before the win (s)", &g_finish_lock_s, 0.0f, 30.0f, "%.0f");
     changed |= ImGui::SliderFloat("Camera roll kept (1 = stock)", &g_roll_scale, 0.0f, 1.0f, "%.2f");
     ImGui::SeparatorText("Face cam");

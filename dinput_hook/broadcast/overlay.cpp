@@ -262,11 +262,7 @@ static void draw_leaderboard(const RaceTelemetry *t) {
             g_dragging = false;
             save_config();
         }
-        if (t->leader_finished || t->n == 0)
-            ImGui::Text("%s  |  %s", g_title[0] ? g_title : "RACE", track_name(t->track_index));
-        else
-            ImGui::Text("%s  |  %s  |  LAP %d/%d", g_title[0] ? g_title : "RACE",
-                        track_name(t->track_index), t->rows[0].lap, t->num_laps);
+        ImGui::Text("%s  |  %s", g_title[0] ? g_title : "RACE", track_name(t->track_index));
         ImGui::Separator();
 
         float gap_w = 0.0f;
