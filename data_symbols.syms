@@ -558,6 +558,7 @@ swrSound_sfxVariantCooldown 0x0050b620 float[23]
 swrSound_sfxVariantLastCategory 0x0050b680 int[23] # category that last armed each variant cooldown slot (swrSound_MarkSfxPlayed)
 swrSound_recentSfxWriteIndex 0x0050b6dc int16_t
 swrSound_musicFadeMode 0x0050b6e0 int # music fade state machine: 0 stop / 1 arm / 2 fade down / 3 fade up (swrSound_SetMusicFade -> swrSound_UpdateMusic)
+swrSound_musicGain 0x0050b6e4 float # music channel gain, scaled into every swrSound_UpdateMusic play
 swrSound_musicFadeRate 0x0050b6e8 float # per-second gain delta applied while fading (swrSound_UpdateMusic)
 
 swrMainDisplaySettings_g 0x0050b560 swrMainDisplaySettings

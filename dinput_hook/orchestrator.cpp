@@ -287,9 +287,23 @@ static const int BINDER_IGNITION_SFX = 0x74;
 // (channel 7, the music channel, at 0.8 gain).
 static const int VICTORY_MUSIC_SFX = 0xa1;
 
+// swrSound_UpdateMusic's "arm" step plays the queued track at the gain the channel *already* has
+// and then switches the fade machine to a fade-down, so a track queued while that gain sat at zero
+// was skipped by the mixer (playASoundImpl drops a zero-gain play) and then faded out of existence
+// before it could start -- the sting queued, logged, and never sounded. Lift the gain when queuing
+// and re-arm every frame for as long as the sting is ours, which is what swrObjJdge_F3 does to keep
+// race music alive while nobody local is racing.
+static void sustain_music() {
+    if (g_music_after == MUSIC_AFTER_NONE)
+        return;
+    swrSound_musicGain = 1.0f;
+    swrSound_SetMusicFade(1);
+}
+
 static void play_music(int sfx, const char *what, MusicAfter after, DWORD after_ms) {
     swrSound_currentMusicId = -1;// drop anything sitting in the controller's one-shot slot
     swrSound_queuedMusicId = sfx;
+    swrSound_musicGain = 1.0f;
     swrSound_SetMusicFade(1);
     g_music_after = after;
     g_music_after_ms = after_ms;
@@ -837,6 +851,8 @@ void orchestrator_Service() {
         overlay_SetFooter("");
     }
 
+    sustain_music();
+
     swrObjJdge *jdge = get_jdge();
     const bool in_race = jdge != NULL && !jdge_asleep(jdge) && swrJdge_Cleared == 0;
     if (in_race) {
@@ -868,6 +884,7 @@ void orchestrator_Service() {
         // The orbit (state 5) may be skipped by the cutscene toggles, so the hold lives in the
         // countdown (state 0): its timer is pinned above the 3-2-1 light windows until the hold
         // elapses, then runs out normally.
+        service_music(jdge);
         if ((state == 5 || state == 0) && !any_racing) {
             if (g_grid_hold_start_ms == 0)
                 g_grid_hold_start_ms = now;

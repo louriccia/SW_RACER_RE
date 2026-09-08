@@ -52,7 +52,7 @@ static float g_handheld_speed = 1.6f;
 static float g_handheld_zoom_move_s = 5.0f;// seconds for one full push in / pull out
 static float g_grid_pan = 6.0f;         // grid shot: the aim sweeps this far along the pod
 static float g_grid_pan_s = 9.0f;       // ... over this long, one way (direction is random)
-static float g_ign_side = 30.0f;        // ignition shot: beside the grid (the crowd's side)
+static float g_ign_side = 45.0f;        // ignition shot: beside the grid (the crowd's side)
 static float g_ign_height = 26.0f;      // ... above the pods, looking down on the beams
 static float g_ign_lead = 16.0f;        // ... and this far in front of the grid's middle
 static float g_grid_dist = 13.0f;   // grid shot: from the cockpit
@@ -71,7 +71,7 @@ static float g_trackside_aim_smooth = 0.15f;
 static float g_trackside_zoom = 0.45f;// FOV multiplier at plant distance (1 = no zoom); eases to 1 as the pod arrives
 static float g_trackside_zoom_near = 90.0f;// fully zoomed out by the time the pod is this close
 static float g_drone_height = 95.0f; // world units above the pod
-static const int CFG_VERSION = 14;    // bump when a default should override a stored value
+static const int CFG_VERSION = 15;    // bump when a default should override a stored value
 static float g_drone_back = 85.0f;   // behind the pod along its horizontal heading
 static float g_drone_ahead = 80.0f;  // aim point ahead of the pod
 static float g_drone_smooth = 0.5f;  // position time constant (s)
@@ -1138,11 +1138,12 @@ static void load_config() {
         g_grid_height = config::get_float(INI_SECTION, "grid_height", g_grid_height);
     if (stored_version >= 12)// v12: deeper handheld zoom
         g_handheld_zoom = config::get_float(INI_SECTION, "handheld_zoom", g_handheld_zoom);
-    if (stored_version >= CFG_VERSION)// v14: a shorter pan to match the closer framing
+    if (stored_version >= 14)// v14: a shorter pan to match the closer framing
         g_grid_pan = config::get_float(INI_SECTION, "grid_pan", g_grid_pan);
+    if (stored_version >= CFG_VERSION)// v15: the crowd shot backs off the grid again
+        g_ign_side = config::get_float(INI_SECTION, "ignition_side", g_ign_side);
     if (stored_version >= 13) {// v13: the handheld shots frame their pod tighter
         g_grid_dist = config::get_float(INI_SECTION, "grid_dist", g_grid_dist);
-        g_ign_side = config::get_float(INI_SECTION, "ignition_side", g_ign_side);
         g_ign_lead = config::get_float(INI_SECTION, "ignition_lead", g_ign_lead);
         g_ign_height = config::get_float(INI_SECTION, "ignition_height", g_ign_height);
     }
