@@ -268,12 +268,12 @@ static void reset_race_watch() {
 static float *const g_binder_ignition_timer = (float *) 0x0050caf8;
 static const int BINDER_IGNITION_SFX = 0x74;
 
-// swrSound_SelectPlanetIntroMusic queues swrMusicPlanetIntroTable[planet % 12] -- the planet's
-// arrival fanfare (mt01desert / mb00aquilarisintro / me00spiceintro / mx091lavacaves) -- as the
-// music track and arms a fade-in. Like the rest of the sound layer it returns without doing
-// anything when pods exist and NumLocalPlayers() == 0, so a local player is lent for the call.
-static const uint32_t SWRSOUND_SELECTPLANETINTROMUSIC_ADDR = 0x00427ad0;
-typedef unsigned int(__cdecl *swrSound_SelectPlanetIntroMusic_t)(unsigned int planet);
+// The planet's arrival fanfare (mt01desert / mb00aquilarisintro / me00spiceintro / mx091lavacaves),
+// per planet in swrMusicPlanetIntroTable. swrSound_SelectPlanetIntroMusic only *queues* it in the
+// streamed-music controller, and swrObjJdge_F3 re-arms the track theme every frame while nobody
+// local is racing (SetMusicFade(1)), which took the sting straight back off the queue -- so play it
+// as a one-shot instead. Ids 0x8e-0xa5 are music to playASoundImpl: top voice priority and the
+// music volume, exactly like the awards fanfare below.
 
 // m099awards2, the awards fanfare swrObjHang_UpdateResultsIntro plays over the results reveal
 // (channel 7, the music channel, at 0.8 gain).
@@ -282,12 +282,13 @@ static const int VICTORY_MUSIC_SFX = 0xa1;
 static void play_planet_sting(const swrObjJdge *jdge) {
     if (!g_music_stings || jdge == NULL)
         return;
-    swrScore *saved = firstLocalPlayer;
-    if (firstLocalPlayer == NULL && swrScoresPtr != NULL)
-        firstLocalPlayer = swrScoresPtr;
-    ((swrSound_SelectPlanetIntroMusic_t) SWRSOUND_SELECTPLANETINTROMUSIC_ADDR)(
-        (unsigned int) jdge->planetId);
-    firstLocalPlayer = saved;
+    const int planet = std::clamp((int) jdge->planetId, 0, 7);
+    const int sfx = (int) swrMusicPlanetIntroTable[planet];
+    if (sfx <= 0)
+        return;
+    playASound(sfx, 7, 0.25f, 1.0f, 0);
+    fprintf(hook_log, "[orchestrator] planet %d sting: sfx 0x%x\n", planet, sfx);
+    fflush(hook_log);
 }
 static const float BINDER_STAGGER_S = 0.1f;// per entity id
 
@@ -859,8 +860,12 @@ void orchestrator_Service() {
                 g_first_finish_ms = now;
                 g_cooldown_end_ms = now + (DWORD) (g_cooldown_s * 1000.0f);
                 g_next_track = pick_track(hang->track_index);
-                if (g_music_stings)
+                if (g_music_stings) {
                     playASound(VICTORY_MUSIC_SFX, 7, 0.25f, 0.8f, 0);
+                    fprintf(hook_log, "[orchestrator] victory fanfare: sfx 0x%x\n",
+                            VICTORY_MUSIC_SFX);
+                    fflush(hook_log);
+                }
                 set_status("race %d: winner in; next race (track %d, %s) in %.0fs", g_races_started,
                            g_next_track, track_name(g_next_track), g_cooldown_s);
                 emit(ORCH_WINNER_IN);

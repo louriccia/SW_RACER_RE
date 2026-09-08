@@ -44,10 +44,11 @@ static float g_face_true_dist = 6.0f;// in front of the pilot's eye point
 static float g_face_true_up = 1.0f;
 static float g_face_true_fov = 0.75f;// FOV multiplier (a tighter lens on the pilot)
 static float g_profile_band_deg = 35.0f;// azimuths within this of dead-side are pushed off it
-static bool g_handheld = true;          // grid / close shots get an operator's wobble
-static float g_handheld_amp = 0.35f;
+static bool g_handheld = true;         // grid / close shots get an operator's wobble
+static float g_handheld_rot_deg = 0.8f;// aim drift (pan / tilt), degrees
+static float g_handheld_pos = 0.4f;    // camera drift, world units
+static float g_handheld_zoom = 0.12f;  // lens breathing, as a fraction of the FOV
 static float g_handheld_speed = 1.6f;
-static float g_handheld_zoom = 0.07f;// handheld lens breathing, as a fraction of the FOV
 static float g_grid_dist = 22.0f;   // grid shot: from the cockpit
 static float g_grid_height = 0.0f;// level with the cockpit: an operator standing on the grid
 static float g_grid_az_min = 25.0f, g_grid_az_max = 60.0f;// degrees off the nose
@@ -598,18 +599,33 @@ static float avoid_profile(float az) {
 // Handheld: the shots a human operator would be holding (the grid walk-around, the close face cams)
 // get a little drift on the aim and a touch on the camera itself. The rigid rig underneath is
 // unchanged, so nothing accumulates.
+// Perlin noise is zero at the integer lattice and collapses toward it when two coordinates are
+// whole numbers, so each axis walks its own fractional offsets (the same trick the player camera's
+// shake uses with 50).
+static float noise_axis(int axis, float t) {
+    switch (axis) {
+        case 0:
+            return playercam_Noise(t, 11.3f, 4.7f);
+        case 1:
+            return playercam_Noise(6.1f, t, 9.3f);
+        default:
+            return playercam_Noise(2.9f, 8.7f, t);
+    }
+}
+
+// Per-shot scale on the handheld motion (1 = the full amount).
 static float handheld_amp() {
     if (!g_handheld)
         return 0.0f;
     switch (g_shot) {
         case SHOT_GRID:
         case SHOT_INTRO:
-            return g_handheld_amp;
+            return 1.0f;
         case SHOT_FACE:
         case SHOT_FACE_TRUE:
-            return g_handheld_amp * 0.6f;
+            return 0.6f;
         case SHOT_TRACKSIDE:
-            return g_handheld_amp * 0.4f;
+            return 0.4f;
         default:
             return 0.0f;
     }
@@ -623,15 +639,18 @@ static void write_camera(swrObjcMan *cman) {
     if (amp > 0.0f) {
         const float t = (float) GetTickCount() * 0.001f * g_handheld_speed;
         const float dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
-        const float d = sqrtf(dx * dx + dy * dy + dz * dz);
-        const float k = amp * std::max(4.0f, d) * 0.012f;// aim drift scales with the framing
-        to.x += playercam_Noise(t, 0.0f, 0.0f) * k;
-        to.y += playercam_Noise(0.0f, t, 0.0f) * k;
-        to.z += playercam_Noise(0.0f, 0.0f, t) * k * 0.6f;
-        const float pk = amp * 0.35f;
-        from.x += playercam_Noise(t + 37.0f, 0.0f, 0.0f) * pk;
-        from.y += playercam_Noise(0.0f, t + 37.0f, 0.0f) * pk;
-        from.z += playercam_Noise(0.0f, 0.0f, t + 37.0f) * pk;
+        const float d = std::max(4.0f, sqrtf(dx * dx + dy * dy + dz * dz));
+        // Rotational: move the aim point on a sphere of the framing radius, so the drift is the
+        // same angle whatever the shot is looking at. Positional: a much smaller sway of the
+        // camera itself (an operator shifting weight), which also gives a little parallax.
+        const float k = d * tanf(g_handheld_rot_deg * amp * 3.14159265f / 180.0f);
+        to.x += noise_axis(0, t) * k;
+        to.y += noise_axis(1, t) * k;
+        to.z += noise_axis(2, t) * k * 0.6f;
+        const float pk = g_handheld_pos * amp;
+        from.x += noise_axis(0, t * 0.7f + 37.0f) * pk;
+        from.y += noise_axis(1, t * 0.7f + 37.0f) * pk;
+        from.z += noise_axis(2, t * 0.7f + 37.0f) * pk * 0.5f;
     }
     BuildLookAtTransform(&from, &to, &out, &tr, 0.0f);
     cman->unk20_mat = out;
@@ -859,7 +878,15 @@ static float fov_override(swrObjcMan *cman, float fov) {
     const float amp = handheld_amp();
     if (amp > 0.0f && g_handheld_zoom > 0.0f) {
         const float t = (float) GetTickCount() * 0.001f * g_handheld_speed * 0.45f;
-        out *= 1.0f + playercam_Noise(t, 19.0f, 7.0f) * amp * g_handheld_zoom;
+        out *= 1.0f + playercam_Noise(t * 0.9f, 3.7f, 12.1f) * amp * g_handheld_zoom;
+    }
+    static Shot logged = SHOT_CHASE;
+    static bool logged_any = false;
+    if (!logged_any || logged != g_shot) {
+        logged = g_shot;
+        logged_any = true;
+        fprintf(hook_log, "[director] %s shot: fov %.1f -> %.1f\n", SHOT_NAMES[g_shot], fov, out);
+        fflush(hook_log);
     }
     return out;
 }
@@ -957,6 +984,8 @@ static void load_config() {
     g_handheld = config::get_int(INI_SECTION, "handheld", g_handheld) != 0;
     g_handheld_speed = config::get_float(INI_SECTION, "handheld_speed", g_handheld_speed);
     g_handheld_zoom = config::get_float(INI_SECTION, "handheld_zoom", g_handheld_zoom);
+    g_handheld_rot_deg = config::get_float(INI_SECTION, "handheld_rot_deg", g_handheld_rot_deg);
+    g_handheld_pos = config::get_float(INI_SECTION, "handheld_pos", g_handheld_pos);
     g_grid_dist = config::get_float(INI_SECTION, "grid_dist", g_grid_dist);
     g_grid_az_min = config::get_float(INI_SECTION, "grid_az_min", g_grid_az_min);
     g_grid_az_max = config::get_float(INI_SECTION, "grid_az_max", g_grid_az_max);
@@ -1000,10 +1029,9 @@ static void load_config() {
         g_drone_back = config::get_float(INI_SECTION, "drone_back", g_drone_back);
         g_drone_blend_max = config::get_float(INI_SECTION, "drone_blend_max", g_drone_blend_max);
     }
-    if (stored_version >= CFG_VERSION) {// v9: ground-level grid shot, gentler handheld
+    if (stored_version >= CFG_VERSION) {// v9: ground-level grid shot
         g_grid_height = config::get_float(INI_SECTION, "grid_height", g_grid_height);
-        g_handheld_amp = config::get_float(INI_SECTION, "handheld_amp", g_handheld_amp);
-    }
+        }
     g_min_shot_s = config::get_float(INI_SECTION, "min_shot_s", g_min_shot_s);
     g_drone_blend_s = config::get_float(INI_SECTION, "drone_blend_s", g_drone_blend_s);
     g_drone_blend_tau = config::get_float(INI_SECTION, "drone_blend_tau", g_drone_blend_tau);
@@ -1036,9 +1064,10 @@ static void save_config() {
     config::set_float(INI_SECTION, "face_true_fov", g_face_true_fov);
     config::set_float(INI_SECTION, "profile_band_deg", g_profile_band_deg);
     config::set_int(INI_SECTION, "handheld", g_handheld);
-    config::set_float(INI_SECTION, "handheld_amp", g_handheld_amp);
     config::set_float(INI_SECTION, "handheld_speed", g_handheld_speed);
     config::set_float(INI_SECTION, "handheld_zoom", g_handheld_zoom);
+    config::set_float(INI_SECTION, "handheld_rot_deg", g_handheld_rot_deg);
+    config::set_float(INI_SECTION, "handheld_pos", g_handheld_pos);
     config::set_float(INI_SECTION, "grid_dist", g_grid_dist);
     config::set_float(INI_SECTION, "grid_height", g_grid_height);
     config::set_float(INI_SECTION, "grid_az_min", g_grid_az_min);
@@ -1119,7 +1148,8 @@ static void panel_director() {
     ImGui::SeparatorText("Framing");
     changed |= ImGui::SliderFloat("Avoid profile shots within (deg of side-on)", &g_profile_band_deg, 0.0f, 80.0f, "%.0f");
     changed |= ImGui::Checkbox("Handheld feel (grid + close shots)", &g_handheld);
-    changed |= ImGui::SliderFloat("Handheld amount", &g_handheld_amp, 0.0f, 4.0f, "%.2f");
+    changed |= ImGui::SliderFloat("Handheld pan / tilt (deg)", &g_handheld_rot_deg, 0.0f, 5.0f, "%.2f");
+    changed |= ImGui::SliderFloat("Handheld camera sway (units)", &g_handheld_pos, 0.0f, 5.0f, "%.2f");
     changed |= ImGui::SliderFloat("Handheld speed", &g_handheld_speed, 0.2f, 5.0f, "%.2f");
     changed |= ImGui::SliderFloat("Handheld zoom (FOV breathing)", &g_handheld_zoom, 0.0f, 0.3f, "%.2f");
     ImGui::SeparatorText("Grid shot");
