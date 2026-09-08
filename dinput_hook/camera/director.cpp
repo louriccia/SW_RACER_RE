@@ -47,6 +47,7 @@ static float g_profile_band_deg = 35.0f;// azimuths within this of dead-side are
 static bool g_handheld = true;          // grid / close shots get an operator's wobble
 static float g_handheld_amp = 0.35f;
 static float g_handheld_speed = 1.6f;
+static float g_handheld_zoom = 0.07f;// handheld lens breathing, as a fraction of the FOV
 static float g_grid_dist = 22.0f;   // grid shot: from the cockpit
 static float g_grid_height = 0.0f;// level with the cockpit: an operator standing on the grid
 static float g_grid_az_min = 25.0f, g_grid_az_max = 60.0f;// degrees off the nose
@@ -141,6 +142,8 @@ static DWORD g_win_seen_ms = 0;     // the winner crossed the line at (0 = not y
 static DWORD g_intro_start_ms = 0;
 static float g_face_sign = 1.0f;
 static float g_grid_az = 0.6f;// this shot's azimuth off the nose (radians, signed)
+static rdVector3 g_grid_pos;  // planted once per shot: the operator stands still
+static bool g_grid_planted = false;
 static float g_fov_eased = 0.0f;// trackside zoom state (0 = unseeded)
 
 static swrObjcMan *camera_man() {
@@ -248,6 +251,7 @@ static void set_shot(Shot s) {
     g_blend_until_ms = fly ? g_shot_start_ms + (DWORD) (g_drone_blend_s * 1000.0f) : 0;
     g_orbit_ang_seeded = false;
     g_trackside_planted = false;
+    g_grid_planted = false;
     g_blocked_since_ms = 0;
     g_face_sign = (rand() & 1) ? 1.0f : -1.0f;
     {   // grid azimuth: a three-quarter angle off the nose, either side
@@ -809,41 +813,55 @@ static void shot_trackside(swrObjcMan *cman, const swrRace *pod) {
 // Grid: a front three-quarter on a pod that is not moving yet, framed on the cockpit, close
 // enough to read the pilot. Rigid (the pod is stationary) with the handheld drift on top.
 static void shot_grid(swrObjcMan *cman, const swrRace *pod) {
-    const rdVector3 f = {pod->transform.vB.x, pod->transform.vB.y, pod->transform.vB.z};
-    const rdVector3 r = {pod->transform.vA.x, pod->transform.vA.y, pod->transform.vA.z};
-    const rdVector3 u = {pod->transform.vC.x, pod->transform.vC.y, pod->transform.vC.z};
     const rdVector3 c = {pod->cockpitXf.vD.x, pod->cockpitXf.vD.y, pod->cockpitXf.vD.z};
-    const float ca = cosf(g_grid_az) * g_grid_dist, sa = sinf(g_grid_az) * g_grid_dist;
-    const rdVector3 pos = {c.x + f.x * ca + r.x * sa + u.x * g_grid_height,
-                           c.y + f.y * ca + r.y * sa + u.y * g_grid_height,
-                           c.z + f.z * ca + r.z * sa + u.z * g_grid_height};
-    const rdVector3 aim = {c.x + u.x * 1.0f, c.y + u.y * 1.0f, c.z + u.z * 1.0f};
-    ease_to(pos, aim, 0.0f);
-    g_cam_pos = pos;
+    if (!g_grid_planted) {
+        // Stand the camera in the world once, off the pod's nose at this shot's angle. A pod on the
+        // grid hovers and sways (swrRace_PoddAnimateVariousThings), and a position derived from its
+        // transform every frame rode that sway; an operator holds still and lets the pod move.
+        const rdVector3 f = {pod->transform.vB.x, pod->transform.vB.y, pod->transform.vB.z};
+        const rdVector3 r = {pod->transform.vA.x, pod->transform.vA.y, pod->transform.vA.z};
+        const rdVector3 u = {pod->transform.vC.x, pod->transform.vC.y, pod->transform.vC.z};
+        const float ca = cosf(g_grid_az) * g_grid_dist, sa = sinf(g_grid_az) * g_grid_dist;
+        g_grid_pos = {c.x + f.x * ca + r.x * sa + u.x * g_grid_height,
+                      c.y + f.y * ca + r.y * sa + u.y * g_grid_height,
+                      c.z + f.z * ca + r.z * sa + u.z * g_grid_height};
+        g_grid_planted = true;
+    }
+    const rdVector3 aim = {c.x, c.y, c.z + 1.0f};
+    ease_to(g_grid_pos, aim, 0.0f);
+    g_cam_pos = g_grid_pos;// fixed in the world; write_camera's drift is the only camera motion
     write_camera(cman);
 }
 
 static float fov_override(swrObjcMan *cman, float fov) {
     if (!g_enabled || cman == NULL)
         return fov;
-    if (g_shot == SHOT_FACE_TRUE)
-        return fov * g_face_true_fov;
-    if (g_shot != SHOT_TRACKSIDE || !g_trackside_planted)
-        return fov;
+    float out = fov;
     const swrRace *pod = cman->unkf4_objTest;
-    if (pod == NULL || g_trackside_zoom >= 1.0f)
-        return fov;
-    const float dx = pod->transform.vD.x - g_trackside_pos.x;
-    const float dy = pod->transform.vD.y - g_trackside_pos.y;
-    const float dz = pod->transform.vD.z - g_trackside_pos.z;
-    const float d = sqrtf(dx * dx + dy * dy + dz * dz);
-    const float span = std::max(1.0f, g_trackside_ahead - g_trackside_zoom_near);
-    const float t = std::clamp((d - g_trackside_zoom_near) / span, 0.0f, 1.0f);
-    const float want = fov * (1.0f - t * (1.0f - g_trackside_zoom));
-    const float dt = (float) swrRace_deltaTimeSecs;
-    const float a = 1.0f - expf(-dt / 0.25f);
-    g_fov_eased = g_fov_eased <= 0.0f ? want : g_fov_eased + (want - g_fov_eased) * a;
-    return g_fov_eased;
+    if (g_shot == SHOT_FACE_TRUE) {
+        out = fov * g_face_true_fov;
+    } else if (g_shot == SHOT_TRACKSIDE && g_trackside_planted && pod != NULL &&
+               g_trackside_zoom < 1.0f) {
+        const float dx = pod->transform.vD.x - g_trackside_pos.x;
+        const float dy = pod->transform.vD.y - g_trackside_pos.y;
+        const float dz = pod->transform.vD.z - g_trackside_pos.z;
+        const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+        const float span = std::max(1.0f, g_trackside_ahead - g_trackside_zoom_near);
+        const float t = std::clamp((d - g_trackside_zoom_near) / span, 0.0f, 1.0f);
+        const float want = fov * (1.0f - t * (1.0f - g_trackside_zoom));
+        const float dt = (float) swrRace_deltaTimeSecs;
+        const float a = 1.0f - expf(-dt / 0.25f);
+        g_fov_eased = g_fov_eased <= 0.0f ? want : g_fov_eased + (want - g_fov_eased) * a;
+        out = g_fov_eased;
+    }
+    // Operator's lens: a slow in / out on the handheld shots, on its own noise axis so it does not
+    // march in step with the frame drift.
+    const float amp = handheld_amp();
+    if (amp > 0.0f && g_handheld_zoom > 0.0f) {
+        const float t = (float) GetTickCount() * 0.001f * g_handheld_speed * 0.45f;
+        out *= 1.0f + playercam_Noise(t, 19.0f, 7.0f) * amp * g_handheld_zoom;
+    }
+    return out;
 }
 
 static bool camera_override(swrObjcMan *cman) {
@@ -938,6 +956,7 @@ static void load_config() {
     g_profile_band_deg = config::get_float(INI_SECTION, "profile_band_deg", g_profile_band_deg);
     g_handheld = config::get_int(INI_SECTION, "handheld", g_handheld) != 0;
     g_handheld_speed = config::get_float(INI_SECTION, "handheld_speed", g_handheld_speed);
+    g_handheld_zoom = config::get_float(INI_SECTION, "handheld_zoom", g_handheld_zoom);
     g_grid_dist = config::get_float(INI_SECTION, "grid_dist", g_grid_dist);
     g_grid_az_min = config::get_float(INI_SECTION, "grid_az_min", g_grid_az_min);
     g_grid_az_max = config::get_float(INI_SECTION, "grid_az_max", g_grid_az_max);
@@ -1019,6 +1038,7 @@ static void save_config() {
     config::set_int(INI_SECTION, "handheld", g_handheld);
     config::set_float(INI_SECTION, "handheld_amp", g_handheld_amp);
     config::set_float(INI_SECTION, "handheld_speed", g_handheld_speed);
+    config::set_float(INI_SECTION, "handheld_zoom", g_handheld_zoom);
     config::set_float(INI_SECTION, "grid_dist", g_grid_dist);
     config::set_float(INI_SECTION, "grid_height", g_grid_height);
     config::set_float(INI_SECTION, "grid_az_min", g_grid_az_min);
@@ -1101,6 +1121,7 @@ static void panel_director() {
     changed |= ImGui::Checkbox("Handheld feel (grid + close shots)", &g_handheld);
     changed |= ImGui::SliderFloat("Handheld amount", &g_handheld_amp, 0.0f, 4.0f, "%.2f");
     changed |= ImGui::SliderFloat("Handheld speed", &g_handheld_speed, 0.2f, 5.0f, "%.2f");
+    changed |= ImGui::SliderFloat("Handheld zoom (FOV breathing)", &g_handheld_zoom, 0.0f, 0.3f, "%.2f");
     ImGui::SeparatorText("Grid shot");
     changed |= ImGui::SliderFloat("Distance from the cockpit", &g_grid_dist, 8.0f, 80.0f, "%.0f");
     changed |= ImGui::SliderFloat("Height##grid", &g_grid_height, -5.0f, 40.0f, "%.0f");
