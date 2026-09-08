@@ -116,6 +116,11 @@ bool overlay_NameplateVisible(int score_slot) {
     return closer < g_nameplate_neighbors;
 }
 
+void overlay_Theme(float *scale, float *opacity) {
+    *scale = g_scale;
+    *opacity = g_opacity;
+}
+
 static void (*g_row_click)(int slot) = NULL;
 static int g_highlight_slot = -1;
 

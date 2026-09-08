@@ -7,6 +7,8 @@
 #include "orchestrator.h"
 #include "broadcast/overlay.h"
 #include "broadcast/voice.h"
+#include "broadcast/results_log.h"
+#include "broadcast/standings.h"
 #include "camera/director.h"
 #include "ai_variance.h"
 
@@ -683,6 +685,8 @@ void imgui_Update() {
         playercam_RegisterPanel();
         orchestrator_RegisterPanel();
         overlay_RegisterPanel();
+        results_log_RegisterPanel();
+        standings_RegisterPanel();
         director_RegisterPanel();
         voice_RegisterPanel();
         ai_variance_RegisterPanel();
@@ -709,6 +713,7 @@ void imgui_Update() {
         // The FPS overlay is independent of the F5 debug menu (debug_ui_render gates that).
         draw_fps_overlay();
         overlay_Draw();
+        standings_Draw();
         debug_ui_render();
         draw_screen_fade_overlay();// restored screen fade-to-black (over the game, under the panels)
 
