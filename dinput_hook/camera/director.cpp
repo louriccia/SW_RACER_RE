@@ -38,6 +38,11 @@ static float g_battle_gap_s = 1.5f;                       // two racers this clo
 // Shot mix (weights) + parameters. The stock spectator-mode cycling is disabled while active.
 static int g_w_chase = 1, g_w_drone = 6, g_w_orbit = 4, g_w_cockpit = 1;
 static int g_w_trackside = 3;
+static int g_w_face = 3, g_w_chase_far = 2, g_w_bumper = 1, g_w_fp_wide = 1;
+static float g_face_dist = 30.0f;  // face cam: ahead of the pod
+static float g_face_height = 7.0f; // ... and up
+static float g_face_side = 4.0f;   // ... and a touch to one side (random sign)
+static float g_face_max_s = 7.0f;  // face / bumper / fp-wide shots are short like cockpit
 static float g_trackside_ahead = 750.0f;// plant the camera this far along the spline ahead of the pod
 static float g_trackside_side = 70.0f;  // beside the spline (random side)
 static float g_trackside_height = 25.0f;
@@ -74,8 +79,34 @@ static DWORD g_manual_until_ms = 0;
 static const char *g_last_rule = "";
 static int g_cuts = 0;
 
-enum Shot { SHOT_CHASE = 0, SHOT_DRONE, SHOT_ORBIT, SHOT_COCKPIT, SHOT_TRACKSIDE, SHOT_INTRO };
-static const char *SHOT_NAMES[] = {"chase", "drone", "orbit", "cockpit", "trackside", "intro"};
+enum Shot {
+    SHOT_CHASE = 0,
+    SHOT_DRONE,
+    SHOT_ORBIT,
+    SHOT_COCKPIT,
+    SHOT_TRACKSIDE,
+    SHOT_INTRO,
+    SHOT_FACE,     // rigid, in front of the pod looking back at the pilot
+    SHOT_CHASE_FAR,// stock views
+    SHOT_BUMPER,
+    SHOT_FP_WIDE,
+};
+static const char *SHOT_NAMES[] = {"chase", "drone",  "orbit",     "cockpit", "trackside",
+                                   "intro", "face",   "chase far", "bumper",  "fp wide"};
+
+// The game view a shot runs on (our override shots ride on chase near).
+static int shot_stock_mode(Shot s) {
+    switch (s) {
+        case SHOT_CHASE_FAR:
+            return 2;
+        case SHOT_BUMPER:
+            return 4;
+        case SHOT_FP_WIDE:
+            return 5;
+        default:
+            return 1;
+    }
+}
 static Shot g_shot = SHOT_CHASE;
 static DWORD g_shot_start_ms = 0;
 static bool g_cam_seeded = false;
@@ -92,6 +123,7 @@ static DWORD g_blend_until_ms = 0;// drone -> drone: the camera flies rather tha
 static DWORD g_blocked_since_ms = 0;// free-camera line of sight to the pod lost at (0 = clear)
 static DWORD g_win_seen_ms = 0;     // the winner crossed the line at (0 = not yet)
 static DWORD g_intro_start_ms = 0;
+static float g_face_sign = 1.0f;
 
 static swrObjcMan *camera_man() {
     return (swrObjcMan *) swrEvent_FindObjectById('cMan', 0);
@@ -197,15 +229,21 @@ static void set_shot(Shot s) {
     g_orbit_ang_seeded = false;
     g_trackside_planted = false;
     g_blocked_since_ms = 0;
+    g_face_sign = (rand() & 1) ? 1.0f : -1.0f;
     if (s == SHOT_COCKPIT)
         playercam_SetExternalCockpit(true);
+    swrObjcMan *cman = camera_man();
+    if (cman != NULL && cman->mode_type != 8 && cman->mode_type != 9 &&
+        cman->mode_type != shot_stock_mode(s))
+        playercam_SetStockMode(cman, shot_stock_mode(s));
 }
 
 // Roll a shot for the new target; orbit only when a rival is in range.
 static Shot pick_shot(const RaceTelemetry *t, int slot) {
     g_orbit_rival = nearest_rival(t, slot, g_orbit_dist);
     const int wo = g_orbit_rival >= 0 ? g_w_orbit : 0;
-    const int total = g_w_chase + g_w_drone + wo + g_w_cockpit + g_w_trackside;
+    const int total = g_w_chase + g_w_drone + wo + g_w_cockpit + g_w_trackside + g_w_face +
+                      g_w_chase_far + g_w_bumper + g_w_fp_wide;
     if (total <= 0)
         return SHOT_CHASE;
     int roll = rand() % total;
@@ -220,7 +258,19 @@ static Shot pick_shot(const RaceTelemetry *t, int slot) {
     roll -= wo;
     if (roll < g_w_cockpit)
         return SHOT_COCKPIT;
-    return SHOT_TRACKSIDE;
+    roll -= g_w_cockpit;
+    if (roll < g_w_trackside)
+        return SHOT_TRACKSIDE;
+    roll -= g_w_trackside;
+    if (roll < g_w_face)
+        return SHOT_FACE;
+    roll -= g_w_face;
+    if (roll < g_w_chase_far)
+        return SHOT_CHASE_FAR;
+    roll -= g_w_chase_far;
+    if (roll < g_w_bumper)
+        return SHOT_BUMPER;
+    return SHOT_FP_WIDE;
 }
 
 // A shot that ran its course (trackside pass-by, cockpit timer, rival gone, view blocked) hands
@@ -327,10 +377,10 @@ void director_Service() {
     // Our shots replace the stock spectator cycle (random chase / first-person / spline-cam modes
     // on a timer): keep its countdown from ever expiring, and hold the chase mode under our shots.
     swrObjcMan_spectatorCycleTimer = 1.0e9f;
-    if (cman != NULL && cman->mode_type != 1 && cman->mode_type != 8 && cman->mode_type != 9) {
-        cman->mode_type = 1;// 8/9 = death camera, left alone
-        cman->mode_respawn = 1;
-    }
+    const int want_mode = shot_stock_mode(g_shot);
+    if (cman != NULL && cman->mode_type != want_mode && cman->mode_type != 8 &&
+        cman->mode_type != 9)
+        playercam_SetStockMode(cman, want_mode);// 8/9 = death camera, left alone
 
     const int followed = director_FollowedSlot();
     if (followed != g_target_slot && followed >= 0)
@@ -410,6 +460,9 @@ void director_Service() {
             }
         } else if (g_shot == SHOT_COCKPIT &&
                    now - g_shot_start_ms > (DWORD) (g_cockpit_max_s * 1000.0f)) {
+            next_shot(t);
+        } else if ((g_shot == SHOT_FACE || g_shot == SHOT_BUMPER || g_shot == SHOT_FP_WIDE) &&
+                   now - g_shot_start_ms > (DWORD) (g_face_max_s * 1000.0f)) {
             next_shot(t);
         } else if (g_shot == SHOT_TRACKSIDE && g_trackside_planted) {
             const swrRace *pod = swrScoresPtr[g_target_slot].obj_test_ptr;
@@ -560,6 +613,22 @@ static void shot_orbit(swrObjcMan *cman, const swrRace *pod, const swrRace *riva
     write_camera(cman);
 }
 
+// Face cam: rigid in the pod's frame, just ahead and above, looking back at the cockpit so the
+// pilot fills the frame. Rigid like the orbit: no positional easing at race speed.
+static void shot_face(swrObjcMan *cman, const swrRace *pod) {
+    const rdVector3 f = {pod->transform.vB.x, pod->transform.vB.y, pod->transform.vB.z};
+    const rdVector3 u = {pod->transform.vC.x, pod->transform.vC.y, pod->transform.vC.z};
+    const rdVector3 r = {pod->transform.vA.x, pod->transform.vA.y, pod->transform.vA.z};
+    const float side = g_face_side * g_face_sign;
+    const rdVector3 c = {pod->cockpitXf.vD.x, pod->cockpitXf.vD.y, pod->cockpitXf.vD.z};
+    const rdVector3 pos = {c.x + f.x * g_face_dist + u.x * g_face_height + r.x * side,
+                           c.y + f.y * g_face_dist + u.y * g_face_height + r.y * side,
+                           c.z + f.z * g_face_dist + u.z * g_face_height + r.z * side};
+    const rdVector3 aim = {c.x + u.x * 1.5f, c.y + u.y * 1.5f, c.z + u.z * 1.5f};
+    ease_to(pos, aim, 0.0f);
+    write_camera(cman);
+}
+
 // Grid intro: the first shot of a race. A drone high above the grid pans down onto the pack over
 // g_intro_s, then holds the normal drone framing until the showcase cuts take over.
 static void shot_intro(swrObjcMan *cman, const swrRace *pod) {
@@ -665,6 +734,11 @@ static bool camera_override(swrObjcMan *cman) {
         case SHOT_INTRO:
             shot_intro(cman, pod);
             return true;
+        case SHOT_FACE:
+            if (pod->partNodes == NULL)
+                return false;
+            shot_face(cman, pod);
+            return true;
         default:
             return false;
     }
@@ -703,6 +777,14 @@ static void load_config() {
     g_w_drone = config::get_int(INI_SECTION, "shot_drone", g_w_drone);
     g_w_cockpit = config::get_int(INI_SECTION, "shot_cockpit", g_w_cockpit);
     g_w_trackside = config::get_int(INI_SECTION, "shot_trackside", g_w_trackside);
+    g_w_face = config::get_int(INI_SECTION, "shot_face", g_w_face);
+    g_w_chase_far = config::get_int(INI_SECTION, "shot_chase_far", g_w_chase_far);
+    g_w_bumper = config::get_int(INI_SECTION, "shot_bumper", g_w_bumper);
+    g_w_fp_wide = config::get_int(INI_SECTION, "shot_fp_wide", g_w_fp_wide);
+    g_face_dist = config::get_float(INI_SECTION, "face_dist", g_face_dist);
+    g_face_height = config::get_float(INI_SECTION, "face_height", g_face_height);
+    g_face_side = config::get_float(INI_SECTION, "face_side", g_face_side);
+    g_face_max_s = config::get_float(INI_SECTION, "face_max_s", g_face_max_s);
     g_trackside_side = config::get_float(INI_SECTION, "trackside_side", g_trackside_side);
     g_trackside_height = config::get_float(INI_SECTION, "trackside_height", g_trackside_height);
     const int stored_version = config::get_int(INI_SECTION, "cfg_version", 1);
@@ -759,6 +841,14 @@ static void save_config() {
     config::set_int(INI_SECTION, "shot_orbit", g_w_orbit);
     config::set_int(INI_SECTION, "shot_cockpit", g_w_cockpit);
     config::set_int(INI_SECTION, "shot_trackside", g_w_trackside);
+    config::set_int(INI_SECTION, "shot_face", g_w_face);
+    config::set_int(INI_SECTION, "shot_chase_far", g_w_chase_far);
+    config::set_int(INI_SECTION, "shot_bumper", g_w_bumper);
+    config::set_int(INI_SECTION, "shot_fp_wide", g_w_fp_wide);
+    config::set_float(INI_SECTION, "face_dist", g_face_dist);
+    config::set_float(INI_SECTION, "face_height", g_face_height);
+    config::set_float(INI_SECTION, "face_side", g_face_side);
+    config::set_float(INI_SECTION, "face_max_s", g_face_max_s);
     config::set_float(INI_SECTION, "trackside_ahead", g_trackside_ahead);
     config::set_float(INI_SECTION, "trackside_side", g_trackside_side);
     config::set_float(INI_SECTION, "trackside_height", g_trackside_height);
@@ -807,8 +897,17 @@ static void panel_director() {
     changed |= ImGui::SliderInt("Orbit (needs a rival in range)", &g_w_orbit, 0, 10);
     changed |= ImGui::SliderInt("Cockpit", &g_w_cockpit, 0, 10);
     changed |= ImGui::SliderInt("Trackside", &g_w_trackside, 0, 10);
+    changed |= ImGui::SliderInt("Face (pilot close-up)", &g_w_face, 0, 10);
+    changed |= ImGui::SliderInt("Chase far (stock)", &g_w_chase_far, 0, 10);
+    changed |= ImGui::SliderInt("Bumper (stock first person)", &g_w_bumper, 0, 10);
+    changed |= ImGui::SliderInt("First person wide (stock)", &g_w_fp_wide, 0, 10);
     changed |= ImGui::SliderFloat("Cut when the track blocks the view for (s)", &g_occlusion_s, 0.2f, 5.0f, "%.1f");
     changed |= ImGui::SliderFloat("Cut to the leader this long before the win (s)", &g_finish_lock_s, 0.0f, 30.0f, "%.0f");
+    ImGui::SeparatorText("Face cam");
+    changed |= ImGui::SliderFloat("Ahead of the cockpit", &g_face_dist, 8.0f, 120.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Above", &g_face_height, -10.0f, 40.0f, "%.0f");
+    changed |= ImGui::SliderFloat("To the side", &g_face_side, 0.0f, 40.0f, "%.0f");
+    changed |= ImGui::SliderFloat("Max duration (s)##face", &g_face_max_s, 2.0f, 30.0f, "%.0f");
     ImGui::SeparatorText("Grid intro");
     changed |= ImGui::SliderFloat("Start height above the drone view", &g_intro_height, 0.0f, 1500.0f, "%.0f");
     changed |= ImGui::SliderFloat("Descent (s)", &g_intro_s, 1.0f, 15.0f, "%.1f");
@@ -871,6 +970,18 @@ static void panel_director() {
     ImGui::SameLine();
     if (ImGui::Button("Trackside"))
         set_shot(SHOT_TRACKSIDE);
+    ImGui::SameLine();
+    if (ImGui::Button("Face"))
+        set_shot(SHOT_FACE);
+    ImGui::SameLine();
+    if (ImGui::Button("Far"))
+        set_shot(SHOT_CHASE_FAR);
+    ImGui::SameLine();
+    if (ImGui::Button("Bumper"))
+        set_shot(SHOT_BUMPER);
+    ImGui::SameLine();
+    if (ImGui::Button("FP wide"))
+        set_shot(SHOT_FP_WIDE);
     ImGui::EndDisabled();
 }
 

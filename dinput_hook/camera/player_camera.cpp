@@ -491,6 +491,20 @@ bool playercam_ShowPodInFirstPerson() {
 }
 
 static bool g_external_cockpit = false;
+// Put a camera-man into one of the game's own views (1 chase near, 2 chase far, 4 first person,
+// 5 first person wide) the way the 'CBut' handler does. For the director's stock-view shots.
+void playercam_SetStockMode(swrObjcMan *cman, int mode) {
+    if (cman == nullptr || mode == 0)
+        return;
+    if (g_cockpit_cman == cman)
+        g_cockpit_cman = nullptr;
+    if (mode == CAM_MODE_CHASE_NEAR || mode == CAM_MODE_CHASE_FAR)
+        ((swrObjcMan_CommitStagedCameraFn) swrObjcMan_CommitStagedCamera_ADDR)(cman, mode);
+    else
+        cman->mode_type = mode;
+    cman->mode_respawn = mode;
+}
+
 void playercam_SetExternalCockpit(bool active) {
     g_external_cockpit = active;
 }

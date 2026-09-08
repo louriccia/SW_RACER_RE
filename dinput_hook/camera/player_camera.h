@@ -33,3 +33,6 @@ void playercam_SetCameraOverride(PlayerCamOverrideFn fn);
 struct swrRace;
 void playercam_ApplyTrueCockpit(swrObjcMan *cman, swrRace *racer);
 void playercam_SetExternalCockpit(bool active);
+// One of the game's own views for a camera-man: 1 chase near, 2 chase far, 4 first person
+// (bumper), 5 first person wide.
+void playercam_SetStockMode(swrObjcMan *cman, int mode);
