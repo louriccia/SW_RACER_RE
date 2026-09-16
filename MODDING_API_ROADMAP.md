@@ -393,6 +393,58 @@ provider event vocabulary exists). Matches the existing phase order - a good sig
   splitscreen, HD pods, overhead racer names. `hook_generated`'s always-on hooks stay the
   "core"; only opt-in features get a `ModId` and route through the registry.
 - **Lift:** medium.
+- **STATUS: MERGED as PR #305 (2026-09-16), boot-verified.** `dinput_hook/mod_registry.{h,cpp}`: `ModModule {name, version, depends_on, user, enable,
+  on_disable}` + `register_mod / find_mod / mod_info / mod_count / mod_owner / enable_mod /
+  disable_mod / set_mod_enabled / mod_enabled`. `name` IS the journal owner (`mod_owner(self)`), so
+  `disable_mod` = `UndoOwner(name)` -> `on_disable()`. `enable()` returns bool; a false return makes
+  the registry `UndoOwner` whatever was journaled so far (failed enable leaves stock). Field is
+  `depends_on`, not `requires` - `requires` is a C++20 keyword. Dependency check is against
+  registered+enabled mods only; no separate "provider" concept yet (no in-tree consumer - the
+  renderer-fused visual mods are the first candidates, left for Phase 5 un-fusing).
+  Migrated: `ai_full_lod` (main.cpp, live), `hd_font` (swrModel_delta.cpp, live, enable can fail on
+  missing assets), `lap_time_overflow` + `race_time_cap` (swrObjJdge_delta.cpp, startup-scoped:
+  their paired F2/time-formatter replacements stay attached -> Phase 3 brings those under the
+  same ModId; not exposed as runtime toggles). Skipped `asset_buffer_size` (a sized parameter,
+  not a toggle). Checkboxes now mirror the registry's resulting state
+  (`imgui_state.x = set_mod_enabled(...)`). Read-only dev "Mods" panel (Debug category) lists
+  name/version/state + depends_on tooltip. Registration is explicit at each feature's wiring point
+  (LoadIconHook / init_renderer_hooks / the existing Patch* functions), NOT static-init.
+  hook.log shows `[mods] enabled '<name>' 1.0` after each mod's `[patch]` lines.
+  Unplaytested: the live F5 toggle path through the registry (same journal calls as before).
+
+## Phase 2b - Per-feature file split: `hook_<feature>()` + `panel_<feature>()`  [tim's churn ask]
+
+- **Goal:** stop `renderer_hook.cpp` / `imgui_utils.cpp` being the merge-conflict hubs. Tim's
+  words: keeping every `hook_function` in one place "is not really practical and not that
+  useful"; he wants "a tree of functions that would call the hook_X related to the feature", and
+  "same for ui_X for imgui menus", and notes this "would still benefit from the modding api
+  checks" (= Phase 3's conflict detection).
+- **Today:** `init_renderer_hooks` is ONE function with ~146 `hook_function` calls
+  (renderer_hook.cpp, 2.6k lines). The debug-UI side has the MECHANISM (panel registry, PR #184)
+  but not the migration: 17 of 19 panel bodies still live in imgui_utils.cpp (2.5k lines); only
+  the two camera panels register from their own files. Conflict matrix (2026-07-19): these two
+  files are the hubs for ~25 open PRs.
+- **Shape (pure move, zero behavior change):** each feature's delta file owns
+  `void hook_<feature>()` (its `hook_function`/`hook_replace` calls, in today's order) and its
+  `panel_<feature>()` + `DebugPanel` + `debug_ui_register` call. `init_renderer_hooks` shrinks to
+  a short tree: `hook_weather(); hook_hundred_lap(); hook_splitscreen(); ...`;
+  `register_builtin_debug_panels()` likewise. Where a feature is already a `ModModule` (Phase 2),
+  all three live side by side in its file: module, hooks, panel.
+- **Why it is a modding-API phase, not a detour:** Phase 3 makes the host own one detour per
+  target and multiplex observers/replacements - that needs each feature to register from ONE
+  identifiable site, which is exactly `hook_<feature>()`. Split first as a pure move so the
+  Phase 3 diff is behavior, not relocation. Eventually `hook_<feature>()` becomes the body of that
+  feature's `ModModule.enable` (Phase 3 lifts the "all hooks before init_hooks()" constraint).
+- **Rollout (the open PR queue is the constraint - a big-bang split conflicts with everything):**
+  1. Adopt the convention NOW: every PR that rebases moves only ITS OWN hook calls + panel body
+     into its feature file. Monolith shrinks per merge; no PR conflicts with the split itself.
+  2. One mechanical "move the untouched remainder" PR once the queue drains (whatever no open PR
+     touches). Reviewable as a pure move (`git diff --color-moved`).
+  3. Ordering caveat: `init_renderer_hooks` interleaves `hook_function` with startup patches
+     (`swrObjJdge_PatchLapTimeOverflow`, `swrAssetBuffer_PatchSize` "must land before
+     swrScene_Startup") - keep the call order of the tree identical to today's flat order.
+- **Lift:** small per PR under (1); medium for (2). No new API.
+- **STATUS: not started (added 2026-09-06).** First reply to tim on #153 pending.
 
 ## Phase 3 - Conflict policy: observer/replacement registry
 
@@ -428,7 +480,7 @@ provider event vocabulary exists). Matches the existing phase order - a good sig
 - **Depends on:** Phase 2 (the enable/disable targets). The parser itself is independent
   and can land first.
 - **Lift:** medium.
-- **STATUS: parser SHIPPED as PR #217 (2026-06-29, open/mergeable).** `dinput_hook/config.{h,cpp}`
+- **STATUS: parser MERGED as PR #217 (2026-09-06).** Every settings key in the delta layer now goes through it; the only remaining Win32 INI calls are in #182, for the standalone shareable font-profile files the parser does not cover. `dinput_hook/config.{h,cpp}`
   = portable round-trip INI (preserves comments/blank-lines/key-order/unknown-keys; same
   `SW_RACER_RE.ini` + `[section]`/`key=value`; `;`+`#` comments; `_wfopen` unicode paths). All
   three Win32-INI consumers migrated (`imgui_utils.cpp`, `debug_ui.cpp`, `swrMultiplayer_delta.cpp`);
@@ -488,10 +540,12 @@ provider event vocabulary exists). Matches the existing phase order - a good sig
 
 ## Sequencing
 
-1 (backend + journal) -> 2 (registry + lifecycle) -> 3 (conflict policy) -> 4 (settings,
-parser can overlap 1-2) -> 5 (named events) -> 6 (external plugins, future). Phases 1 + 4
-alone satisfy issue #153; 2/3/5 are the "do it the way the mature scenes did" layer; 6 and
-the decomp retarget are the long horizon.
+1 (backend + journal) -> 2 (registry + lifecycle) -> 2b (per-feature hook_X/panel_X file split,
+pure move, incremental per rebased PR) -> 3 (conflict policy) -> 4 (settings, parser can overlap
+1-2) -> 5 (named events) -> 6 (external plugins, future). Phases 1 + 4 alone satisfy issue #153;
+2/2b/3/5 are the "do it the way the mature scenes did" layer; 6 and the decomp retarget are the
+long horizon. 2b is tim's churn ask (imgui/renderer_hook conflict hubs) and the prerequisite for
+3's per-target registration sites.
 
 ## Open questions
 

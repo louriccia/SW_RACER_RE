@@ -17,6 +17,17 @@ already-mapped `swrObjJdge` (race manager) + `swrObjHang` (hangar/roster) + `swr
 
 ## 0. Shipped / in-flight
 
+- **AI tuning panel** — BUILT 2026-09-04, branch `feature/ai-tuning-panel` (off upstream/master),
+  not yet PR'd / not yet playtested. New `dinput_hook/ai_tuning.{cpp,h}`: a player-facing "AI"
+  panel (category Race) plus a dev "AI Racers" inspector, registered through the panel registry,
+  persisted to `[ai]` in SW_RACER_RE.ini. Three hooks, all on dormant reverse-hooked originals:
+  `InitAISettingsForTrack` (capture + override the per-track level/spread/script, so an override
+  survives a track load and applies live mid-race), `swrRace_UpdateCatchup` (post-process
+  speedMultiplier: rubberband strength 0-2, flat AI speed scale, single-player catch-up assist),
+  `swrRace_ApplyPodProximityForce` (AI-blocks-you toggle + avoidance strength; falls through to
+  the original untouched at stock settings). "AI full LOD" moved here out of Graphics Settings.
+  Addresses C1 (difficulty), C2/C3 partially (blocking/avoidance, without needing item 5) and
+  C5 (rubberband strength, catch-up assist).
 - **AI full LOD (no model pop-in)** — DONE, PR #65 (`louriccia:ai-full-lod`). Toggle in dinput_hook;
   NOPs SpawnRacers gate-1 JNZ @0x46654d (+2 cable gates) so all racers render at player LOD. The
   OpenGL renderer also removed the vanilla >6-full-pod scene-flatten crash. See ai_fidelity memory.
@@ -140,7 +151,20 @@ walks near its grid base) + distance terms `unk12c/unk130/unk134`.
 - **C4 AI don't boost or slide.** Confirmed: not in the AI brain at all. **(M-L)** Net-new behavior:
   add heuristics to charge/release boost on straights (reuse `swrRace_ApplyBoost`/boost-charge) and
   airbrake-slide on tight turns, in `UpdateAutopilotControl`/`AutopilotSteer`.
-- **C5 "leader speeds up the further you're behind."** FULLY TRACED 2026-06-16 -> NOT a deficit-
+- **C5 "leader speeds up the further you're behind."** SUPERSEDED 2026-07-22 -- the 2026-06-16
+  reading below is WRONG. Rubberbanding IS player-relative, on three channels, all clamped
+  [0.5, 1.6]: (1) the track-favorite pace-setter (score->flag 0x20 -> flags0 AI_SIMPLE) takes a
+  coarse branch that runs x1.4 when local player 1 is far ahead of it; (2) the 1-2 AI nearest the
+  player are tagged AI_TETHER_LOCAL1/2 and pace directly on their raw signed gap to that player
+  (gain 10.3 trailing / 10.02 ahead); (3) everyone else station-keeps behind the pace-setter and so
+  tracks the player transitively. `swrObjJdge_UpdateStandings` writes those gaps
+  (gapToLeader/gapToPacer/gapToLocalPlayer1/2) on EVERY pod each frame. What the old reading got
+  right: `ai_rank_speed_factor` (0x50cae0) is dead, `AutopilotSteer` itself has no player
+  awareness, and the human gets no catch-up in single-player. The on-rails far-AI effect (item 5)
+  is still a real second contributor. The knobs in section 0 above now expose (1)-(3) as one
+  "rubberband strength" scalar and add the missing player-side assist.
+  The old (incorrect) trace is kept below for provenance:
+  ORIGINAL 2026-06-16 NOTE -> NOT a deficit-
   triggered mechanic; it's a real STATIC asymmetry that feels like a rubber-band. Verified: (a) the
   `_DAT_0050cae0` rubber-band is DEAD CODE (BSS=0, no writers, gate `0.0 < cae0` always false);
   (b) `AutopilotSteer` has ZERO player awareness (pure spline-follow + adaptive lookahead `unk104`);

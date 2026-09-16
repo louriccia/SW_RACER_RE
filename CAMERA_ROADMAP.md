@@ -1,6 +1,6 @@
 # SW_RACER_RE — Camera System Roadmap
 
-**Status:** design (2026-06-12); **Phase 1 SHIPPED 2026-09-02**. Living document. Owner: lightningpirate.
+**Status:** design (2026-06-12); **Phase 1 SHIPPED 2026-09-02**; **Phase 0 + shake + true cockpit view MERGED as PR #303 2026-09-06** (`feature/player-camera-settings`; closes issue #292). Living document. Owner: lightningpirate.
 
 **Phase 1 (free camera) is merged as PR #257** (`feature/freecam`) -- `dinput_hook/camera/camera.{cpp,h}` exists as the delta-layer controller this document specifies, driven from the per-frame render hook with an ImGui panel. Phases 0 (player-camera settings panel), 3 (photo mode) and 2 (focus/spectator) are the next rungs and now build on real code rather than a plan.
 
@@ -253,6 +253,22 @@ panel/scaffold) → 1 freecam → 3 photo → 2 focus/spectator → (5 replay-fo
 ---
 
 ## 11. Player camera — feature breakdown (Phase 0 detail)
+
+**Implementation (2026-09-05, `dinput_hook/camera/player_camera.{cpp,h}`)** — no byte patches; the
+camera-man is detoured at four raw addresses: `swrObjcMan_UpdateCamera` (pre: view override on
+`mode_type`; post: cockpit offset on `unk20_mat`/`focusTransform_mat` in modes 4/5, roll removal via
+`BuildLookAtTransform(cam, focus, roll=0)`), `swrObjcMan_UpdateChaseCamera` (scale the followed
+pilot's `swrRacer_PodVisualData[pilot].chaseCamTrail/Height` around the call — the table at
+`0x4c7088`, stride 0x6c, is the real home of the CE mod's `0x4C7434/38` = Anakin's row),
+`swrObjcMan_UpdateFogAndViewport` (FOV offset + speed² dynamic FOV added to the staged
+`stagingTransformFocus.vD.w` right before `swrViewport_SetCameraParameters`), and
+`swrObjcMan_UpdateSplineGuideMarker` (re-hide the arrow node after the per-frame re-show).
+Visibility: HUD reuses the freecam hide-HUD path (`hud_hidden()` OR); suns/lens flares and light
+streaks are hidden by forcing `swrSprite_SetVisible(...,0)` while their updaters run (raw hooks on
+`UpdateSunAndLensFlareSprites` / `UpdateLightStreakSprites` / `swrPlayerHUD_RenderWorldSprites`);
+own-pod hide/show-in-first-person is a renderer check on the local pod root (`pod_root_owner`).
+Weather + racer labels reuse the existing `imgui_state` toggles. Config in `[player_camera]`.
+Camera shake (Phase 4) and per-pod overrides are NOT in this cut (global scale factors instead).
 
 Overwhelmingly **quick wins**: the CE mod already found the addresses, and most are a one-byte patch,
 one global write, or a named function call. This is why the player-camera settings panel is the
