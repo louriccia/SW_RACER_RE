@@ -14,6 +14,7 @@
 #include "texture_replacement.h"
 #include "camera/camera.h"
 #include "camera/player_camera.h"
+#include "fx_capture.h"
 
 extern "C" {
 #include "./game_deltas/DirectX_delta.h"
@@ -1138,6 +1139,11 @@ void debug_render_mesh(const swrModel_Mesh *mesh, int light_index, int num_enabl
     // the traversal end in swrViewport_Render_Hook unbinds program and VAO once.
 }
 
+// FX Capture matte: true while the traversal is inside a subtree that survives the matte (an
+// explosion-particle node, or a pod when the user asked to keep it). Inherited by descendants and
+// restored on the way out, like g_weather_terrain_depth.
+static bool g_in_fx_subtree = false;
+
 void debug_render_node(const swrViewport &current_vp, const swrModel_Node *node, int light_index,
                        int num_enabled_lights, bool mirrored, const rdMatrix44 &proj_mat,
                        const rdMatrix44 &view_mat, rdMatrix44 model_mat) {
@@ -1172,6 +1178,26 @@ void debug_render_node(const swrViewport &current_vp, const swrModel_Node *node,
         if (!is_foreign_hidden_pod_root(node))
             return;
     }
+
+    // FX Capture matte: the plume is the swrObjSmok particle nodes plus the shared fireball node;
+    // everything else is world. Pods are culled here rather than at the mesh gate below because
+    // their HD replacement draws and returns before ever reaching it.
+    const bool matte_hide = fxcapture_MatteHidesWorld();
+    const bool prev_in_fx = g_in_fx_subtree;
+    if (matte_hide && !g_in_fx_subtree) {
+        if (root_owner != nullptr) {
+            if (!fxcapture_KeepPod())
+                return;
+            g_in_fx_subtree = true;
+        } else if (fxcapture_IsFxNode(node)) {
+            g_in_fx_subtree = true;
+        }
+    }
+    const bool matte_drops_draws = matte_hide && !g_in_fx_subtree;
+    struct FxSubtreeRestore {
+        bool prev;
+        ~FxSubtreeRestore() { g_in_fx_subtree = prev; }
+    } fx_restore{prev_in_fx};
 
 #ifndef NDEBUG
     for (NodeMember &member: node_members) {
@@ -1228,7 +1254,7 @@ void debug_render_node(const swrViewport &current_vp, const swrModel_Node *node,
 
     // Track replacements
     // In race, node 3 is the track, as a NODE_BASIC
-    if (node->type == NODE_BASIC && node_model_id.has_value() &&
+    if (!matte_drops_draws && node->type == NODE_BASIC && node_model_id.has_value() &&
         (uint32_t) root_node == (uint32_t) &someRootNode && isTrackModel(node_model_id.value())) {
         if (try_replace_track(node_model_id.value(), proj_mat, view_mat, envInfos, false) &&
             !imgui_state.show_original_and_replacements) {
@@ -1236,8 +1262,9 @@ void debug_render_node(const swrViewport &current_vp, const swrModel_Node *node,
         }
     }
     // Env replacement: Hangar, Cantina, Shop and Scrapyard
-    if ((node->type == NODE_TRANSFORMED_WITH_PIVOT) && node_model_id.has_value() &&
-        (uint32_t) root_node == (uint32_t) &someUnkRootNode && isEnvModel(node_model_id.value())) {
+    if (!matte_drops_draws && (node->type == NODE_TRANSFORMED_WITH_PIVOT) &&
+        node_model_id.has_value() && (uint32_t) root_node == (uint32_t) &someUnkRootNode &&
+        isEnvModel(node_model_id.value())) {
         if (try_replace_env(node_model_id.value(), proj_mat, view_mat, envInfos, false) &&
             !imgui_state.show_original_and_replacements) {
             return;
@@ -1265,7 +1292,10 @@ void debug_render_node(const swrViewport &current_vp, const swrModel_Node *node,
         (uint32_t) root_node == (uint32_t) &someRootNode && isTrackModel(node_model_id.value()))
         g_weather_terrain_depth = true;
 
-    if (node->type == NODE_MESH_GROUP) {
+    // FX Capture matte: world geometry does not draw, only the plume (and, optionally, the pod).
+    if (node->type == NODE_MESH_GROUP && matte_drops_draws) {
+        // nothing to draw
+    } else if (node->type == NODE_MESH_GROUP) {
         PushDebugGroup(std::format("render mesh group"));
         for (int i = 0; i < node->num_children; i++) {
             const std::optional<MODELID> model_id = find_model_id_for_node(node->children.nodes[i]);
@@ -1482,6 +1512,11 @@ void swrViewport_Render_Hook(int x) {
 
     if (default_framebuffer != 0) {
         glBindFramebuffer(GL_FRAMEBUFFER, default_framebuffer);
+        // FX Capture: with the world dropped, this clear IS the background.
+        float matte[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+        if (fxcapture_MatteHidesWorld())
+            fxcapture_MatteColor(matte);
+        glClearColor(matte[0], matte[1], matte[2], matte[3]);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
 
@@ -1624,6 +1659,10 @@ void swrViewport_Render_Hook(int x) {
 
     // The skybox/IBL setup above (and anything since the last traversal) used its own GL state.
     invalidate_mesh_gl_state_cache();
+
+    // FX Capture: resolve this frame's explosion-particle nodes, so the traversal below can tell
+    // them from the world it is about to drop.
+    fxcapture_BeginFrame();
 
     debug_render_node(vp, root_node, default_light_index, default_num_enabled_lights, mirrored,
                       proj_mat, view_mat_corrected, model_mat);
@@ -2146,6 +2185,7 @@ extern "C" void init_renderer_hooks() {
     // rdCamera_Update seam. Toggle in-race with F9; WASD + Space/Ctrl to move, arrows or RMB-drag to
     // look, Shift/Alt for fast/slow.
     freecam_RegisterHooks();
+    fxcapture_RegisterHooks();
     playercam_RegisterHooks();
 
 #if ENABLE_GAMEPAD_NAV

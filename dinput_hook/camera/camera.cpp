@@ -7,6 +7,7 @@
 #include "../debug_ui.h"
 #include "../imgui_utils.h"
 #include "../config.h"
+#include "../fx_capture.h"
 
 #include <imgui.h>
 
@@ -534,7 +535,7 @@ extern "C" void __cdecl freecam_ProcessInputs_delta(void) {
 // dropped via the DrawTextEntries hooks. (swrSprite_Draw2 / SetPosF are already delta-owned, so the
 // Draw2 filter is applied inside swrSprite_Draw2_delta via freecam_HudSpriteHidden.)
 static bool hud_hidden() {
-    return g_active || playercam_HudHidden();
+    return g_active || playercam_HudHidden() || fxcapture_HudHidden();
 }
 
 // Wrap the world-sprite render so swrSprite_SetVisible records the sky sprites into the keep-set.
@@ -572,6 +573,9 @@ bool freecam_HudHidden() {
 }
 
 bool freecam_HudSpriteHidden(int spriteId) {
+    // FX Capture drops the sky sprites too: suns and lens flares would sit on the matte.
+    if (fxcapture_MatteHidesWorld())
+        return true;
     if (!hud_hidden())
         return false;
     return !(spriteId >= 0 && spriteId < 251 && g_keep_sprite[spriteId]);

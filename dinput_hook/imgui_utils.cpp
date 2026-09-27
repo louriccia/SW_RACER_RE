@@ -4,6 +4,7 @@
 #include "config.h"
 #include "camera/camera.h"
 #include "camera/player_camera.h"
+#include "fx_capture.h"
 
 #include <string>
 #include <set>
@@ -674,6 +675,7 @@ void imgui_Update() {
         register_builtin_debug_panels();
         freecam_RegisterPanel();// camera system (dinput_hook/camera)
         playercam_RegisterPanel();
+        fxcapture_RegisterPanel();// explosion-FX asset capture (fx_capture.cpp)
         debug_ui_register_builtin_shell_panels();
         debug_ui_load_settings();
     }

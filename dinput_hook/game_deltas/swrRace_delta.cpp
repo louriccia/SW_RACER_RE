@@ -318,6 +318,12 @@ void swrRace_ClearCableBends() {
     cable_bend_by_node.clear();
 }
 
+void swrRace_DropCableBendsFrom(const char* begin) {
+    std::erase_if(cable_bend_by_node, [&](const auto& elem) {
+        return (const char*) elem.first >= begin;
+    });
+}
+
 // swrRace_ResultsMenu (the post-race standings, STATE_POST_RACE_INFO). When the "Pod Unlock Scene"
 // skip is on, keep the results flow from ever transitioning to that scene (RESULTS_INTRO, state 17):
 // the scene sets up its pod + backdrop the instant it's entered, so skipping it at the scene handler
