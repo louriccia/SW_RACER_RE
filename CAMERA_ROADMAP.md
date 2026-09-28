@@ -1,6 +1,6 @@
 # SW_RACER_RE — Camera System Roadmap
 
-**Status:** design (2026-06-12); **Phase 1 SHIPPED 2026-09-02**; **Phase 0 + shake + true cockpit view MERGED as PR #303 2026-09-06** (`feature/player-camera-settings`; closes issue #292). Living document. Owner: lightningpirate.
+**Status:** design (2026-06-12); **Phase 1 SHIPPED 2026-09-02**; **Phase 0 + shake + true cockpit view MERGED as PR #303 2026-09-06** (`feature/player-camera-settings`; serves issue #292 -- still OPEN as of 2026-09-27 with a follow-up: the pod vanishes when the camera gets close to it, near-plane vs culling undiagnosed). Living document. Owner: lightningpirate.
 
 **Phase 1 (free camera) is merged as PR #257** (`feature/freecam`) -- `dinput_hook/camera/camera.{cpp,h}` exists as the delta-layer controller this document specifies, driven from the per-frame render hook with an ImGui panel. Phases 0 (player-camera settings panel), 3 (photo mode) and 2 (focus/spectator) are the next rungs and now build on real code rather than a plan.
 

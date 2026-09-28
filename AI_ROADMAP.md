@@ -17,8 +17,8 @@ already-mapped `swrObjJdge` (race manager) + `swrObjHang` (hangar/roster) + `swr
 
 ## 0. Shipped / in-flight
 
-- **AI tuning panel** — BUILT 2026-09-04, branch `feature/ai-tuning-panel` (off upstream/master),
-  not yet PR'd / not yet playtested. New `dinput_hook/ai_tuning.{cpp,h}`: a player-facing "AI"
+- **AI tuning panel** — **MERGED as PR #302 2026-09-18** (`feature/ai-tuning-panel`; `[ai]` block
+  on `config::` + the mod registry). New `dinput_hook/ai_tuning.{cpp,h}`: a player-facing "AI"
   panel (category Race) plus a dev "AI Racers" inspector, registered through the panel registry,
   persisted to `[ai]` in SW_RACER_RE.ini. Three hooks, all on dormant reverse-hooked originals:
   `InitAISettingsForTrack` (capture + override the per-track level/spread/script, so an override
