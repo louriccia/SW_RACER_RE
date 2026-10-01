@@ -17,7 +17,7 @@ where does each one already live?" Most fixes land in the `dinput_hook/` Detours
 
 | Issue (player words) | Freq | Root cause (our RE) | Status | Owner | Effort |
 |---|---|---|---|---|---|
-| Controller not recognized / modern pad unusable | ★★★ | game's DirectInput enum + no XInput | **partial** — nav + rumble shipped (PR #115/#114); in-race rebinding of arbitrary pads still on the DInput path | [[input_subsystem]], [[gamepad_nav_bridge]], [[rumble_xinput_bridge]] | M |
+| Controller not recognized / modern pad unusable | ★★★ | game's DirectInput enum + no XInput | **partial** — nav + rumble shipped (PR #115, rumble re-landed #265 + #329); in-race rebinding of arbitrary pads still on the DInput path | [[input_subsystem]], [[gamepad_nav_bridge]], [[rumble_xinput_bridge]] | M |
 | **Alt-tab → stuck inputs** (locked reverse view, confirm stuck) | ★★★ | the GLFW window has no focus callback, so the game's `Window_SetActivated`→`stdControl_SetActivation` (which already zeroes held-key state + unacquires/reacquires DInput) never fires on alt-tab | **FIX BUILT** — `fix/alt-tab-stuck-input`, pending playtest | [[input_subsystem]], [[window_glfw_shutdown]] | S (done) |
 | Can't save / change bindings, binding UX unclear | ★★ | binding persistence + menu clarity | open | [[input_subsystem]], [[save_profile_subsystem]], UI_ROADMAP.md | M |
 | Audio silent / **needs admin** to work | ★★ | A3D/Aureal COM + elevation/registry | open — investigate | [[swrsound_subsystem]] | M |

@@ -9,9 +9,10 @@ Modernize SWE1R's input device handling. Local planning doc (kept out of git via
   keyboard/mouse/joystick, including gamepads. The GLFW input replacement is compiled out
   (`ENABLE_GLFW_INPUT_HANDLING=0`, commit `fbaa4dd` "disable glfw dinput replacement ... to
   make gamepads work correctly").
-- **The XInput bridge is NOT in master.** PRs #114 (rumble) and #115 (menu nav: D-pad /
-  START / BACK) are still OPEN, and they cover menu navigation + rumble output, not in-race
-  pod control. So in-race control is DirectInput regardless of those PRs.
+- **The XInput bridge is in master.** #115 (menu nav: D-pad / START / BACK) and rumble
+  (#114, re-landed as #265 on 2026-09-30, plus the #329 teardown fix) have merged. They cover
+  menu navigation and rumble output, not in-race pod control, so in-race control is still
+  DirectInput.
 - **Device discovery is ONE-SHOT at startup.** `stdControl_Startup` @ 0x485360 creates the
   IDirectInput, enumerates devices into `DirectInput_EnumDevice_Callback` @ 0x486a10 (fills
   `DirectInputKeyboards[4]` / `DirectInputMouses[4]` / `DirectInputJoysticks[8]`), then
