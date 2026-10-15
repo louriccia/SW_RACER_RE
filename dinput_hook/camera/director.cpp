@@ -38,7 +38,7 @@ static float g_battle_gap_s = 1.5f;                       // two racers this clo
 // Shot mix (weights) + parameters. The stock spectator-mode cycling is disabled while active.
 static int g_w_chase = 1, g_w_drone = 6, g_w_orbit = 4, g_w_cockpit = 1;
 static int g_w_trackside = 3;
-static int g_w_face = 2, g_w_chase_far = 2, g_w_bumper = 1, g_w_fp_wide = 1;
+static int g_w_face = 3, g_w_chase_far = 2, g_w_bumper = 1, g_w_fp_wide = 1;
 static int g_w_face_true = 3;      // the reverse-cockpit face cam
 static float g_face_true_dist = 6.0f;// in front of the pilot's eye point
 static float g_face_true_up = 1.0f;

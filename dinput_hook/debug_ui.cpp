@@ -13,7 +13,7 @@
 
 // show_imgui (the F5 overlay toggle) comes from imgui_utils.h.
 
-bool debug_ui_show_dev_panels = false;
+bool debug_ui_show_dev_panels = true;
 
 static std::vector<DebugPanel *> g_panels;
 

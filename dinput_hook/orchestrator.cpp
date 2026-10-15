@@ -40,7 +40,7 @@ void hook_function(const char *function_name, uint32_t original_address, uint8_t
 // ---------------------------------------------------------------------------------------------
 // Settings ([orchestrator] in SW_RACER_RE.ini)
 
-static int g_laps = 1;
+static int g_laps = 3;
 static int g_racers = 20;
 static float g_cooldown_s =
     60.0f;// results / betting window: from the winner's finish to the next load
@@ -55,8 +55,8 @@ static float g_dnf_s = 240.0f;    // after the winner, racers still out are mark
 static bool g_full_physics = true;// keep every AI pod off the on-rails LOD path
 static bool g_ai_damage = true;   // AI take fire damage and can explode like a human
 static bool g_ai_repair =
-    false;// let AI repair (off: fires burn until the engine blows -- more drama)
-static float g_repair_start = 0.8f;     // damage on the worst segment before an AI bothers (0.8 = 20% health left)
+    true;// let AI repair (off: fires burn until the engine blows -- more drama)
+static float g_repair_start = 0.5f;     // damage on the worst segment before an AI bothers (0.5 = half health left)
 static float g_repair_stop = 0.2f;      // repair until the worst engine is this clean
 static float g_repair_turn_limit = 150.0f;// |turnRateTarget| below this counts as a straight
 static bool g_ai_lighting = true;  // light AI pods from the followed pod's light bank
@@ -1382,7 +1382,8 @@ static void panel_orchestrator() {
 static DebugPanel g_panel = {.category = "Race",
                              .name = "Orchestrator",
                              .draw = panel_orchestrator,
-                             .dev_only = true};
+                             .dev_only = true,
+                             .open = true};
 
 void orchestrator_RegisterPanel() {
     load_config();

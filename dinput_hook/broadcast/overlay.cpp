@@ -30,7 +30,7 @@ extern "C" {
 static bool g_leaderboard =
     false;                     // user toggle; a consumer can force it on (overlay_ForceLeaderboard)
 static bool g_show_tags = true;// FIN / DNF / racing column
-static float g_scale = 1.6f;
+static float g_scale = 1.7f;
 static float g_opacity = 0.6f;
 static int g_anchor = 0;         // 0 left, 1 right
 static bool g_nameplates = false;// names over pods (SP / all-AI)
@@ -44,8 +44,8 @@ static bool g_pod_status =
     false;// followed racer's ImGui speed + engine card (game gauges preferred)
 static bool g_game_gauges =
     true;// game's own lap timer / speedometer / engines for the followed racer
-static float g_margin_x = 10.0f;
-static float g_margin_y = 60.0f;
+static float g_margin_x = 11.0f;
+static float g_margin_y = 222.0f;
 
 // Consumer overrides
 static bool g_forced = false;
