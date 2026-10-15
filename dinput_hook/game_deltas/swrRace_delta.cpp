@@ -295,7 +295,15 @@ typedef void(__cdecl* swrRace_Tilt_t)(swrRace* player, float b);
 
 static const float TILT_GATE_BYPASS_SPEED = 1000.0f;// any value clear of the ~200 stock tilt gate
 
+static swrRace_TiltOverride_t g_tilt_override = nullptr;
+
+void swrRace_SetTiltOverride(swrRace_TiltOverride_t fn) {
+    g_tilt_override = fn;
+}
+
 void __cdecl swrRace_Tilt_delta(swrRace* player, float b) {
+    if (g_tilt_override != nullptr && player != nullptr)
+        b = g_tilt_override(player, b);
     if (player != nullptr && imgui_state.cheats_enabled && imgui_state.cheat_tilt_any_speed &&
         (player->flags0 & swrObjTest_FLAG0_LOCAL) != 0) {
         const float saved = player->speedValue;

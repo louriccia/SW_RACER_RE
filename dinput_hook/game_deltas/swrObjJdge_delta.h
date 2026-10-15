@@ -87,6 +87,11 @@ void swrObjJdge_UpdatePlayerHUD_delta(swrObjJdge *jdge, swrScore *score);
 // Cutscene auto-skip ("Game" settings panel): fast-forward the end-credits scroll. See .cpp.
 void swrObjJdge_ScrollCredits_delta(swrObjJdge *jdge);
 
+// Starting grid ("Race" settings panel): lay the grid rows along the spline behind the start line
+// instead of straight back along the start-line tangent, so deep grids stay on the track where the
+// run-up curves. See .cpp.
+void swrObjJdge_GetSpawnTransform_delta(swrObjJdge *judge, rdMatrix44 *out, int gridIndex);
+
 // Cutscene auto-skip ("Game" settings panel): skip the pre-race camera sweep by raising the
 // accept edge in the race manager's intro states (the game's own skip path). See .cpp.
 void swrObjJdge_F0_delta(swrObjJdge *jdge);

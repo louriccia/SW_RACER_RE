@@ -18,6 +18,7 @@
 #include "ai_variance.h"
 #include "broadcast/overlay.h"
 #include "broadcast/voice.h"
+#include "broadcast/engine_audio.h"
 
 extern "C" {
 #include "./game_deltas/DirectX_delta.h"
@@ -2155,6 +2156,7 @@ extern "C" void init_renderer_hooks() {
     ai_variance_RegisterHooks();
     overlay_RegisterHooks();
     voice_RegisterHooks();
+    engine_audio_RegisterHooks();
 
 #if ENABLE_GAMEPAD_NAV
     // Feed the gamepad's D-pad / START / BACK into the game's menu + in-race input.
@@ -2620,6 +2622,9 @@ extern "C" void init_renderer_hooks() {
     // HUD mode (right strip in mode 0, full-width ring in mode 1) instead of plain centering.
     hook_function("swrObjJdge_DrawRaceHUD", (uint32_t) swrObjJdge_DrawRaceHUD_ADDR,
                   (uint8_t *) swrObjJdge_DrawRaceHUD_delta);
+    // Starting grid: lay the rows along the track spline instead of straight back from the line.
+    hook_function("swrObjJdge_GetSpawnTransform", (uint32_t) swrObjJdge_GetSpawnTransform_ADDR,
+                  (uint8_t *) swrObjJdge_GetSpawnTransform_delta);
     // Scope the per-player HUD draw so the id-based HUD edge-anchoring fires only in-race, not on
     // other screens (e.g. race settings) that reuse the same low sprite ids / text columns.
     hook_function("swrObjJdge_UpdatePlayerHUD", (uint32_t) swrObjJdge_UpdatePlayerHUD_ADDR,

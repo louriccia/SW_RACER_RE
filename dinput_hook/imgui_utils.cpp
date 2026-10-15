@@ -7,6 +7,8 @@
 #include "orchestrator.h"
 #include "broadcast/overlay.h"
 #include "broadcast/voice.h"
+#include "broadcast/sound_watchdog.h"
+#include "broadcast/engine_audio.h"
 #include "broadcast/results_log.h"
 #include "broadcast/standings.h"
 #include "camera/director.h"
@@ -339,6 +341,7 @@ void read_settings_ini() {
         config::get_int("settings", "skip_credits", 0);
     imgui_state.restore_prerace_track_sweep =
         config::get_int("settings", "restore_prerace_track_sweep", 1);
+    imgui_state.grid_follows_spline = config::get_int("settings", "grid_follows_spline", 1);
     imgui_state.restore_screen_fades =
         config::get_int("settings", "restore_screen_fades", 1);
     imgui_state.cinematic_letterbox =
@@ -418,6 +421,7 @@ void save_settings_ini() {
     config::set_int("settings", "skip_circuit_winner", imgui_state.skip_circuit_winner);
     config::set_int("settings", "skip_credits", imgui_state.skip_credits);
     config::set_int("settings", "restore_prerace_track_sweep", imgui_state.restore_prerace_track_sweep);
+    config::set_int("settings", "grid_follows_spline", imgui_state.grid_follows_spline);
     config::set_int("settings", "restore_screen_fades", imgui_state.restore_screen_fades);
     config::set_int("settings", "cinematic_letterbox", imgui_state.cinematic_letterbox);
     for (int i = 0; i < 7; i++) {
@@ -689,6 +693,8 @@ void imgui_Update() {
         standings_RegisterPanel();
         director_RegisterPanel();
         voice_RegisterPanel();
+        sound_watchdog_RegisterPanel();
+        engine_audio_RegisterPanel();
         ai_variance_RegisterPanel();
         debug_ui_register_builtin_shell_panels();
         debug_ui_load_settings();
@@ -704,6 +710,7 @@ void imgui_Update() {
         overlay_Service();
         director_Service();
         voice_Service();
+        sound_watchdog_Service();
         orchestrator_Service();
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -1800,6 +1807,13 @@ static void panel_race() {
                         &imgui_state.fast_restart))
         persist_settings_ini();
     ImGui::TextDisabled("Single-player only. Press Enter during a race to restart instantly.");
+
+    // Starting grid: follow the track behind the line instead of a flat rectangle.
+    ImGui::Separator();
+    if (ImGui::Checkbox("Grid follows the track", &imgui_state.grid_follows_spline))
+        persist_settings_ini();
+    ImGui::TextDisabled("Curves the starting grid along the track behind the line, so the back\n"
+                        "rows of a large field stay on the road. Off = stock straight-back grid.");
 
     // Millisecond precision on all displayed times (lap popup, per-lap rows, totals, records).
     ImGui::Separator();

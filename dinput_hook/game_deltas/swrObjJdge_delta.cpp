@@ -1,5 +1,6 @@
 #include <macros.h>
 #include <cstring>
+#include <cmath>
 #include <cstdio>
 #include "swrObjJdge_delta.h"
 #include "swrRace_delta.h"
@@ -15,6 +16,7 @@ extern "C" {
 #include <Swr/swrMultiplayer.h>
 #include <Swr/swrSound.h>
 #include <Swr/swrModel.h>       // ClearSceneAnimations / Reset*Sprites addresses
+#include <Swr/swrSpline.h>  // starting grid: walk the track spline back from the start line
 #include <Swr/swrWeather.h>     // swrWeather_ResetParticles address
 #include <Platform/stdControl.h>// stdControl_ReadControls_ADDR (boost-start Enter suppression)
 #include <globals.h>
@@ -282,6 +284,85 @@ static void record_flag_standing(swrModel_TriggerDescription *desc) {
 // crashes. Instead we hook swrObjTrig_EnableFXAnimation to record which indices actually play this
 // run -- always the current track's valid, just-loaded lists -- and reset only those.
 typedef void(__cdecl *swrObjTrig_FX_t)(int);
+// Starting grid. swrObjJdge_GetSpawnTransform evaluates the track spline once at the start line and
+// lays every row straight back along that one frame's tangent, so the grid is a flat rectangle no
+// matter what the track does behind the line. On a track whose run-up curves (Fire Mountain Rally)
+// the back rows of a deep grid end up off the track. This walks the spline backwards instead, one
+// frame per row, and offsets each pod laterally in its own row's frame.
+//
+// Row shape and spacing are the original's, read from the binary: rows alternate 4/3, the first sits
+// 100 units behind the line (0x004ad4f4), each further row 30 more (0x004ad360), and pods within a
+// row are 20 apart (0x004ad2d8 / 0x004ad29c), centred on the racing line.
+static const int kGridRowCapacity[] = {4, 3, 4, 3, 4, 3, 4, 3, 4, 3};
+static const float GRID_ROW0_BACKOFF = 100.0f;
+static const float GRID_ROW_SPACING = 30.0f;
+static const float GRID_COL_SPACING = 20.0f;
+static const float GRID_WALK_STEP = 0.005f;// spline segment parameter per probe
+static const int GRID_WALK_MAX_STEPS = 4000;
+
+// The spline frame `back` world units behind the start line, following the track. Falls back to the
+// original's straight line back along the start-line tangent when the walk cannot run (no spline,
+// toggle off) or runs out of track.
+static void grid_row_frame(swrObjJdge *judge, rdMatrix44 *out, float back) {
+    swrSpline_EvaluateAtOffset(&judge->cursor, out, 0.0f);
+    swrSplineCursor c = judge->cursor;
+    float walked = 0.0f;
+    if (imgui_state.grid_follows_spline && c.spline != NULL) {
+        c.velocity = 0.0f;
+        rdMatrix44 m = *out;
+        rdVector3 prev = {out->vD.x, out->vD.y, out->vD.z};
+        for (int i = 0; i < GRID_WALK_MAX_STEPS && walked < back; i++) {
+            c.segmentT -= GRID_WALK_STEP;
+            if (c.segmentT < 0.0f) {
+                c.segmentT += 1.0f;
+                c.startFlag = 0;
+                swrSpline_CursorStep(c.spline, -1, &c);
+                if (c.startFlag)// start of the path: nothing further back to follow
+                    break;
+            }
+            swrSpline_EvaluateToMatrix(&c, &m);
+            const float dx = m.vD.x - prev.x, dy = m.vD.y - prev.y, dz = m.vD.z - prev.z;
+            walked += sqrtf(dx * dx + dy * dy + dz * dz);
+            prev.x = m.vD.x;
+            prev.y = m.vD.y;
+            prev.z = m.vD.z;
+        }
+        *out = m;
+    }
+    // Whatever distance the walk did not cover (toggle off, or the path ran out) is taken straight
+    // back along the tangent of wherever it stopped, which is the original's behaviour.
+    const float rest = back - walked;
+    if (rest > 0.0f) {
+        out->vD.x -= out->vB.x * rest;
+        out->vD.y -= out->vB.y * rest;
+        out->vD.z -= out->vB.z * rest;
+    }
+}
+
+void swrObjJdge_GetSpawnTransform_delta(swrObjJdge *judge, rdMatrix44 *out, int gridIndex) {
+    // Walk the row table to turn the grid slot into a row and a place within it. `empties` counts
+    // the unfilled slots of the last row so a short row is still centred on the racing line.
+    int row = 0;
+    int col = gridIndex;
+    int capacity = kGridRowCapacity[0];
+    int empties = capacity - judge->num_players;
+    while (col >= capacity && row + 1 < (int) (sizeof(kGridRowCapacity) / sizeof(kGridRowCapacity[0]))) {
+        col -= capacity;
+        row++;
+        capacity = kGridRowCapacity[row];
+        empties += capacity;
+    }
+    if (empties > 0)
+        capacity -= empties;
+
+    grid_row_frame(judge, out, GRID_ROW0_BACKOFF + (float) row * GRID_ROW_SPACING);
+
+    const float lateral = ((float) col - ((float) capacity - 1.0f) * 0.5f) * GRID_COL_SPACING;
+    out->vD.x += out->vA.x * lateral;
+    out->vD.y += out->vA.y * lateral;
+    out->vD.z += out->vA.z * lateral;
+}
+
 void swrObjTrig_EnableFXAnimation_delta(int index) {
     if (index >= 0 && index < 6)
         g_fx_enabled_mask |= (1u << index);

@@ -8,6 +8,7 @@
 #include "broadcast/overlay.h"
 #include "camera/director.h"
 #include "broadcast/voice.h"
+#include "broadcast/sound_watchdog.h"
 #include "broadcast/race_result.h"
 #include "broadcast/results_log.h"
 #include "broadcast/standings.h"
@@ -442,6 +443,14 @@ static void play_victory_music() {
 }
 
 static const float BINDER_STAGGER_S = 0.1f;// per entity id
+
+// Nothing resets the ignition timer at race start, and UpdateEnergyBinder pins it to 1000 the
+// moment a pod starts racing -- so every grid after the first opened with the whole field already
+// lit. Hold it dark until the ripple runs.
+static void hold_binders_dark(void) {
+    if (g_ignite_start_ms == 0)
+        *g_binder_ignition_timer = 0.0f;
+}
 
 static void ignite_field(const swrObjJdge *jdge, DWORD now) {
     if (!g_ignite)
@@ -1096,6 +1105,7 @@ void orchestrator_Service() {
         if ((state == 5 || state == 0) && !any_racing) {
             if (g_grid_hold_start_ms == 0)
                 g_grid_hold_start_ms = now;
+            hold_binders_dark();
             const bool holding = now - g_grid_hold_start_ms < (DWORD) (g_grid_hold_s * 1000.0f) ||
                                  now < g_hero_hold_until_ms;
             if (holding && state == 0 && jdge->raceTimer_ms < 3.5f)
@@ -1318,8 +1328,7 @@ static void panel_orchestrator() {
     changed |= ImGui::Checkbox("Planet fanfare over the grid (delays the commentary)", &g_grid_sting);
     if (ImGui::Button("Reset sound channels (if audio has died)")) {
         log_sound_health();
-        swrSound_ResetRequestedVoices();
-        swrSound_ResetChannels();
+        sound_watchdog_ForceReset();
         fprintf(hook_log, "[orchestrator] sound channels reset by the user\n");
         fflush(hook_log);
     }

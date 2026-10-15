@@ -101,6 +101,11 @@ typedef struct ImGuiState {
     // track (per-track '...came' spline) before the pod orbit. Default on (console-faithful).
     bool restore_prerace_track_sweep = true;
 
+    // "Grid follows the track": lay the starting-grid rows along the spline behind the start line.
+    // The game lays them straight back along the start-line tangent, which puts the back rows of a
+    // deep grid off the track wherever the run-up curves (Fire Mountain Rally). Default on.
+    bool grid_follows_spline = true;
+
     // "Fade to Black": restore the fade-to-black on screen transitions. A signed-char comparison in
     // swrSprite_DrawSprites skips the opaque half of every fade on PC (char is signed on the PC
     // compiler, unsigned on console), so the mod draws the overlay itself. Default on (faithful).

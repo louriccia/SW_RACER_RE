@@ -23,6 +23,18 @@ extern "C" void hook_generated(FILE *hook_log);
 
 extern "C" void hook_function(const char *function_name, uint32_t original_address,
                               uint8_t *hook_address) {
+    // One hook per address: `hooks` is keyed by the original address, so a second registration
+    // REPLACES the first and its delta simply never runs. Say so loudly -- silently dropping a
+    // feature's hook is near-impossible to spot from behaviour alone.
+    if (auto it = hooks.find((void *) original_address);
+        it != hooks.end() && it->second.address != hook_address) {
+        fprintf(hook_log,
+                "WARNING: %s (0x%08x) is already hooked by %s -> %p; %p REPLACES it and the "
+                "earlier hook will not run. Chain them from one delta instead.\n",
+                function_name, original_address, it->second.name.c_str(), it->second.address,
+                (void *) hook_address);
+        fflush(hook_log);
+    }
     hooks[(void *) original_address] = DebugFunctionInfo{
         .name = function_name,
         .address = hook_address,

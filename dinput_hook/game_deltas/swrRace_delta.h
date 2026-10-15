@@ -39,6 +39,13 @@ void swrRace_UpdatePlayerControl_delta(swrRace* player);
 // Hooks swrRace_Tilt by address (reverse-hooked in src).
 void swrRace_Tilt_delta(swrRace* player, float b);
 
+// swrRace_Tilt_delta is the single owner of that hook, so a feature that wants to drive a pod's
+// bank registers here instead of hooking the function again (a second hook_function on the same
+// address would silently replace this one). The callback returns the bank to request; return b
+// unchanged to keep the caller's.
+typedef float (*swrRace_TiltOverride_t)(swrRace* player, float b);
+void swrRace_SetTiltOverride(swrRace_TiltOverride_t fn);
+
 // Cable-curve amplitude for a curently-curved cable node (-1.0 = not a curved cable). Consumed by
 // the renderer to bend the cable mesh in the GL path.
 float swrRace_GetCableBendAmplitude(const swrModel_Node* node);
