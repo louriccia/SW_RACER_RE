@@ -27,7 +27,7 @@ where does each one already live?" Most fixes land in the `dinput_hook/` Detours
 | Cyan sky on some levels (Steam, not GOG) | ★ | dgVoodoo back-buffer read-back path the GL replacement bypasses | **likely fixed w/ RENDERER_REPLACEMENT** — needs visual confirm | [[weather_hud_investigation]] | S (verify) |
 | Resolution doesn't match on install | ★ | hardcoded 640×480 + initial display mode | roadmapped | UI_ROADMAP.md, [[ui_resolution_independent_roadmap]] | M |
 | Save/profile can't delete/save/restore | ★ | elfSaveLoad/tgfd.dat (CRC32, live vs saved tables) | open — needs repro | [[save_profile_subsystem]] | M |
-| **Oovo tubes / sliding at high FPS** | ★ | framerate-dependent physics (see §3) | **PR #194 open** (fixed-timestep, experimental) — pending merge | [[fps_dependent_physics]] | spike done; Phase B M–L |
+| **Oovo tubes / sliding at high FPS** | ★ | framerate-dependent physics (see §3) | **PR #194 MERGED 2026-10-02** (fixed-timestep, default off) | [[fps_dependent_physics]] | spike done; Phase B M–L |
 | Pit-droid repair / hidden stats confusing | ★ | poorly communicated mechanics (not a bug) | open — UX | [[pod_handling_stats_subsystem]], DEBUG_UI_ROADMAP.md | S–M |
 | Game too easy / no way to add challenge | ★ | no exposed difficulty knob (AI stats already reimplemented) | roadmapped | AI_ROADMAP.md, [[ai_opponent_difficulty_subsystem]] | S–M |
 | No more money after all races done | ★ | economy design, not a bug | won't-fix / design | — | — |
@@ -65,10 +65,11 @@ fixed dt under `swr_FastMode`.
 - **Phase A — band-aid (optional):** dt-aware `ApplyTraction` (`powf(traction, dt/DT0)`) behind a
   toggle. Fastest Oovo relief; superseded by B. Matches Tim's PR #110 comment (done correctly — the
   literal "1/30" doesn't work since dt cancels). **S**.
-- **Phase B — SHIPPED as PR #194 (open, experimental):** accumulator over RunFrame's
+- **Phase B — MERGED as PR #194 (2026-10-02, default off):** accumulator over RunFrame's
   phase-1 calls at a fixed Hz, reusing the FastMode dt path; render runs free. ImGui toggle + sim-rate
   slider + readout. Sub-steps only the world sim; lap clock counts sim ticks. Pending merge. **M.**
-- **Phase B+ — finish it:** sub-step only the world sim (not sound/input/camera), add render
+- **Phase B+ — finish it** (now planned in REPLAY_ROADMAP.md §11: RNG split, render smoothing
+  off/extrapolate/interpolate toggle, turbo mode, frame-advance): sub-step only the world sim (not sound/input/camera), add render
   interpolation of the pod transform in the renderer hook (kills judder), expose "physics rate" as a
   user slider. Unlocks deterministic **replay** + **multiplayer** (see those roadmaps). **M–L.**
 
@@ -95,8 +96,8 @@ Two isolated branches off HEAD (001c067), both built+linked but **not yet playte
    out while holding/just after a control, alt-tab back, confirm inputs are no longer stuck (no locked
    reverse view / latched confirm). Also sanity-check the display still re-inits cleanly on refocus.
    Lowest-risk, highest-frequency win — good first PR candidate.
-2. ~~**`proto/fixed-timestep` spike**~~ — DONE: shipped as **PR #194** (open, experimental, pending
-   merge). Phase B (accumulator over RunFrame phase-1) is in; Phase B+ (render interpolation + user
+2. ~~**`proto/fixed-timestep` spike**~~ — DONE: shipped as **PR #194** (MERGED 2026-10-03, default off).
+   Phase B (accumulator over RunFrame phase-1) is in; Phase B+ (render interpolation + user
    physics-rate slider) is the remaining follow-up. See §3 and [[fps_dependent_physics]].
 3. Pick another quick win from §2 for a fast player-facing W.
 

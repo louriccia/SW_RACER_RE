@@ -1,6 +1,7 @@
 # SW_RACER_RE — Replay / Ghost Roadmap
 
-**Status:** design (2026-06-12). Living document. Owner: lightningpirate.
+**Status:** design (2026-06-12; fixed-timestep follow-ons added 2026-10-02 after PR #194 merged —
+see section 11). Living document. Owner: lightningpirate.
 
 Goal: a well-functioning, **shareable** replay/ghost feature — record a run, share the file,
 and have it play back in any other install (decomp build, and ideally annodue too). The
@@ -75,7 +76,7 @@ playable across both ecosystems. That is the literal meaning of "playback in oth
 |------|-----------------|-----------|----------|-----------|------|
 | **A — Ghost** | per-frame transform + speed + lap (the ~112-byte MP record) | <50 KB/run | position-accurate "video"; no physics interaction, camera free to orbit | **Yes** (ghost pod) | **Low** — reuses REMO machinery |
 | **B — Full snapshot** | annodue's 10 regions, delta-compressed | hundreds KB – few MB | pixel-perfect: effects, camera, HUD | **No** (must freeze sim) | **Low–Med** + the pointer wall |
-| **C — Deterministic input** | inputs + RNG seed + track/pod/upgrades | <5 KB/run | "true" re-sim; tiny; verifiable | n/a | **High** — needs a frame-independent physics reimpl |
+| **C — Deterministic input** | inputs + RNG seed + track/pod/upgrades | <5 KB/run | "true" re-sim; tiny; verifiable | n/a | **Med** — fixed clock landed (PR #194, merged); open: RNG split (§11.2) + cross-CPU x87 |
 
 **Recommended path:** ship **A** first (it is what players actually want and is mostly
 wiring), keep **B** as a "perfect capture" mode for content creators, treat **C as research.**
@@ -90,13 +91,17 @@ wiring), keep **B** as a "perfect capture" mode for content creators, treat **C 
 > (`0xE22A40`) instead of the wall-clock delta. That's a real starting point for Tier C (force fixed
 > dt + drive the timestep, as the CE camera mod does for slow-mo), though cross-hardware
 > bit-reproducibility of the float physics still needs care.
-> **Update (2026-06-19; revised):** fixed-timestep **SHIPPED as PR #194** (open, experimental)
+> **Update (2026-06-19; revised):** fixed-timestep **SHIPPED as PR #194** (merged 2026-10-03, default off)
 > (`dinput_hook/game_deltas/swrMain_delta.cpp`) — it drives `swrMain_RunFrame`'s phase-1 (sim)
 > calls on a wall-clock accumulator at a fixed dt, reusing the `swr_FastMode` @0x50cb68 path above,
 > sub-stepping only the world sim while render runs free, and the lap clock now counts sim ticks. It
 > was built to fix framerate-dependent traction (Oovo sliding), but it is the **same machinery Tier C
 > needs**: once float reproducibility is settled, input-only replay/validation becomes viable. See
 > COMMUNITY_ISSUES_ROADMAP.md §3 and [[fps_dependent_physics]].
+> **Update (2026-10-02): PR #194 MERGED upstream.** The "frame-independent physics reimpl" premise
+> above is obsolete: the original `.text` runs byte-for-byte (reimpls are dormant), so Tier C needs a
+> fixed *clock*, not a reimpl — and that clock now exists (default-off toggle). What remains for Tier C
+> is the RNG physics/cosmetic split (§11.2), the T0 animation snapshot (§3.2), and cross-CPU x87.
 
 ### 3.1 Scrubbing & random access — the tiers are *layers*, not alternatives
 
@@ -160,7 +165,11 @@ reduced to a bounded capture:
   cosmetics, so at different framerates the gameplay stream diverges — but the only player-trajectory
   RNG is engine part-breakage (damage only), so **a clean run is RNG-free for the player's path**.
   Mitigate with a **sparse gameplay-RNG log** (value+tick per draw) rather than separating the stream
-  (which would be sim-altering).
+  (which would be sim-altering). **Revised 2026-10-02:** under fixed-timestep mode (already a declared
+  sim-affecting class) we DO split the stream — physics vs. cosmetic state, swapped around the
+  render-cadence work — so the gameplay stream becomes a function of tick count alone. Vanilla
+  (toggle off) keeps the single shared stream. See §11.2. The sparse log stays as the fallback for
+  vanilla-mode runs.
 - **Animation: snapshot at `T0`.** Collision hazards are animated; each animation's `animation_time`
   advances by `swrRace_deltaTimeSecs` (`swrModel_AnimationUpdateTime@0x426330`) and **carries over
   from the cutscene** (not reset at race start), so `T0` must snapshot per-entry `animation_time` +
@@ -222,6 +231,9 @@ This is the Tier A frame payload, and the engine already knows how to consume it
   A run recorded at 144 fps and one at 30 fps differ in sample density. **Normalize to a fixed
   capture rate + per-sample timestamps**, or the same file plays back at different
   smoothness/speed on different machines (kills "playback in other games").
+  **Resolved by PR #194 (2026-10-02):** with fixed-timestep on, capture once per sim *tick* — fixed
+  Hz, sample index = tick — and write the sim Hz into the `.swrr` header. Recording requires the
+  toggle on (or falls back to timestamped per-frame samples in vanilla mode).
 - **R3 — start/stop/restart boundaries.** annodue's changelog is a list of exactly these bugs
   ("loading state overriding settings on new scene", "rewind not restoring UI"). Define clean
   semantics for countdown start, mid-race Esc-restart, pause, and DNF. A >5-lap run crosses the
@@ -233,6 +245,8 @@ This is the Tier A frame payload, and the engine already knows how to consume it
   Fine for live MP, ugly for a replay where the entire future is already recorded. A good replay
   **interpolates** (Catmull-Rom on position, slerp on orientation). Reusing the REMO consume path
   verbatim inherits MP's snap artifacts — add a replay-specific smoothing path or dense samples.
+  **2026-10-02:** the replay smoothing path = the live render-smoothing buffer (§11.1) in
+  interpolate mode, fed from file instead of from ticks.
 - **P2 — the phantom-entity problem.** A ghost needs a spawned ~8 KB `swrRace` that the engine
   **renders** but **excludes from everything else**: collision (the Q3 toggle), standings/placement,
   finish (`'fini'`) events, lap triggers, minimap/HUD nametags, catch-up AI, and Sebulba flamejet.
@@ -311,7 +325,8 @@ Frames (Tier B):  delta-compressed named-field snapshots of the 10 regions
 | **3** | UX: race-against-ghost (PB or downloaded), ghost selector, in-race delta; "watch" camera | M | med | 2 |
 | **4** | Tier B full snapshot: pointer census + rebind-on-load, named-field serialization of the 10 regions | M–L | **high** (B1) | 2 |
 | **5** | Distribution: file sharing now; in-game ImGui browser later (reuse modding online layer) | M | med | 0, 4 |
-| **C** | (research) fixed-timestep deterministic physics reimpl → input-only replay + validation | L | high | pod-flightmodel reimpl |
+| **C** | input-only replay + validation on the fixed clock (no reimpl needed — original `.text` runs) | M–L | med (x87) | PR #194 ✅, §11.2 RNG split |
+| **FT** | fixed-timestep follow-ons: RNG split → render smoothing / turbo → frame-advance (see §11.5) | S–M each | low–med | PR #194 ✅ |
 
 ---
 
@@ -378,7 +393,7 @@ in-race block — cross-ref the gamepad menu-nav seam (`gamepad_nav_bridge` memo
 | TAS feature | Reuses |
 |-------------|--------|
 | **Input playback / takeover** | the seam above + the Tier-C input format — this IS Tier C on the live rendering build (the *interactive* branch the §3.1 bake explicitly gives up) |
-| **Frame-advance / pause-step** | the fixed-timestep controller (PR #194 already sub-steps the world sim on an accumulator; frame-advance = manually pump one sub-step), reusing its once-per-frame-vs-sub-step decomposition so a manual step does NOT re-poll input / rebuild HUD |
+| **Frame-advance / pause-step** | the fixed-timestep controller (PR #194, merged, sub-steps the world sim on an accumulator; frame-advance = manually pump one sub-step), reusing its once-per-frame-vs-sub-step decomposition so a manual step does NOT re-poll input / rebuild HUD. Needs its own "sim frozen" state — #194 hands *paused* frames to vanilla (pause menu), so freeze ≠ pause. See §11.4 |
 | **Savestate / rerecord** | in-memory Tier-B checkpoints (§3.1b) = annodue's 10-region savestate (already exists in annodue — cross-design) |
 | **Slow-mo / turbo** | `swr_FastMode` / `swr_frameDeltaTime` (already RE'd; the CE camera mod uses it) |
 | **Piano-roll input editor** | ImGui UI over the Tier-C input stream (new UI; data model already defined) |
@@ -402,7 +417,90 @@ sim** (does the reference build reproduce a known stream bit-for-bit?), directly
 path this needs is exactly the one §3.1's bake-to-Tier-A sacrifices — so TAS is *why* we keep the
 non-baked live-playback path.
 
-## 11. References
+## 11. Fixed-timestep follow-ons (after PR #194 merged, 2026-10-02)
+
+PR #194 runs the world sim (`swrModel_UpdateAnimations` + `swrEvent_CallAllF0..F3` +
+`swrRace_IncrementFrameTimer`) on a fixed-dt accumulator and leaves render once/frame. Default off,
+engages only while actively driving. Its review-pass fixes (commit `29d74b6c`: `swr_systemTimeMs`
+resync on disengage — respawn lap time; bitset2 release-edge latch; catch-up-cap remainder;
+pause-press frame) were **merged before being playtested** — playtest those first, everything below
+stacks on them.
+
+### 11.1 Render smoothing — one buffer, three modes
+Known #194 limitation: render > sim repeats frames (judder). Fix = a per-tick transform buffer:
+after each tick, keep `prev` + `curr` transform for every racer; before the render-cadence work,
+write a **display transform** into the pod, render, then restore the true `curr` before the next tick
+(the sim must never see the display copy). With `alpha = accumulator / dt0`:
+
+| Mode | Display transform | Latency | Artifact |
+|------|-------------------|---------|----------|
+| off | `curr` | 0 | judder (today) |
+| **extrapolate** | `curr + (curr − prev)·alpha` (orientation: extrapolate the prev→curr rotation delta) | **0** | overshoot/snap on sharp changes: wall hits, collisions, respawn |
+| interpolate | `lerp/slerp(prev, curr, alpha)` | up to 1 tick (~8 ms @120 Hz) | none |
+
+- **Live play: try extrapolate first** — the question is whether its overshoot is perceivable; ship as
+  a 3-way ImGui toggle so it can be A/B'd in-race. Extrapolation uses the last two ticks only, so it
+  needs no velocity fields (`swrRace_ExtrapolateTransform@0x4705d0` is the REMO speed·dt variant —
+  stays MP's).
+- **Snap guard:** skip smoothing on the tick a respawn/teleport happens (large `curr − prev`).
+- **Camera:** cMan updates at render cadence and follows the pod; it must read the *display*
+  transform or the view still judders even if the pod is smooth → swap before the camera update, not
+  just before phase 2.
+- **Replays reuse it:** the same buffer in interpolate mode is ghost playback's render path (P1).
+- Scope v1 = racers + camera **+ scene animations**. Playtest 2026-10-02: trigger FX (rock
+  explosions) visibly step at the sim rate, as does every `swrScene_animations` entry (hazards, flags,
+  doors) since `swrModel_UpdateAnimations` is inside the tick. Animations can't simply move to render
+  rate (collision hazards are animated; the sim reads their transforms), so use the same swap: before
+  render, save each anim's `animation_time` / `key_frame_index` / flags, advance by `alpha·dt0` (or
+  extrapolate), render, then restore and re-apply the pose at the saved time. One extra animation
+  evaluation per frame. Check `UpdateAnimations` end-of-anim side effects (disable/loop/callbacks,
+  e.g. `swrObjTrig_AnimationActive` reads ENABLED + time < duration) — the restore must undo them.
+
+### 11.2 RNG split — physics vs. cosmetic stream
+`swrUtils_Rand@0x4816b0` draws from one global `swrUtils_randState@0x50cb7c`, shared by sim draws
+(AI rank reroll, part-breakage, fireball/debris) and render-cadence cosmetics
+(`swrWeather_RenderParticles`, `RenderMiniMapDotsAndCrosses`, HUD dial/engine UI,
+`swrText_UpdateTimedMessage`). Under fixed-timestep the renders-per-tick count varies with FPS → the
+gameplay stream still depends on framerate.
+
+Fix (no per-call-site patching): keep a second `cosmeticRandState`; **swap it into
+`swrUtils_randState` around the render-cadence work** (phase 2 + the once-per-frame parts of the
+decomposed phase 1) and swap back before the ticks. Cosmetics get their own independent sequence;
+the physics stream is advanced only inside ticks.
+- Cosmetic draws that happen *inside* a tick still consume the physics stream — fine, they are
+  per-tick-deterministic.
+- Active only while fixed-timestep is engaged (already a sim-affecting class); vanilla keeps one stream.
+- **Verify** at implementation time: which cosmetic callers land inside vs. outside the sub-step
+  (decides where the swap brackets go). Debug readout: physics-stream draws per tick, cosmetic per frame.
+- **Acceptance test:** same inputs at render 30 / 60 / 144 / uncapped → identical physics
+  `randState` at tick N.
+
+### 11.3 Fast-as-possible (turbo) mode — automated testing
+Fixed dt means results don't depend on wall-clock, so the test runner (PR #334) can run ticks as
+fast as the CPU allows:
+- replace the accumulator with "N ticks/frame" or "ticks until a frame-time budget";
+- **bypass the catch-up cap** (`kMaxSubSteps`) in this mode;
+- vsync/frame pacing off; optionally render every Nth frame; mute or let sound drift;
+- keep the `swr_systemTimeMs` resync so lap times stay right on exit.
+Depends on §11.2: turbo swings renders-per-tick wildly, so without the split a turbo run and a
+real-time run draw different gameplay RNG. With it, **turbo == real-time bit-for-bit** — which is
+itself the determinism check for TAS (§10.3).
+
+### 11.4 Frame-advance + slow-mo
+Freeze the accumulator; a step key pumps exactly one tick (once-per-frame parts still run, input
+latch presents the currently held state to the step). Slow-mo = scale the wall-clock fed to the
+accumulator. Needs a "sim frozen" state distinct from vanilla pause (#194 gives paused frames to
+vanilla → pause menu).
+
+### 11.5 Order
+1. Playtest #194 review fixes. 2. **RNG split (§11.2).** 3. Render smoothing toggle (§11.1) and turbo
+(§11.3) — independent. 4. Frame-advance/slow-mo (§11.4). 5. Ghost spike (§8) recorded per tick,
+played through §11.1. 6. TAS v0 = per-tick input record/playback + trajectory-checkpoint compare
+(no savestates). 7. Savestates/rerecord (§3.1b — the heavy one, cross-design with annodue).
+
+---
+
+## 12. References
 - `src/Swr/swrMultiplayer.h` — `PublishPodState` / `ApplyPlayerStates` / REMO state handlers.
 - `src/Swr/swrObj.c:428` — `swrObjTest_F3` (stub); `src/Swr/swrRace.h:98` — `ExtrapolateTransform`
   (annotated "multiplayer/replay extrapolation"), F3 per-frame pipeline.
