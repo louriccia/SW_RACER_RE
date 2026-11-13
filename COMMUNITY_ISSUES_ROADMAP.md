@@ -32,6 +32,10 @@ where does each one already live?" Most fixes land in the `dinput_hook/` Detours
 | Game too easy / no way to add challenge | ★ | no exposed difficulty knob (AI stats already reimplemented) | roadmapped | AI_ROADMAP.md, [[ai_opponent_difficulty_subsystem]] | S–M |
 | No more money after all races done | ★ | economy design, not a bug | won't-fix / design | — | — |
 | Wants achievements | ★ | no system exists | large feature | (no roadmap yet) | L |
+| MP upgrade sliders don't move the vehicle-select stat bars (race is upgraded, display isn't) | ★ | bars come from `swrObjHang_ComputeUpgradedStats` (profile upgrades, empty in MP), not the MP sliders | open, **bug** | MULTIPLAYER_ROADMAP.md Q9, [[mp_upgrades_feature]] | S |
+| MP upgrades hidden in F5 > Graphics Settings; want to pick them at vehicle select | ★ | debug-menu-only UX | open | MULTIPLAYER_ROADMAP.md Q10 | S–M |
+| Host-set truguts budget for MP upgrades / tour-style pod building | ★ | feature; upgrades are per-player honor system today | idea | MULTIPLAYER_ROADMAP.md Q11 | M–L |
+| Upscaled / AVI-MP4 cutscenes instead of ZNM | ★ | Smush-only FMV path | idea | GRAPHICS_ROADMAP.md §6 | M |
 | No multi-language support | ★ | strings hardcoded in EXE | roadmapped (string externalization) | MODDING_ARCHITECTURE.md, [[modding_content_system]] | L |
 
 ---

@@ -76,7 +76,7 @@ PRODUCTIONIZATION TODO before PR:
 - Depended on PR #152 (both touch stdControl_delta.c); #152 merged and this work SHIPPED + MERGED
   as PR #183 (input-hotplug). DESIGN: auto-enable on hot-plug = YES (user-confirmed).
 
-## Thread 1.5 - Input diagnostics + device picker  [SHIPPED locally, this session]
+## Thread 1.5 - Input diagnostics + device picker  [SHIPPED - PR #218 + follow-up #286, merged]
 
 - **What:** an "Input Diagnostics" panel (F5 -> Settings) that walks the input pipeline
   top to bottom (device -> raw axes -> bindings -> the values the pod receives) so a player
@@ -117,6 +117,8 @@ PRODUCTIONIZATION TODO before PR:
 - The underlying re-acquire already works, so this is feedback only: a "controller
   disconnected" prompt / auto-pause when a player's device goes lost.
 - **Lift:** small.
+- **Related, shipped:** PR #347 (merged 2026-10-25) zeroes the pod's input when a controller
+  is unplugged mid-race, so the pod no longer keeps thrusting/tilting on a dead device.
 
 ## Thread 4 - Per-player binding profiles (Smash-style name tags)  [FUTURE]
 

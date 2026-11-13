@@ -799,8 +799,8 @@ does not, except a place on a map that only knows eight.
 
 1. **Ship M0** as a small PR (record-write guard) - a real save-corruption bug, independent of
    everything else here.
-2. **Revive `loose-model-replacement`** (rebase onto master, `/pre-pr-check`, PR it). It is the
-   `RAWM` half of M1 and has been sitting unmerged; everything downstream builds on it.
+2. ~~**Revive `loose-model-replacement`**~~ DONE: MERGED as PR #308 (2026-11-05), with the discrete
+   asset tooling (#309). #310 (virtual block provider) and #311 (manifest + content store) merged the same day; the stack now starts at #312 (catalog download).
 3. **Freeze the `track.json` schema** (section 3.3) in a form botto-api and junkyard can code
    against - that unblocks M7 in parallel.
 4. **Spike the virtual block provider (M2)** on `feature/loader-virtual-block`: detour the three

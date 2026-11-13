@@ -193,6 +193,9 @@ otherwise unchanged.
 
 ### Phase 6 -- Render-scale / supersampling slider. Effort: S.  Depends: Phase 1.
 
+**Status (2026-10-29):** downscale half SHIPPED in PR #346 (render-scale slider capped at 100%,
+low-end preset = 0.75x). Supersampling (>1.0x) still open.
+
 Scene already lives in an FBO, so rendering at >native and downsampling in the resolve is a few
 lines -- the single biggest pure image-quality win where GPU headroom exists. Also enables a
 downscale option for weak GPUs.
@@ -248,3 +251,23 @@ mode, never default.
 
 Each phase ships behind its own toggle, defaulting off/neutral, with the byte-identical-at-neutral
 contract held throughout.
+
+---
+
+## 6. Side track -- replacement cutscene video (AVI/MP4). Effort: M. Independent of Phase 1.
+
+Requested on Discord (MrGameFixer, 2026-11-02): play upscaled cutscenes instead of the original ZNM
+(Smush) files. Not a post-FX phase, but it is a renderer job and the seam already exists.
+
+- **Seam:** every FMV goes through `Window_PlayCinematic` (0x004252a0); frames are already routed to
+  GL by `Window_SmushPlayCallback_delta` -> `renderer_drawSmushFrame`. Callers: the 3 boot movies in
+  `swrMain2_GuiAdvance` + the planet cinematics in `swrObjHang_LoadScreen`.
+- **Plan:** in `Window_PlayCinematic_delta`, look for a loose replacement next to the ZNM (e.g.
+  `data/cutscenes/<name>.mp4`, same convention as the other loose-file replacements). If found, decode it
+  ourselves into a GL texture + our own audio stream and skip Smush; otherwise fall through to vanilla.
+  Must keep the existing skip/advance input (PR #338) and the localized cutscene variants working.
+- **Decoder choice (open):** `pl_mpeg` (single header, MPEG-1 only, zero deps) is the cheapest drop-in;
+  libav/ffmpeg or Media Foundation gets real MP4/H.264 but adds a heavy dependency or Windows-only code.
+  Lean `pl_mpeg` for v1, or MF since the game is Windows-only anyway.
+- **Assets:** we don't ship upscaled video. Document the expected file names + format so the community
+  can provide them.

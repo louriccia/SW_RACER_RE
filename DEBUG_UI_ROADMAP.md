@@ -444,6 +444,11 @@ ini; later, docking + pop-out (SS7).
   from the ini once via `SetNextItemOpen(ImGuiCond_Once)` then mirror the live header state. The
   `show_logs` / `show_debug` / `matrices pos` gating checkboxes were retired in favor of the section
   expand-state. SHIPPED + MERGED as PR #184 (debug-ui-panel-registry).
+- **DONE / shipped (2026-11-05): toolbar menu bar + tabbed Settings window, MERGED as PR #349.**
+  The accordion window became a top toolbar (F5 toggles it; hint on the main menu while hidden) plus a
+  tabbed Settings window built from `panel_*()` functions registered in `register_builtin_debug_panels()`;
+  the Multiplayer options are a pinnable window of their own. Every open PR that added a debug setting
+  (#337, #334, #260, #249, #230, #182) had to be ported onto the new panels the same day.
 - **READY to fold in (Phase C):** feature/debug-cheats-menu, feature/gamepad-rumble,
   perf/remove-per-frame-glfinish. Each now becomes a single `debug_ui_register(&panel)` in its own
   delta file instead of splicing shared code -- so they stop conflicting.
