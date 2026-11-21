@@ -43,7 +43,7 @@ MASTER = os.path.join(HERE, "master_functions.h")
 # game .text window; below 0x401000 is headers, >=0x49e000 is IAT + CRT tail.
 GAME_LO, GAME_HI = 0x00401000, 0x0049e000
 
-ADDR_CMT = re.compile(r'^\s*//\s*0x([0-9a-fA-F]{6,8})(\s+HOOK)?\s*$')
+ADDR_CMT = re.compile(r'^\s*//\s*0x([0-9a-fA-F]{6,8})(\s+HOOK)?(\s.*)?$')
 SIG_NAME = re.compile(r'(\w+)\s*\(')
 TAG = {"full": "full ", "partial": "PART ", "stub": "STUB ", "none": "none "}
 

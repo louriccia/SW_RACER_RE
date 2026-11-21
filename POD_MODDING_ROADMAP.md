@@ -6,7 +6,8 @@ add-on (`blender-swe1r` / `swe1r_import_export`) and future tools, so pods can g
 "replace a stock pod's meshes" without hard-coding the pod layout in each tool.
 Sibling docs: `MODDING_ARCHITECTURE.md` (content registry, slugs, the three binding techniques;
 this specializes its section 5.4 / Phase 3), `HD_REPLACEMENT_ROADMAP.md` (glTF pods keyed to the
-racer entity).
+racer entity), MODDING_API_ROADMAP.md (pod packages are content packs under its `mod.json`
+manifest and governance; a pack with handling stats is sim-affecting; PR #437 worked example).
 
 ---
 
@@ -77,6 +78,12 @@ Each copy has to be kept in step by hand. The goal is one pod definition that al
 ### 3.5 Drivers
 - A small set of game signals bound to part transforms and material parameters, declared in the
   manifest. Needs the per-part damage and steering fields mapped in the decomp first.
+- Step zero already exists: `swrRace_PoddAnimateSteeringParts 0x00472A50` is the stock driver set,
+  hard-coded as a per-pilot `switch` over slot numbers (7 signals: flap, vane, yaw/pitch R/L,
+  spin). Extracting it into a drive table is queued as a refinement candidate
+  (REFINEMENT_LAYER_ROADMAP §7.1); this section then keys that table by pod and part name instead
+  of pilot and slot. Stock signals and the table loop are refinement; new signals (boost, heat,
+  damage) are plugins that register a named signal for pod packs to reference.
 
 ### 3.6 Shared validator and tools
 - One plain-Python schema check (no Blender) used by the Blender panel (the Pod Parts checklist

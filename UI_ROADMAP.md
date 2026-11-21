@@ -2,6 +2,10 @@
 
 **Status:** design (2026-06-17). Living document. Owner: lightningpirate.
 
+> **2026-11-16:** a possible longer-term direction (a new DLL-side UI framework with tabs, scrolling
+> panels and data-driven layouts, connected to `swrUI` per widget class) is written up in
+> `UI_FRAMEWORK_PROPOSAL.md`. It's a proposal only; Phase B and section 12 below still apply.
+
 Goal: a **resolution-independent 2D UI** for SWE1R -- the menu/HUD widget layer lays out
 responsively for any aspect ratio (16:9 and beyond) and is drawn from **high-resolution art**,
 with **no hardcoded 640x480 assumptions left in the layout math**.
@@ -257,6 +261,13 @@ Orthogonal sampling note: a single sprite's edges can still land on fractional d
 any non-integer effective scale; mitigate with pixel-snap at emit, a 1px transparent guard band in
 the art, or clamp sampling. This is a sharpness detail, not a positioning one.
 
+> **AMENDMENT (2026-11-14): only static placement is resolved.** "The target model dissolves this"
+> assumes Phase B (builders authoring in physical px). The shipped path (#185/#241/#364) keeps the
+> game authoring on the 480-line grid and transforms after the fact, so anything the GAME animates
+> (slide-ins, scrolling text, position markers, radar dots, counters) still moves in whole design
+> units -- visible stepping at 1440p/4K. Our own transforms (anchors, scale, sway) are float and
+> unaffected. Planned fix: SS14.
+
 ---
 
 ## 6. Work plan
@@ -433,6 +444,12 @@ gone. **Back roadmaps up before switching to that branch.**_
   in #241. The centering offset itself still ships as the res-independent baseline.
 - **Open UI bug:** the game cursor is at half its correct position when the resolution-independent UI
   is turned OFF. Lower priority since #241 made the res-independent path the default.
+- **2026-11-14: anchoring by call site -- PR #364 OPEN (base dev).** Replaces #241's sprite-id /
+  text-x tables with EXE call-site identity (`UI_CALL_SITE()`): HUD clusters with H+V anchors,
+  per-site menu anchors, cluster scopes for whole screens, vertical centring, UI-aligned 3D
+  hologram remap, fractional-seam fix, and the call-site capture tool (page-by-page workflow).
+  Res-independent UI is now the CANONICAL UI mode. Static placement is resolution-independent;
+  game-driven MOTION is still grid-quantized -- see SS14.
 
 ---
 
@@ -647,6 +664,40 @@ the ONE place the staging decision lives.
 - reposition = the `override(id)` hook in the layout fn + persistence; `ui_screen_to_design` gives the
   drag inverse.
 - HUD wobble = a translation `UiXform` pushed via `ui_layer_push` around the in-race HUD draw block.
+
+## 14. Sub-unit motion precision (the remaining gap to "truly" resolution-independent)
+
+**Problem.** The game hands positions over as integers (`swrSprite_SetPos(short, short, short)`,
+`swrText_CreateTextEntry1(int x, int y, ...)`, `swrUI_unk.x/y` int) on the 480-line grid. Precision
+is lost BEFORE our transform sees the value, so no anchoring can restore it. Static elements look
+fine (an integer offset is just a layout choice); MOVING elements step by one design unit
+(2.25 px @1080p, 3 px @1440p, 4.5 px @4K) per change. Anything we drive ourselves (cluster shifts,
+scale slider, HUD sway, 3D hologram remap) is float screen-space and already smooth.
+
+**Prerequisite (DONE in #364): stable element identity.** Call-site keying gives each element the
+same identity frame to frame, independent of reused sprite ids / text positions. Every fix below
+needs that.
+
+Three complementary fixes, cheapest-general first:
+1. **Per-element temporal smoothing (catch-all).** Keep a short position history per element
+   (call site + sprite id / text slot). When an element is moving, emit a filtered, sub-pixel
+   position (e.g. linear fit over the last N ticks, or interpolate between tick positions using the
+   fixed-timestep alpha from the render-smoothing work). Snap through on large jumps (teleports,
+   page changes) and when stationary, so static UI stays pixel-exact. No game RE needed; covers
+   every game animation at once. Risk: a frame of lag on motion; pick per-cluster opt-in if needed.
+2. **Recompute at float precision where we own the math (exact).** Position markers and radar dots
+   are world->screen projections the game truncates; redo the projection in screen space in the
+   delta. Rides the "markers/radar as clusters" item. Same for any counter/meter whose source value
+   is a float (fill bars already have float size; only position snaps).
+3. **Float side-channel for specific animations (surgical).** Reimplement a given slide/scroll so it
+   computes a float position and publishes it keyed by call site; the emit uses it over the integer.
+   Only for the few animations that matter most and where (1) lags visibly.
+
+Phase B (builders in physical px) fixes STATIC placement only; it would not fix (1)-(3)'s cases
+unless the animation code itself is reimplemented, so this section is needed either way.
+
+Remaining after SS14: source-art resolution (bitmap fonts, sprite textures) -- covered by SS11d /
+Phase C / C+ (SDF text, HD sprites).
 
 ## Cross-references
 - `ghidra_analysis/ui_system_notes.md` -- the raw trace this roadmap supersedes (page registry,

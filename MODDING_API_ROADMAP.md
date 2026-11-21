@@ -8,6 +8,9 @@ Scope note: this is the CODE/patch modding API (reversible hooks, mod toggling,
 settings). It is distinct from the CONTENT modding work (externalizing track/racer/
 circuit data to JSON, mostly via `tracks_delta.c`); they meet only at the settings
 file. See issue: https://github.com/tim-tim707/SW_RACER_RE/issues/153
+Update 2026-11-20: content packs now share this API's governance (one `mod.json` manifest, the
+same dependency / conflict / sim-affecting rules); the content formats themselves stay in
+MODDING_ARCHITECTURE.md. See "End-game architecture" and Phase 6 "Hosting and distribution".
 
 ## Current state (RE-grounded, master @ 32427ce)
 
@@ -319,6 +322,148 @@ provider + subscriber mods is a real refactor gated on refinement 3. Recommended
 order = cheap journal/config/observer wins now -> defer renderer un-fusing to last (after the
 provider event vocabulary exists). Matches the existing phase order - a good sign.
 
+## End-game architecture (2026-11-20, from the PR #437 discussion)
+
+Worked out while deciding what to do with PR #437 (SoupPotato's pod editor). Sibling docs:
+REFINEMENT_LAYER_ROADMAP.md (the layer this one sits on), MODDING_ARCHITECTURE.md (content
+packs), POD_MODDING_ROADMAP.md (pods).
+
+### The stack
+
+```
+  content packs (data)    |  plugins (code: 1st-party bundled + 3rd-party opt-in)
+  ------------------------+------------------------------------------------------
+        mod host: deps, conflicts, sim gate, journal        (this doc, Phases 1-3)
+  -------------------------------------------------------------------------------
+        curated seams: events / services / providers   (versioned, stable; Phase 5)
+  -------------------------------------------------------------------------------
+        refinement layer   (what players run; free to refactor behind the seams;
+                            fix tier toggles)
+  -------------------------------------------------------------------------------
+        faithful build     (oracle for equivalence + verified-run baseline; not a
+                            mode players pick day to day)
+```
+
+- **Seams, not every function.** Plugins hook named events (`OnPhysicsTick`, `OnMeshDraw`, ...),
+  call services (read snapshot, panels, asset keys) and swap providers (renderer, audio, input).
+  Hooking every refined function would freeze the refinement layer's internals as public API,
+  which defeats the point of that layer. A raw per-function before/after hook stays as an escape
+  hatch, flagged unstable, no compatibility promise (the Forge-events + Harmony split).
+- **Refinement defines and emits the seams; the mod host governs who gets them; mods subscribe.**
+  Refinement never knows a specific mod exists (no ImGui, no mod names, no includes from
+  `dinput_hook/`).
+- **Data is its own axis.** Most mods will be content packs, not code. They sit beside plugins,
+  share the manifest format and the same governance flags.
+- **First-party features become first-party plugins** (fixed timestep, HUD clusters, HD
+  renderer, ...): bundled, default-on, same format as third-party. Dogfooding the API is the test
+  that it is good enough.
+
+### Where the modding layer ends and refinement begins
+
+One line: **refinement makes the game correct, capable and hookable; modding decides what it does
+with that.** Tests, in order:
+
+1. **Is there a right answer?** Defects (crash, leak, overflow, frame-rate-dependent physics) go in
+   refinement's fix tier with a vanilla toggle. Taste (HUD layout, graphics, new modes) is a mod.
+   If nobody can agree on the default, it is a mod.
+2. **Capacity or content?** Making a table loadable or lifting a cap (pods, 20 racers, 8 planets)
+   is refinement. Filling it is modding.
+3. **Mechanism or policy?** Seams, events, loaders and provider interfaces are refinement. What
+   runs at the seam is modding.
+4. **Can the oracle check it?** Refinement must be bit-exact, equivalent, or "toggle off passes,
+   toggle on has its own test". Anything else is not refinement.
+5. **Still the shipped game?** If someone who knows SWE1R would call it the shipped game, it is
+   refinement; if it is recognisably "SWE1R plus something", it is a mod.
+
+Gray zones, decided:
+
+| Thing | Refinement | Modding |
+|---|---|---|
+| Fixed timestep (#337) | Separating sim tick from render frame, emitting `OnPhysicsTick`; fixed rate as a fix-tier toggle | Render smoothing / interpolation (cosmetic) |
+| UI resolution independence (#364) | The anchoring mechanism (identical at 4:3) | Cluster layouts, `ui_layout.txt` overrides, HUD sway |
+| Splitscreen | P2 speedometer / P2 position bugs (fix tier) | Splitscreen HUD clusters |
+| Pods (#437) | Pod tables loadable and inflatable, stable asset identity, socket contract, stock part drives as data (REFINEMENT_LAYER_ROADMAP §7.1) | Pod packages, the pod editor, new drive signals |
+| Multiplayer | The `stdComm` seam, lockstep-ready sim | Replacement transport (provider), player names above pods |
+| Localization | Language and asset loader | Translations (content packs) |
+| Crash fixes | Fix tier, arguably default-on (no speedrun tech depends on a crash) | - |
+| HD renderer | The renderer provider interface | The HD renderer itself |
+
+Warning signs: a refinement PR that needs a settings panel, an asset folder, or a toggle with no
+agreed default is a mod in disguise. A mod that has to reach past the seams into refinement
+internals means a seam is missing; add it in refinement.
+
+### Content on top of refinement
+
+New pods, new tracks and asset replacement are content packs on top of refinement, but the
+ability to load them is refinement:
+
+| | Refinement provides | Content pack provides |
+|---|---|---|
+| Replacing assets | One asset resolver seam: every model/texture/sprite/sound lookup by id goes through it; stock behaviour with no packs (equivalent tier) | Overrides keyed by stable asset id |
+| New pods | Inflatable `swrRacerData` / `PodHandlingData` / `swrRacer_PodVisualData`, slug-allocated ids, roster UI past 23, socket contract | Pod package: model, sockets, handling, pilot, camera, drives |
+| New tracks | Track registry, spline/trigger loading, 8-planet cap lifted, circuits, times by slug | Track package: geometry, spline, triggers, metadata, music |
+
+- Data can only use behaviours the game already has (stock trigger types, stock part behaviours,
+  handling values). New behaviour is a plugin; packs may depend on plugins.
+- Sacred code with modded data is fine: physics stays bit-exact, equivalence is defined over stock
+  data. A pack carrying handling stats is therefore **sim-affecting**; a visual-only pack is
+  cosmetic.
+- Today's content band-aids (`custom_tracks.cpp`, `model_replacement.cpp`, texture-buffer `.text`
+  re-pointing, roster operand patches) do not have to wait: route them through one resolver seam
+  in the hook layer now, and move the seam into `refined/` when that subsystem is refined.
+
+### Player control: contexts and resolution
+
+The player picks mods in a mod manager (toggles, saved profiles). The mod host resolves every
+change with these rules, in order:
+
+1. **Context gate.** Each mod declares `sim_affecting`. The play context decides what is allowed:
+
+   | Context | Sim-affecting mods | Cosmetic mods |
+   |---|---|---|
+   | Solo / local | Player's choice | Player's choice |
+   | Online lobby | Locked to the lobby host's set (lockstep, #285) | Player's choice, never in the handshake |
+   | Verified run | Certified only; the rest are disabled | Player's choice |
+
+   A mod that would pull in a disallowed sim-affecting dependency is refused.
+2. **Dependency closure.** Enabling a mod enables everything it requires; disabling a mod
+   disables everything that requires it (`ModModule.depends_on`, Phase 2).
+3. **Seam conflicts.** Observers and mutators compose in priority order. A replacement or provider
+   holds its seam exclusively; a second claimant forces an explicit swap or cancel in the UI. The
+   host never picks a winner silently (Phase 3).
+4. **Clean undo.** Disabling a mod reverts its journaled writes (Phase 1) and unregisters its
+   handlers, so toggling mid-session needs no restart (except "requires-reload" mods, see
+   Pitfalls).
+
+Gaps against the phases as written: Phase 2's `ModModule` needs a `sim_affecting` flag and a
+`certified` notion; Phase 3 needs exclusive-seam claims declared up front (in the manifest, so the
+host can check conflicts without loading code); the per-context gate is new.
+
+### Worked example: PR #437 pod editor
+
+| What #437 does | Mechanism it really needs | Phase |
+|---|---|---|
+| "Mods > Pod Editor" ImGui panel | Service `register_panel` | 5/6 (in-tree `debug_ui_register` today) |
+| `pod_edits_export_mesh` called from the renderer | Domain event `OnMeshDraw` {racer, part, mesh, matrix, verts, uv, texture} | 5 (needs 3) |
+| `note_model` / `drop_models_from` in the model loader | `OnModelLoaded` / `OnAssetRangeReleased` | 5 |
+| `pod_edits_animations_frame(in_race)` | `OnFrame` | 5 |
+| `find_asset_offset`, `engineXf`, visual-data rows | Versioned read snapshot (annodue idea) | 5 |
+| `glGetTexImage` texture readback | Renderer provider service `read_texture` | 5 |
+| Desktop workspace in the replacement search path | Content pack under `mods/`, host hot reload | content system |
+| Keeping baked spinning parts animated | Pod part behaviour / drive rows in the pod package | refinement + content |
+| Rewriting `out_modelblock.bin` | Not a plugin capability; offline packaging tool at most | - |
+
+About half the engine-side C++ in #437 exists only because the platform is missing. Ideal end
+state: a content pack (the edited pod), a ~150-line plugin (export button + mesh capture against
+the C ABI), and the editor as an external tool in its own repo whose contract is the export JSON
+in and the pod package out.
+
+**Interim policy until Phases 3/5/6 land: plugin-shaped in-tree code.** Feature code sits behind
+one narrow header, registers as a `ModModule`, and touches the renderer/loader only at one or two
+named call sites (future event sources). Extracting it into a DLL later is a mechanical move, and
+each such feature tells us which events the API needs. Large standalone tools (like the #437
+editor UI) live in their own repos and are linked, not vendored.
+
 ## Phase 1 - Reversible patch backend + journal  [MVP, = issue Phase 1]
 
 - **Goal:** a single primitive every memory mutation routes through, with automatic undo.
@@ -522,6 +667,109 @@ provider event vocabulary exists). Matches the existing phase order - a good sig
   governance surface (Phases 2-5) intact.
 - **Lift:** large; gated on real out-of-tree demand.
 
+### Hosting and distribution (2026-11-20)
+
+**Package = a folder with a manifest.** One format for plugins and content packs:
+
+```
+mods/
+  pod-editor-export/
+    mod.json
+    plugin.dll          (optional: code)
+    content/            (optional: data)
+```
+
+```json
+{
+  "slug": "pod-editor-export",
+  "version": "1.2.0",
+  "kind": "plugin",
+  "host_api": ">=1.4 <2",
+  "sim_affecting": false,
+  "depends_on": { "hd-renderer": ">=2.0" },
+  "observes": ["OnMeshDraw"],
+  "replaces": [],
+  "source": "https://github.com/SoupPotato/swr-pod-editor",
+  "license": "MIT",
+  "sha256": { "plugin.dll": "..." }
+}
+```
+
+The manifest carries everything the resolver needs (version ranges, `sim_affecting`, seam claims),
+so the host can list, conflict-check and context-gate a mod without loading its code. Content
+packs use `"kind": "content"`. Install locations: `<game>/mods/`, plus a per-user
+`%LOCALAPPDATA%\SW_RACER_RE\mods\` for when the game folder is not writable (the Program Files
+problem #437 worked around with a Desktop folder).
+
+**ABI.**
+- C ABI only: one export `swr_plugin_init(const SwrHostApi*, ModModule*)`, a versioned host vtable
+  that only ever gains fields at the end; the host refuses plugins built for a newer major
+  version. Any compiler targeting 32-bit x86 works.
+- Memory stays on its own side: the host never frees what a plugin allocated and vice versa;
+  allocation goes through the host API, so mixed CRTs are safe.
+- ImGui across the DLL boundary: plugins must use the host's `ImGuiContext` and allocators and the
+  exact ImGui version, so either pin the version in the ABI or hand panels a thin drawing facade.
+- Ship an SDK: headers, a template repo and a CI workflow that builds a plugin.
+
+Sketch of the v1 surface:
+
+```c
+typedef struct SwrHostApi {
+    uint32_t version;
+    const SwrReadState *state;            // racers, pod frames, visual rows
+    void (*register_panel)(ModModule *, const char *category, void (*draw)(void));
+    void (*subscribe)(ModModule *, SwrEvent ev, SwrHandler fn);  // OnMeshDraw, OnFrame...
+    bool (*asset_key)(const void *ptr, SwrAssetKey *out);        // stable mesh identity
+    bool (*read_texture)(uint32_t tex, SwrImage *out);
+    const char *(*mod_dir)(ModModule *);  // the mod's own writable folder
+} SwrHostApi;
+SWR_EXPORT bool swr_plugin_init(const SwrHostApi *api, ModModule *self);
+```
+
+**Discovery channels, phased.**
+
+| Phase | Channel | Notes |
+|---|---|---|
+| A (now) | Drop a zip into `mods/` | No infrastructure; "local, unverified" warning |
+| B | Git-based index repo (`swr-mod-index`) | One JSON entry per mod: source repo, tag, hashes. Added by PR, reviewed in the open, free hosting (Scoop bucket / Homebrew tap model) |
+| C | In-game browser | Mod manager reads the index, downloads, checks the hash, installs; could reuse the Discord sign-in backend (#314) for author identity / ratings |
+
+An existing hub (mod.io, Thunderstore, Nexus) can replace or mirror C; the git index stays the
+source of truth for the verified tier.
+
+**Trust: review, not a sandbox.** A native DLL has full access to the player's machine; an
+in-process sandbox is not realistic.
+- **First-party:** built by the main repo's CI, shipped in the release zip, same format.
+- **Verified:** listed in the index, and the **index CI builds the DLL from the tagged source** and
+  publishes the hash; players run binaries the project built. The index is signed (minisign or
+  sigstore).
+- **Unverified:** anything local; loads after a warning; never allowed in verified runs.
+- Content packs move the risk into the host's parsers: model, texture and manifest loaders treat
+  input as hostile (`swr_memsafety`).
+- Building from source also covers the standalone / 64-bit port: prebuilt 32-bit DLLs would all
+  break; source builds just get a new target. Keep the API source-compatible across
+  architectures from the start, binary-compatible only within one.
+
+**Tie-in with play contexts.**
+- Profile = lockfile / modlist of `slug@version#hash`; players share a file, not instructions.
+- Online lobby: the host advertises its sim-affecting set as `(slug, version, hash)`; clients may
+  auto-fetch missing *verified* mods and must refuse anything else. Cosmetic mods never enter the
+  handshake.
+- Verified runs record the full modlist hash in the run file (run verification roadmap).
+- Never silently update a sim-affecting mod; pin versions in lobbies and recorded runs. Cosmetic
+  mods update freely.
+
+**Later: a scripting tier.** Once the event API exists, WASM (or Lua) for gameplay-logic mods gives
+a real sandbox and architecture-independence. Native DLLs stay for providers and hot paths. Same
+manifest, `"kind": "script"`.
+
+**Starting order.**
+1. Define `mod.json` and make the mod host read it; load first-party features from it.
+2. Freeze `SwrHostApi` v1 on a small surface: panels, read snapshot, two or three events.
+3. Publish the SDK template; the #437 pod editor export is a good first third-party test.
+4. Stand up the git index with build-from-source CI.
+5. In-game browser last.
+
 ## Pitfalls (carried from the design discussion)
 
 - **Mechanical vs semantic compatibility** - framework promise is "no corruption / no
@@ -556,4 +804,11 @@ long horizon. 2b is tim's churn ask (imgui/renderer_hook conflict hubs) and the 
 - Do we expose `WriteMemory`/raw addresses to in-tree feature deltas during Phases 1-3
   (pragmatic) while keeping ONLY named events/symbols in the eventual external-plugin
   surface (Phase 5/6)? Recommended: yes.
-- Mod metadata format for Phase 6 (manifest file vs exported struct) - defer until 6.
+- ~~Mod metadata format for Phase 6 (manifest file vs exported struct)~~ - RESOLVED 2026-11-20:
+  manifest file (`mod.json`), so the host can resolve and gate without loading code. See Phase 6
+  "Hosting and distribution".
+- Who owns and reviews `swr-mod-index` (tim's org, a community org, or this repo)?
+- Who classifies a mod as `sim_affecting`: author-declared and trusted, or checked (a sim-state
+  hash with the mod on vs off over a replay corpus, once lockstep exists)?
+- What does "certified" for verified runs require, and who grants it (speedrun community)?
+- ImGui across the DLL boundary: pinned exact version in the ABI vs a thin panel facade.
