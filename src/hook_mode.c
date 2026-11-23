@@ -2,10 +2,10 @@
 
 #include "hook.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <windows.h>
 
-#define HOOK_MODE_MAX_RULES 128
 #define HOOK_MODE_MAX_PATTERN 96
 
 typedef struct hook_mode_rule
@@ -14,8 +14,11 @@ typedef struct hook_mode_rule
     char pattern[HOOK_MODE_MAX_PATTERN];
 } hook_mode_rule;
 
-static hook_mode_rule hook_mode_rules[HOOK_MODE_MAX_RULES];
+// Grows as the config is read: a config may name every reimplementation one per line.
+static hook_mode_rule* hook_mode_rules = NULL;
 static int hook_mode_rule_count = 0;
+static int hook_mode_rule_capacity = 0;
+static int hook_mode_rules_dropped = 0;
 static int hook_mode_verify = 0;
 static int hook_mode_config_loaded = 0;
 
@@ -108,10 +111,20 @@ static void hook_mode_load_config(void)
         if (pattern_token == NULL)
             continue;
         pattern_len = strlen(pattern_token);
-        if (pattern_len >= HOOK_MODE_MAX_PATTERN)
+        if (pattern_len >= HOOK_MODE_MAX_PATTERN) {
+            hook_mode_rules_dropped++;
             continue;
-        if (hook_mode_rule_count >= HOOK_MODE_MAX_RULES)
-            continue;
+        }
+        if (hook_mode_rule_count == hook_mode_rule_capacity) {
+            int capacity = hook_mode_rule_capacity ? hook_mode_rule_capacity * 2 : 256;
+            hook_mode_rule* grown = (hook_mode_rule*)realloc(hook_mode_rules, (size_t)capacity * sizeof(hook_mode_rule));
+            if (grown == NULL) {
+                hook_mode_rules_dropped++;
+                continue;
+            }
+            hook_mode_rules = grown;
+            hook_mode_rule_capacity = capacity;
+        }
 
         hook_mode_rules[hook_mode_rule_count].mode = mode;
         memcpy(hook_mode_rules[hook_mode_rule_count].pattern, pattern_token, pattern_len + 1);
@@ -188,5 +201,7 @@ void hook_mode_log_summary(FILE* hook_log)
     double percent = total > 0 ? (double)live * 100.0 / (double)total : 0.0;
 
     fprintf(hook_log, "Hooked [%d/%d] functions (%.2f%%), %d left original, %d unredirected for comparison\n", live, total, percent, dormant, compared);
+    if (hook_mode_rules_dropped != 0)
+        fprintf(hook_log, "WARNING: %d %s rules ignored (pattern too long or out of memory)\n", hook_mode_rules_dropped, HOOK_MODE_CONFIG_FILE);
     fflush(hook_log);
 }
