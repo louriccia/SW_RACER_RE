@@ -1,4 +1,5 @@
 #include "lockstep.h"
+#include <swr_data_addr.h>
 #include "shadow.h"
 
 #include <cstdarg>
@@ -174,7 +175,7 @@ struct State {
     char lastResult[160] = "";
 } s;
 
-GetItem_t get_item() { return (GetItem_t) swrEvent_GetItem_ADDR; }
+GetItem_t get_item() { return (GetItem_t) SWR_FN(swrEvent_GetItem); }
 
 swrObjJdge *judge() {
     swrObjJdge *j = (swrObjJdge *) get_item()(kJdgeEvent, 0);
@@ -864,7 +865,7 @@ extern "C" void lockstep_hang_f0(swrObjHang *hang) {
     log_line("lockstep: autostart track %d, %d racers, %d laps, pod %d", r.trackIndex, r.numPlayers, r.numLaps,
              r.vehiclePlayer);
     inService = true;
-    ((LoadScreen_t) swrObjHang_LoadScreen_ADDR)(hang, 1, 0);
+    ((LoadScreen_t) SWR_FN(swrObjHang_LoadScreen))(hang, 1, 0);
     inService = false;
 }
 

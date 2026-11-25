@@ -1,5 +1,6 @@
 // hook_mode.h for the standalone build: by default every reimplementation is the only
-// implementation, so hook_install() points each retail entry at our body.
+// implementation. hook_install() records which body stands for each retail entry, and points the
+// retail entry at it when the retail code range is mapped (feature build, retail bisecting).
 //
 // With retail's decrypted code loaded (SWR_STANDALONE_RETAIL_TEXT), the functions named in
 // SWR_STANDALONE_RETAIL (a file, one name or `prefix*` per line) run retail's body instead: the
@@ -28,6 +29,23 @@ uint32_t standalone_retail_of(uint32_t body)
         if (body_addr[i] == body)
             return body_retail[i];
     return 0;
+}
+
+// Our body for a retail function entry, or 0.
+uint32_t standalone_body_of(uint32_t retail)
+{
+    for (int i = 0; i < body_count; i++)
+        if (body_retail[i] == retail)
+            return body_addr[i];
+    return 0;
+}
+
+static void record_body(uint32_t body, uint32_t retail)
+{
+    if (body_count < MAX_BODIES) {
+        body_addr[body_count] = body;
+        body_retail[body_count++] = retail;
+    }
 }
 
 static int installed = 0;
@@ -113,17 +131,17 @@ void hook_install(const char* function_name, uint32_t reimpl_addr, uint32_t reta
         standalone_write_jmp(reimpl_addr, retail_addr);
         VirtualProtect((void*)reimpl_addr, 5, old, &old);
         FlushInstructionCache(GetCurrentProcess(), (void*)reimpl_addr, 5);
+        record_body(reimpl_addr, retail_addr);
         retail_run++;
         return;
     }
     // retail's _ftol takes its argument in ST0, unlike the C stand-in
     if (!strcmp(function_name, "c__ftol"))
         reimpl_addr = (uint32_t)standalone_ftol;
-    standalone_write_jmp(retail_addr, reimpl_addr);
-    if (body_count < MAX_BODIES) {
-        body_addr[body_count] = reimpl_addr;
-        body_retail[body_count++] = retail_addr;
-    }
+    // Without the retail code range (the default), the table alone maps retail entries to bodies.
+    if (standalone_code_range_mapped())
+        standalone_write_jmp(retail_addr, reimpl_addr);
+    record_body(reimpl_addr, retail_addr);
     installed++;
 }
 

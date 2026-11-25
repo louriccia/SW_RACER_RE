@@ -1,9 +1,14 @@
 // Standalone launcher: runs the game entirely from the src/ reimplementation, without executing
-// any retail code. Retail's data sections are still taken from the player's own SWEP1RCR.EXE and
-// mapped at their original addresses, so the fixed-address globals in globals.h keep working.
-// Retail's code range is filled with int3, and every function we have a body for gets a jmp at its
-// retail address, so code pointers stored in retail data (object callback tables and the like)
-// land in our code. Anything else that reaches retail code traps and is logged.
+// any retail code. Retail's initial data is taken from the player's own SWEP1RCR.EXE at startup.
+//
+// Default build (SWR_DATA_RELOC + SWR_GLOBALS_OWNED): every named global has storage of its own,
+// unnamed data lives in swr_data_image, data pointers are relocated, and code pointers in data are
+// pointed at our bodies. Nothing sits at a retail address, so the EXE is an ordinary relocatable one.
+//
+// The feature build (its deltas call game functions through *_ADDR) and retail bisecting still map
+// retail's code range: int3 everywhere, a jmp to our body at each function's retail entry, and with
+// SWR_STANDALONE_RETAIL_TEXT retail's own code for the functions listed in SWR_STANDALONE_RETAIL
+// (that needs -DSWR_STANDALONE_DATA_RELOC=OFF, which keeps retail's data at its retail address).
 
 #include <windows.h>
 #define DIRECTINPUT_VERSION 0x0500
@@ -118,7 +123,7 @@ void standalone_owned_report_stale(FILE* log)
     for (int i = 0; i < standalone_owned_global_count; i++) {
         const StandaloneOwnedGlobal* g = &standalone_owned_globals[i];
         const uint8_t* p = retail_va(g->retail);
-        for (uint32_t k = 0; k < g->size; k++) {
+        for (uint32_t k = 0; g->retail >= SWR_DATA_LO && k < g->size; k++) {
             if (p[k] != OWNED_POISON) {
                 fprintf(log, "  stale write: %s+0x%x (0x%08x, size 0x%x)\n", g->name, k, g->retail, g->size);
                 stale++;
@@ -139,9 +144,37 @@ void standalone_owned_report_stale(FILE* log)
 #endif
 
 FILE* standalone_log = NULL;
+
+// Whether v points into this EXE's own code (where the image actually loaded).
+static int in_our_code(uint32_t v)
+{
+    static uint32_t lo, hi;
+    if (!lo) {
+        const uint8_t* base = (const uint8_t*)GetModuleHandleA(NULL);
+        const IMAGE_NT_HEADERS32* nt = (const IMAGE_NT_HEADERS32*)(base + ((const IMAGE_DOS_HEADER*)base)->e_lfanew);
+        lo = (uint32_t)base + nt->OptionalHeader.BaseOfCode;
+        hi = lo + nt->OptionalHeader.SizeOfCode;
+    }
+    return v >= lo && v < hi;
+}
 FILE* hook_log = NULL;
 static uint32_t retail_image_size = 0;
 static int retail_text_loaded = 0;
+
+// The plain standalone runs without retail's address range: no code there, data in its own
+// storage. The feature build's deltas still call game functions through *_ADDR constants, and
+// retail bisecting needs retail's code at its real address, so those map the range.
+int standalone_code_range_mapped(void)
+{
+#if defined(SWR_STANDALONE_FEATURES) || !defined(SWR_DATA_RELOC)
+    return 1; // without SWR_DATA_RELOC retail's data itself sits in the range
+#else
+    static int mapped = -1;
+    if (mapped < 0)
+        mapped = GetEnvironmentVariableA("SWR_STANDALONE_RETAIL_TEXT", NULL, 0) || GetEnvironmentVariableA("SWR_STANDALONE_CODE_RANGE", NULL, 0);
+    return mapped;
+#endif
+}
 
 int standalone_retail_text_loaded(void)
 {
@@ -170,7 +203,7 @@ static LONG CALLBACK watch_write_handler(EXCEPTION_POINTERS* ep)
     fprintf(standalone_log, "WATCH write at eip %08lx, value now %08x, stack:", ep->ContextRecord->Eip,
             *(uint32_t*)ep->ContextRecord->Dr0);
     for (int i = 0, n = 0; i < 512 && n < 10; i++)
-        if (esp[i] >= 0x10001000u && esp[i] < 0x10200000u) {
+        if (in_our_code(esp[i])) {
             fprintf(standalone_log, " %08x", esp[i]);
             n++;
         }
@@ -248,7 +281,7 @@ static LONG CALLBACK retail_trap_handler(EXCEPTION_POINTERS* ep)
         if (IsBadReadPtr(esp + i, 4))
             break;
         uint32_t v = esp[i];
-        if ((v >= 0x10001000u && v < 0x10200000u) || (v >= RETAIL_TEXT_LO && v < RETAIL_TEXT_HI)) {
+        if (in_our_code(v) || (v >= RETAIL_TEXT_LO && v < RETAIL_TEXT_HI)) {
             fprintf(standalone_log, " %08x", v);
             n++;
         }
@@ -366,7 +399,8 @@ static void map_retail(void)
     if (retail_image_size > RETAIL_SPAN)
         die("%s is larger than expected", exe);
     uint8_t* base = (uint8_t*)RETAIL_BASE;
-    if (!commit_retail_range()) {
+    const int code_range = standalone_code_range_mapped();
+    if (code_range && !commit_retail_range()) {
         MEMORY_BASIC_INFORMATION mbi;
         VirtualQuery((void*)RETAIL_BASE, &mbi, sizeof(mbi));
         fprintf(standalone_log, "0x400000 region: base %p alloc %p state 0x%lx size 0x%lx\n", mbi.BaseAddress, mbi.AllocationBase,
@@ -374,7 +408,8 @@ static void map_retail(void)
         die("Address range 0x400000 is already in use (%s)", "see standalone.log");
     }
 
-    memcpy(base, file, nt->OptionalHeader.SizeOfHeaders);
+    if (code_range)
+        memcpy(base, file, nt->OptionalHeader.SizeOfHeaders);
     const IMAGE_SECTION_HEADER* s = IMAGE_FIRST_SECTION(nt);
     for (int i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
         char name[9] = { 0 };
@@ -386,12 +421,21 @@ static void map_retail(void)
             continue;
         }
 #endif
+        if (s->VirtualAddress + RETAIL_BASE == RETAIL_TEXT_LO && !code_range) {
+            fprintf(standalone_log, "section %-8s not mapped (no retail code range)\n", name);
+            continue;
+        }
         if (s->VirtualAddress + RETAIL_BASE == RETAIL_TEXT_LO) {
             // Encrypted by SteamStub on disk. Traps by default; SWR_STANDALONE_RETAIL_TEXT names a
             // decrypted image of the running game (base 0x400000) to take retail's code from, so the
             // functions in SWR_STANDALONE_RETAIL can run retail's bodies (see standalone_hook.c).
             memset(dst, 0xcc, s->Misc.VirtualSize);
             char imgPath[MAX_PATH];
+#ifdef SWR_DATA_RELOC
+            // Retail's code addresses retail's data directly, which this build keeps elsewhere.
+            if (GetEnvironmentVariableA("SWR_STANDALONE_RETAIL_TEXT", NULL, 0))
+                die("Running retail bodies needs a build with %s.", "-DSWR_STANDALONE_DATA_RELOC=OFF");
+#endif
             if (GetEnvironmentVariableA("SWR_STANDALONE_RETAIL_TEXT", imgPath, sizeof(imgPath))) {
                 DWORD imgSize = 0;
                 uint8_t* img = read_file(imgPath, &imgSize);
@@ -415,10 +459,10 @@ static void map_retail(void)
                 (unsigned long)s->Misc.VirtualSize);
     }
     // dinput.lib's standard data formats were linked into retail .text (stdControl_df* in globals.h).
-    memcpy((void*)0x0049e690, &c_dfDIKeyboard, sizeof(DIDATAFORMAT));
-    memcpy((void*)0x0049e720, &c_dfDIMouse, sizeof(DIDATAFORMAT));
-    memcpy((void*)0x0049d670, &c_dfDIJoystick, sizeof(DIDATAFORMAT));
-    resolve_imports((const IMAGE_NT_HEADERS32*)(base + dos->e_lfanew));
+    memcpy(SWR_GLOBAL_PTR(0x0049e690), &c_dfDIKeyboard, sizeof(DIDATAFORMAT));
+    memcpy(SWR_GLOBAL_PTR(0x0049e720), &c_dfDIMouse, sizeof(DIDATAFORMAT));
+    memcpy(SWR_GLOBAL_PTR(0x0049d670), &c_dfDIJoystick, sizeof(DIDATAFORMAT));
+    resolve_imports(nt);
     // After the imports: some named globals are import slots.
 #ifdef SWR_DATA_RELOC
 #ifdef SWR_GLOBALS_OWNED
@@ -428,7 +472,8 @@ static void map_retail(void)
         owned_allocate_guarded();
     for (int i = 0; i < standalone_owned_global_count; i++) {
         const StandaloneOwnedGlobal* g = &standalone_owned_globals[i];
-        memcpy(g->ours, retail_va(g->retail), g->size);
+        if (g->retail >= SWR_DATA_LO)
+            memcpy(g->ours, retail_va(g->retail), g->size);
     }
     int moved = 0;
     for (int i = 0; i < standalone_data_reloc_count; i++) {
@@ -444,7 +489,8 @@ static void map_retail(void)
     // through a retail neighbour's address (see standalone_owned_report_stale).
     for (int i = 0; i < standalone_owned_global_count; i++) {
         const StandaloneOwnedGlobal* g = &standalone_owned_globals[i];
-        memset(retail_va(g->retail), OWNED_POISON, g->size);
+        if (g->retail >= SWR_DATA_LO)
+            memset(retail_va(g->retail), OWNED_POISON, g->size);
         memset(g->canary, OWNED_POISON, standalone_owned_canary_size);
     }
     atexit(report_stale_at_exit);
@@ -555,7 +601,7 @@ static DWORD WINAPI watch_thread(LPVOID unused)
                 fprintf(standalone_log, "watch: enterHeld %d uiActive %d readtime %d main eip %08lx stack:", ((int*)SWR_GLOBAL_PTR(0x0050e868))[0x1c], *(int*)SWR_GLOBAL_PTR(0x004b2940), *(int*)SWR_GLOBAL_PTR(0x0050fecc), c.Eip);
                 uint32_t* sp = (uint32_t*)c.Esp;
                 for (int i = 0, n = 0; i < 4096 && n < 16 && !IsBadReadPtr(sp + i, 4); i++)
-                    if (sp[i] >= 0x10001000u && sp[i] < 0x10200000u) {
+                    if (in_our_code(sp[i])) {
                         fprintf(standalone_log, " %08x", sp[i]);
                         n++;
                     }
@@ -593,10 +639,38 @@ static DWORD WINAPI zclear_thread(LPVOID unused)
     return 0;
 }
 
+// Retail data that points at retail code (object callback tables and the like) is pointed at our
+// bodies, so no code pointer depends on the retail code range.
+extern const uint32_t standalone_code_relocs[];
+extern const int standalone_code_reloc_count;
+
+static void relocate_code_pointers(void)
+{
+    int moved = 0, unknown = 0;
+    for (int i = 0; i < standalone_code_reloc_count; i++) {
+        uint32_t* slot = (uint32_t*)SWR_GLOBAL_PTR(standalone_code_relocs[i]);
+        uint32_t v = *slot;
+        if (v < RETAIL_TEXT_LO || v >= RETAIL_TEXT_HI)
+            continue;
+        uint32_t body = standalone_body_of(v);
+        void* owned = SWR_GLOBAL_PTR(v);
+        if (body) {
+            *slot = body;
+            moved++;
+        } else if ((uint32_t)owned != v) {
+            *slot = (uint32_t)owned;
+            moved++;
+        } else if (unknown++ < 16) {
+            fprintf(standalone_log, "code pointer at 0x%08x -> 0x%08x has no body\n", standalone_code_relocs[i], v);
+        }
+    }
+    fprintf(standalone_log, "code pointers: %d moved to our bodies, %d left (no body)\n", moved, unknown);
+}
+
 // Runs before the CRT calls WinMain, as early as a constructor can, so the 0x400000 range is still free.
 __attribute__((constructor(101))) static void standalone_init(void)
 {
-    if (!GetEnvironmentVariableA("SWR_STANDALONE_CHILD", NULL, 0))
+    if (standalone_code_range_mapped() && !GetEnvironmentVariableA("SWR_STANDALONE_CHILD", NULL, 0))
         relaunch_with_reserved_range();
 
     standalone_log = fopen("standalone.log", "w");
@@ -619,6 +693,7 @@ __attribute__((constructor(101))) static void standalone_init(void)
 
     map_retail();
     standalone_install_bodies();
+    relocate_code_pointers();
     standalone_install_compat();
     if (!GetEnvironmentVariableA("SWR_STANDALONE_NO_ZCLEAR", NULL, 0))
         CreateThread(NULL, 0, zclear_thread, NULL, 0, NULL);

@@ -15,7 +15,7 @@
 import re
 import sys
 
-DATA_LO, DATA_HI = 0x004AC000, 0x00ECE000
+TEXT_LO, DATA_LO, DATA_HI = 0x00401000, 0x004AC000, 0x00ECE000
 MACRO = re.compile(r'#define (\w+) \(\*\((.*)\)SWR_IMAGE_PTR\((0x[0-9a-fA-F]+)\)\)\s*$')
 # Names the Windows SDK already declares (GUIDs, DirectInput formats) cannot be plain variables.
 SDK_NAME = re.compile(r'^(IID_|CLSID_|GUID_|DIPROP_|c_df)')
@@ -57,7 +57,7 @@ def write_sizes(globals_h, out_c):
 
 def storage_groups(g, sizes):
     rows = sorted((addr, sizes[name][0], name, ptr_type) for name, ptr_type, addr in g if name in sizes)
-    rows = [r for r in rows if DATA_LO <= r[0] < DATA_HI]
+    rows = [r for r in rows if TEXT_LO <= r[0] < DATA_HI]
     groups = []
     end = 0
     for addr, size, name, ptr_type in rows:
@@ -68,6 +68,10 @@ def storage_groups(g, sizes):
             groups.append({'start': addr, 'names': [(addr, size, name, ptr_type)]})
             end = addr + max(size, 1)
     for i, grp in enumerate(groups):
+        if grp['start'] < DATA_LO:
+            # data dinput.lib linked into retail .text (stdControl_df*): just the object itself
+            grp['extent'] = max(max(n[0] + n[1] for n in grp['names']) - grp['start'], 1)
+            continue
         grp['extent'] = (groups[i + 1]['start'] if i + 1 < len(groups) else DATA_HI) - grp['start']
     return groups
 

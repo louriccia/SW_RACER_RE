@@ -153,13 +153,17 @@ if (SWR_STANDALONE)
     # Keeps each canary right after its block (see gen_owned_globals.py).
     set_source_files_properties(${OWNED_DIR}/globals_owned.c PROPERTIES COMPILE_OPTIONS "-fno-toplevel-reorder;-fno-common")
     set(OWNED_DEFS $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_GLOBALS_OWNED=1>)
+    set(OWNED_SRC)
+    if (SWR_STANDALONE_DATA_RELOC)
+        set(OWNED_SRC ${OWNED_DIR}/globals_owned.c)
+    endif()
     list(FILTER STANDALONE_SOURCES EXCLUDE REGEX "(hook_mode\\.c|Platform/cstdlib\\.c)$")
     file(GLOB STANDALONE_OWN standalone/*.c standalone/*.cpp)
     list(APPEND STANDALONE_OWN ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook/lockstep.cpp)
     add_executable(swe1r_standalone WIN32
         ${STANDALONE_SOURCES}
         ${STANDALONE_OWN}
-        ${OWNED_DIR}/globals_owned.c
+        ${OWNED_SRC}
         ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/hook_generated.c)
     add_dependencies(swe1r_standalone generate_global_h generate_hooks generate_owned_globals)
     target_include_directories(swe1r_standalone PRIVATE
@@ -170,8 +174,13 @@ if (SWR_STANDALONE)
         ${OWNED_DIR})
     target_compile_definitions(swe1r_standalone PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1> ${OWNED_DEFS})
     target_link_libraries(swe1r_standalone PRIVATE swe1r_globals swr_memsafety winmm Comctl32 ole32 version dxguid dinput detours)
-    # Keep the image clear of retail's 0x400000-0xED0000 range, which standalone_main.c maps.
-    target_link_options(swe1r_standalone PRIVATE "-Wl,--image-base=0x10000000" "-Wl,--disable-dynamicbase" "-Wl,--stack,0x100000" "-static")
+    if (SWR_STANDALONE_DATA_RELOC)
+        # Nothing depends on a fixed address any more (no retail code or data range): plain ASLR.
+        target_link_options(swe1r_standalone PRIVATE "-Wl,--dynamicbase" "-Wl,--stack,0x100000" "-static")
+    else()
+        # Keep the image clear of retail's 0x400000-0xED0000 range, which standalone_main.c maps.
+        target_link_options(swe1r_standalone PRIVATE "-Wl,--image-base=0x10000000" "-Wl,--disable-dynamicbase" "-Wl,--stack,0x100000" "-static")
+    endif()
 
     # swe1r.exe: the standalone plus the dinput_hook feature layer (GL renderer, deltas, mods, UI),
     # attached to our own bodies by standalone/features/sa_features.cpp instead of to retail.
@@ -200,7 +209,7 @@ if (SWR_STANDALONE)
         ${SA_FEATURE_OWN}
         ${SA_FEATURE_HOOK_SOURCES}
         ${CMAKE_CURRENT_SOURCE_DIR}/standalone/features/sa_features.cpp
-        ${OWNED_DIR}/globals_owned.c
+        ${OWNED_SRC}
         ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/hook_generated.c)
     add_dependencies(swe1r generate_global_h generate_hooks generate_embedded_shaders generate_build_id generate_owned_globals)
     target_include_directories(swe1r PRIVATE

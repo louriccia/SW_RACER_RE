@@ -34,4 +34,14 @@ void* swr_data_ptr(unsigned retail);
 #define SWR_GLOBAL_PTR(a) ((void*)(a))
 #endif
 
+// The callable address of game function `name`: its retail entry in the hook DLL (reaching whatever
+// runs there, retail or reimplementation), our own function in the standalone, which has no retail
+// code to call.
+#include <stdint.h>
+#ifdef SWR_STANDALONE
+#define SWR_FN(name) ((uintptr_t)&name)
+#else
+#define SWR_FN(name) ((uintptr_t)name##_ADDR)
+#endif
+
 #endif // SWR_DATA_ADDR_H
