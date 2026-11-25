@@ -77,3 +77,19 @@ __attribute__((constructor(110))) static void standalone_lockstep_init(void) {
     fprintf(standalone_log, "lockstep: %d hooks installed, vanilla %d\n", n, (int) lockstep_vanilla());
     fflush(standalone_log);
 }
+
+// Test aid: SWR_STANDALONE_AUTOPILOT=1 lets the AI steering drive the local pod, so a whole race
+// (finish line, results, back to the hangar) can run unattended.
+static void __cdecl swrRace_UpdatePlayerControl_autopilot(swrRace *player) {
+    swrRace_UpdateAutopilotControl(player);
+}
+
+__attribute__((constructor(111))) static void standalone_autopilot_init(void) {
+    const char *v = getenv("SWR_STANDALONE_AUTOPILOT");
+    if (!v || !*v || *v == '0')
+        return;
+    bool ok = attach("swrRace_UpdatePlayerControl", (void *) swrRace_UpdatePlayerControl_ADDR,
+                     (void *) swrRace_UpdatePlayerControl, (void *) swrRace_UpdatePlayerControl_autopilot);
+    fprintf(standalone_log, "autopilot: %s\n", ok ? "on" : "FAILED");
+    fflush(standalone_log);
+}
