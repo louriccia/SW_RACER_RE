@@ -286,9 +286,10 @@ static DWORD WINAPI watch_thread(LPVOID unused)
         }
         if (main_thread) {
             CONTEXT c;
-            c.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+            c.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_FLOATING_POINT;
             SuspendThread(main_thread);
             if (GetThreadContext(main_thread, &c)) {
+                fprintf(standalone_log, "fpu: main thread x87 control word %04lx (PC %s)\n", c.FloatSave.ControlWord & 0xffff, ((c.FloatSave.ControlWord >> 8) & 3) == 0 ? "24-bit" : ((c.FloatSave.ControlWord >> 8) & 3) == 2 ? "53-bit" : "64-bit");
                 fprintf(standalone_log, "watch: screen %dx%d backbuf %dx%d full %d zfill %08x | ", *(int*)0x00ec86c4, *(int*)0x00ec85e8, *(int*)(0x00ec8da0 + 0xc), *(int*)(0x00ec8da0 + 0x10), *(int*)0x0052d458, *(int*)0x004c86c0);
                 {
                     const float* v = (const float*)0x00b6b0e8;

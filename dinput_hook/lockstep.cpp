@@ -157,6 +157,7 @@ struct State {
     bool exitWhenDone = false;
     bool stopAtMismatch = false;// replay: stop at the first mismatching frame (bisecting needs only that)
     bool textureHash = false;// log a hash of every texture the renderer uploads (render-path oracle)
+    char junkPath[MAX_PATH] = "";// replay: racer words to seed from a recording-side dump at T0 (see transplant_junk)
     FILE *textureLog = nullptr;
     int textureDump = -1;// write this texture index's pixels to lockstep_texdump.bin
     uint32_t textureCount = 0;
@@ -258,6 +259,8 @@ void read_config() {
             s.forceRacers = atoi(val);
         } else if (strcmp(key, "frames") == 0) {
             s.recordFrames = atoi(val);
+        } else if (strcmp(key, "junk") == 0 && val[0]) {
+            snprintf(s.junkPath, sizeof(s.junkPath), "%s", val);
         } else if (strcmp(key, "texture_hash") == 0) {
             s.textureHash = true;
         } else if (strcmp(key, "texture_dump") == 0) {
@@ -483,6 +486,42 @@ bool open_replay() {
     return true;
 }
 
+// `junk <dump>`: the pods are heap objects and the game never writes some of their words, so they
+// hold whatever the allocator left there. Retail's leftovers are deterministic run to run, so a
+// recording's racer hashes include them; another process (the standalone EXE, a different CRT
+// heap) has different leftovers and mismatches from frame 0 although the sim agrees. At T0 every
+// racer word is copied from a dump the recording side wrote at frame 0 (`dump_at 0`), except words
+// that are pointers on both sides. At T0 the sim words already agree, so only the leftovers change,
+// and a pod that later reads one reads retail's value.
+void transplant_junk() {
+    FILE *f = fopen(s.junkPath, "rb");
+    if (f == nullptr) {
+        log_line("lockstep: junk dump %s not found", s.junkPath);
+        return;
+    }
+    uint32_t n = 0;
+    fread(&n, 4, 1, f);
+    std::vector<uint32_t> words(sizeof(swrRace) / 4);
+    std::vector<uint8_t> mask(sizeof(swrRace) / 4), ours(sizeof(swrRace) / 4);
+    int copied = 0;
+    for (uint32_t i = 0; i < n && (int) i < racer_count(); i++) {
+        if (fread(words.data(), sizeof(swrRace), 1, f) != 1 || fread(mask.data(), mask.size(), 1, f) != 1)
+            break;
+        uint32_t *r = (uint32_t *) racer_at((int) i);
+        if (r == nullptr)
+            continue;
+        hash_struct(r, sizeof(swrRace), ours.data());
+        for (size_t k = sizeof(swrObj) / 4; k < words.size(); k++) {
+            if ((mask[k] && ours[k]) || r[k] == words[k])
+                continue;
+            r[k] = words[k];
+            copied++;
+        }
+    }
+    fclose(f);
+    log_line("lockstep: seeded %d racer words from %s", copied, s.junkPath);
+}
+
 bool start() {
     const int animCount = swrScene_animations_count;
     if (animCount < 0 || animCount > kMaxAnimations) {
@@ -536,6 +575,8 @@ bool start() {
             write_anim_scalars(s.out);
         }
     }
+    if (s.mode == MODE_REPLAY && s.junkPath[0])
+        transplant_junk();
     s.frame = 0;
     s.mismatches = 0;
     s.firstMismatch = -1;
