@@ -251,6 +251,24 @@ static DWORD WINAPI watch_thread(LPVOID unused)
     for (;;) {
         Sleep(2000);
         log_draw_probe();
+        fprintf(standalone_log, "sound: A3Dinitted %d IA3d4 %08x streamSource %08x mapSounds %d layeredStream %d\n", *(int*)0x004c7d80,
+                *(uint32_t*)0x0050d548, *(uint32_t*)0x004eb414, *(int*)0x00e9f360, *(int*)0x0050c69c);
+        {
+            // every 'Test' (pod) object: position, speed, flags0
+            uint32_t** it = *(uint32_t***)0x004bfec0; // eventManagerMain
+            for (; it && *it; it++) {
+                uint32_t* m = *it;
+                if (m[0] != 'Test')
+                    continue;
+                fprintf(standalone_log, "pods: count %u f0 %08x f1 %08x f2 %08x f3 %08x f4 %08x |", m[2], m[5], m[6], m[7], m[8], m[9]);
+                for (uint32_t i = 0; i < m[2] && i < 20; i++) {
+                    uint8_t* pod = (uint8_t*)m[4] + m[3] * i;
+                    fprintf(standalone_log, " [%u] %.0f,%.0f f0 %x spd %.0f", i, *(float*)(pod + 0x50), *(float*)(pod + 0x54), *(uint32_t*)(pod + 0x60),
+                            *(float*)(pod + 0x1a0));
+                }
+                fprintf(standalone_log, "\n");
+            }
+        }
         {
             uint8_t* pod = *(uint8_t**)0x004d78a8; // currentPlayer_Test
             if (pod && !IsBadReadPtr(pod, 0x200))
