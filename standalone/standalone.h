@@ -9,5 +9,6 @@ extern FILE* standalone_log;
 void standalone_write_jmp(uint32_t retail_addr, uint32_t target);
 void standalone_install_bodies(void);
 void standalone_install_compat(void);
+int standalone_retail_text_loaded(void);
 
 #endif

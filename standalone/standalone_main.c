@@ -25,6 +25,12 @@
 FILE* standalone_log = NULL;
 FILE* hook_log = NULL;
 static uint32_t retail_image_size = 0;
+static int retail_text_loaded = 0;
+
+int standalone_retail_text_loaded(void)
+{
+    return retail_text_loaded;
+}
 
 static void die(const char* fmt, const char* arg)
 {
@@ -197,8 +203,24 @@ static void map_retail(void)
         memcpy(name, s->Name, 8);
         uint8_t* dst = base + s->VirtualAddress;
         if (s->VirtualAddress + RETAIL_BASE == RETAIL_TEXT_LO) {
-            // Encrypted by SteamStub on disk, and never executed here anyway.
+            // Encrypted by SteamStub on disk. Traps by default; SWR_STANDALONE_RETAIL_TEXT names a
+            // decrypted image of the running game (base 0x400000) to take retail's code from, so the
+            // functions in SWR_STANDALONE_RETAIL can run retail's bodies (see standalone_hook.c).
             memset(dst, 0xcc, s->Misc.VirtualSize);
+            char imgPath[MAX_PATH];
+            if (GetEnvironmentVariableA("SWR_STANDALONE_RETAIL_TEXT", imgPath, sizeof(imgPath))) {
+                DWORD imgSize = 0;
+                uint8_t* img = read_file(imgPath, &imgSize);
+                if (img && imgSize >= s->VirtualAddress + s->Misc.VirtualSize) {
+                    memcpy(dst, img + s->VirtualAddress, s->Misc.VirtualSize);
+                    retail_text_loaded = 1;
+                    fprintf(standalone_log, "retail .text loaded from %s\n", imgPath);
+                } else {
+                    fprintf(standalone_log, "cannot use retail image %s\n", imgPath);
+                }
+                if (img)
+                    HeapFree(GetProcessHeap(), 0, img);
+            }
         } else if (!strcmp(name, ".bind")) {
             continue;
         } else {
