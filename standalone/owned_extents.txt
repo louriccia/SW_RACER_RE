@@ -1,0 +1,19 @@
+# Retail globals whose declared type is smaller than the bytes the code really uses. Each line gives
+# the true extent in bytes; named globals inside it share its storage (gen_owned_globals.py).
+# Found with the standalone's canaries ("overrun: past X") and hardware watchpoints.
+# name                        extent
+DirectInputJoysticks          0x13a0  # STDCONTROL_MAX_JOYSTICK_DEVICES records of STDCONTROL_JOYSTICK_RECORD_SIZE
+DirectInputMouses             0x9d0   # STDCONTROL_MAX_MOUSE_DEVICES records
+DirectInputKeyboards          0x9d0   # STDCONTROL_MAX_KEYBOARD_DEVICES records
+JoystickAxisInput             0x30    # [joystick, mouse, keyboard][4], indexed by device
+JoystickButtonPressedInput    0xb4    # [joystick, mouse, keyboard][15], indexed by device
+swrControl_forceEffectValue   0xe0    # runs into swrControl_forceEffectPlaying
+swrSprite_array               0x3200  # sprite slots up to swrSprite_extraSprites (sound_3d_gain_adjust sits inside)
+swrUI_inputChangeFlags        0x2c    # 0xb-dword block cleared by swrControl_ClearUIInputChangeFlags
+swrControl_viewButton         0x3c    # button-state array, up to swrControl_joystickAxisMask
+swrControl_viewHoldTime       0x40    # hold-time array, up to stdControl_KeyPressed_unused
+flip_x_axis                   0xc     # flip_x/y/z_axis, indexed by axis
+swrControl_joystickAxes       0x48    # joystick, mouse, keyboard axis arrays, indexed by device
+swrRace_ThrottleInput         0x4c    # throttle, unk, steering, pitch, then the button-state array: one input block
+swrModel_collisionRayOrigin   0x1c    # ray[7]: origin, direction, max distance
+rdCache_aProcFaces            0x1000c # read past its end into rdCache_currentZNear .. rdCache_aVertIntensities

@@ -11,6 +11,7 @@
 #include <float.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "standalone.h"
@@ -30,11 +31,112 @@ extern const uint32_t standalone_data_relocs[];
 extern const int standalone_data_reloc_count;
 #endif
 
-// Where a retail virtual address lives in this process.
+// Where a retail virtual address lives in the data image (sections and imports are copied there whole).
 static uint8_t* retail_va(uint32_t va)
 {
-    return (uint8_t*)SWR_GLOBAL_PTR(va);
+    return (uint8_t*)SWR_IMAGE_PTR(va);
 }
+
+#ifdef SWR_GLOBALS_OWNED
+#include "standalone_owned.h"
+
+// Wherever retail data address a lives now: the owned variable that covers it, else the image.
+void* swr_data_ptr(unsigned a)
+{
+    int lo = 0, hi = standalone_owned_global_count - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        const StandaloneOwnedGlobal* g = &standalone_owned_globals[mid];
+        if (a < g->retail)
+            hi = mid - 1;
+        else if (a >= g->retail + g->size)
+            lo = mid + 1;
+        else
+            return (char*)g->ours + (a - g->retail);
+    }
+    return SWR_IMAGE_PTR(a);
+}
+
+#define OWNED_POISON 0xd5
+
+// Guarded diagnostic build: each block ends right before a no-access page. A read or write past a
+// block's footprint faults there; the handler names the block, opens the page and carries on, so
+// one run lists every global whose real extent is larger than data_symbols says.
+static uint8_t owned_dummy_canary[64];
+static uint32_t* owned_guard_pages;
+static uint8_t* owned_guard_reported;
+
+static LONG CALLBACK owned_guard_handler(EXCEPTION_POINTERS* ep)
+{
+    if (ep->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION)
+        return EXCEPTION_CONTINUE_SEARCH;
+    uint32_t addr = (uint32_t)ep->ExceptionRecord->ExceptionInformation[1];
+    for (int i = 0; i < standalone_owned_global_count; i++) {
+        if (addr < owned_guard_pages[i] || addr >= owned_guard_pages[i] + 0x1000)
+            continue;
+        const StandaloneOwnedGlobal* g = &standalone_owned_globals[i];
+        uint32_t past = addr - ((uint32_t)g->ours + g->size);
+        if (!owned_guard_reported[i]++)
+            fprintf(standalone_log, "GUARD %s past %s (0x%08x, size 0x%x) by 0x%x, eip %08lx\n",
+                    ep->ExceptionRecord->ExceptionInformation[0] ? "write" : "read", g->name, g->retail, g->size, past + 1,
+                    ep->ContextRecord->Eip);
+        fflush(standalone_log);
+        DWORD old;
+        VirtualProtect((void*)owned_guard_pages[i], 0x1000, PAGE_READWRITE, &old);
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+static void owned_allocate_guarded(void)
+{
+    owned_guard_pages = (uint32_t*)calloc(standalone_owned_global_count, sizeof(uint32_t));
+    owned_guard_reported = (uint8_t*)calloc(standalone_owned_global_count, 1);
+    for (int i = 0; i < standalone_owned_global_count; i++) {
+        StandaloneOwnedGlobal* g = &standalone_owned_globals[i];
+        uint32_t pages = (g->size + 0xfff) / 0x1000;
+        uint8_t* base = (uint8_t*)VirtualAlloc(NULL, (pages + 1) * 0x1000, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        DWORD old;
+        VirtualProtect(base + pages * 0x1000, 0x1000, PAGE_NOACCESS, &old);
+        g->ours = base + pages * 0x1000 - g->size;
+        g->canary = owned_dummy_canary;
+        swr_owned_ptr[i] = (unsigned char*)g->ours;
+        owned_guard_pages[i] = (uint32_t)(base + pages * 0x1000);
+    }
+    AddVectoredExceptionHandler(1, owned_guard_handler);
+    fprintf(standalone_log, "owned globals: guarded layout, one guard page after each of %d blocks\n", standalone_owned_global_count);
+}
+
+static void report_stale_at_exit(void)
+{
+    standalone_owned_report_stale(standalone_log);
+}
+
+void standalone_owned_report_stale(FILE* log)
+{
+    int stale = 0, overrun = 0;
+    for (int i = 0; i < standalone_owned_global_count; i++) {
+        const StandaloneOwnedGlobal* g = &standalone_owned_globals[i];
+        const uint8_t* p = retail_va(g->retail);
+        for (uint32_t k = 0; k < g->size; k++) {
+            if (p[k] != OWNED_POISON) {
+                fprintf(log, "  stale write: %s+0x%x (0x%08x, size 0x%x)\n", g->name, k, g->retail, g->size);
+                stale++;
+                break;
+            }
+        }
+        for (int k = 0; k < standalone_owned_canary_size; k++) {
+            if (g->canary[k] != OWNED_POISON) {
+                fprintf(log, "  overrun: past %s (0x%08x, size 0x%x) by at least 0x%x\n", g->name, g->retail, g->size, k + 1);
+                overrun++;
+                break;
+            }
+        }
+    }
+    fprintf(log, "  %d blocks written through their retail address, %d blocks overrun\n", stale, overrun);
+    fflush(log);
+}
+#endif
 
 FILE* standalone_log = NULL;
 FILE* hook_log = NULL;
@@ -56,6 +158,54 @@ static void die(const char* fmt, const char* arg)
     }
     MessageBoxA(NULL, msg, "SWE1R standalone", MB_OK | MB_ICONERROR);
     ExitProcess(1);
+}
+
+// Debugging aid: a hardware write watchpoint (DR0, 4 bytes) on the calling thread. Each write logs
+// the writing instruction and the stack's code references.
+static LONG CALLBACK watch_write_handler(EXCEPTION_POINTERS* ep)
+{
+    if (ep->ExceptionRecord->ExceptionCode != EXCEPTION_SINGLE_STEP || !(ep->ContextRecord->Dr6 & 1))
+        return EXCEPTION_CONTINUE_SEARCH;
+    uint32_t* esp = (uint32_t*)ep->ContextRecord->Esp;
+    fprintf(standalone_log, "WATCH write at eip %08lx, value now %08x, stack:", ep->ContextRecord->Eip,
+            *(uint32_t*)ep->ContextRecord->Dr0);
+    for (int i = 0, n = 0; i < 512 && n < 10; i++)
+        if (esp[i] >= 0x10001000u && esp[i] < 0x10200000u) {
+            fprintf(standalone_log, " %08x", esp[i]);
+            n++;
+        }
+    fprintf(standalone_log, "\n");
+    fflush(standalone_log);
+    ep->ContextRecord->Dr6 = 0;
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+static HANDLE watch_target;
+static DWORD watch_addr;
+
+// SetThreadContext does not apply debug registers to the calling thread, so a helper suspends it.
+static DWORD WINAPI watch_arm_thread(LPVOID unused)
+{
+    (void)unused;
+    SuspendThread(watch_target);
+    CONTEXT c = { 0 };
+    c.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+    c.Dr0 = watch_addr;
+    c.Dr7 = 1 | (1u << 16) | (3u << 18); // L0, break on write, 4 bytes
+    SetThreadContext(watch_target, &c);
+    ResumeThread(watch_target);
+    return 0;
+}
+
+void standalone_watch_write(void* addr)
+{
+    AddVectoredExceptionHandler(1, watch_write_handler);
+    DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &watch_target, 0, FALSE, DUPLICATE_SAME_ACCESS);
+    watch_addr = (DWORD)addr;
+    HANDLE h = CreateThread(NULL, 0, watch_arm_thread, NULL, 0, NULL);
+    WaitForSingleObject(h, INFINITE);
+    CloseHandle(h);
+    fprintf(standalone_log, "WATCH armed on %p\n", addr);
 }
 
 static uint8_t* read_file(const char* path, DWORD* size)
@@ -104,6 +254,11 @@ static LONG CALLBACK retail_trap_handler(EXCEPTION_POINTERS* ep)
         }
     }
     fprintf(standalone_log, "\n");
+#ifdef SWR_GLOBALS_OWNED
+    static int stale_reported = 0;
+    if (!stale_reported++)
+        standalone_owned_report_stale(standalone_log);
+#endif
     fflush(standalone_log);
     return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -263,7 +418,37 @@ static void map_retail(void)
     memcpy((void*)0x0049e690, &c_dfDIKeyboard, sizeof(DIDATAFORMAT));
     memcpy((void*)0x0049e720, &c_dfDIMouse, sizeof(DIDATAFORMAT));
     memcpy((void*)0x0049d670, &c_dfDIJoystick, sizeof(DIDATAFORMAT));
+    resolve_imports((const IMAGE_NT_HEADERS32*)(base + dos->e_lfanew));
+    // After the imports: some named globals are import slots.
 #ifdef SWR_DATA_RELOC
+#ifdef SWR_GLOBALS_OWNED
+    // Owned globals start from retail's initial bytes, then every data pointer, wherever its slot
+    // lives, is pointed at wherever its target lives.
+    if (standalone_owned_guarded)
+        owned_allocate_guarded();
+    for (int i = 0; i < standalone_owned_global_count; i++) {
+        const StandaloneOwnedGlobal* g = &standalone_owned_globals[i];
+        memcpy(g->ours, retail_va(g->retail), g->size);
+    }
+    int moved = 0;
+    for (int i = 0; i < standalone_data_reloc_count; i++) {
+        uint32_t* slot = (uint32_t*)swr_data_ptr(standalone_data_relocs[i]);
+        if (*slot >= SWR_DATA_LO && *slot < SWR_DATA_HI) {
+            *slot = (uint32_t)swr_data_ptr(*slot);
+            moved++;
+        }
+    }
+    fprintf(standalone_log, "data image at %p, %d owned globals: %d of %d pointers relocated\n", (void*)swr_data_image,
+            standalone_owned_global_count, moved, standalone_data_reloc_count);
+    // Poison the image copies of owned globals: anything that later writes one reached the global
+    // through a retail neighbour's address (see standalone_owned_report_stale).
+    for (int i = 0; i < standalone_owned_global_count; i++) {
+        const StandaloneOwnedGlobal* g = &standalone_owned_globals[i];
+        memset(retail_va(g->retail), OWNED_POISON, g->size);
+        memset(g->canary, OWNED_POISON, standalone_owned_canary_size);
+    }
+    atexit(report_stale_at_exit);
+#else
     // Pointers inside the image still hold retail addresses; move them with the image.
     const uint32_t delta = (uint32_t)swr_data_image - SWR_DATA_LO;
     int moved = 0;
@@ -276,7 +461,7 @@ static void map_retail(void)
     }
     fprintf(standalone_log, "data image at %p: %d of %d pointers relocated\n", (void*)swr_data_image, moved, standalone_data_reloc_count);
 #endif
-    resolve_imports((const IMAGE_NT_HEADERS32*)(base + dos->e_lfanew));
+#endif
     HeapFree(GetProcessHeap(), 0, file);
 }
 
@@ -358,7 +543,7 @@ static DWORD WINAPI watch_thread(LPVOID unused)
             SuspendThread(main_thread);
             if (GetThreadContext(main_thread, &c)) {
                 fprintf(standalone_log, "fpu: main thread x87 control word %04lx (PC %s)\n", c.FloatSave.ControlWord & 0xffff, ((c.FloatSave.ControlWord >> 8) & 3) == 0 ? "24-bit" : ((c.FloatSave.ControlWord >> 8) & 3) == 2 ? "53-bit" : "64-bit");
-                fprintf(standalone_log, "watch: screen %dx%d backbuf %dx%d full %d zfill %08x | ", *(int*)SWR_GLOBAL_PTR(0x00ec86c4), *(int*)SWR_GLOBAL_PTR(0x00ec85e8), *(int*)(0x00ec8da0 + 0xc), *(int*)(0x00ec8da0 + 0x10), *(int*)SWR_GLOBAL_PTR(0x0052d458), *(int*)SWR_GLOBAL_PTR(0x004c86c0));
+                fprintf(standalone_log, "watch: screen %dx%d backbuf %dx%d full %d zfill %08x | ", *(int*)SWR_GLOBAL_PTR(0x00ec86c4), *(int*)SWR_GLOBAL_PTR(0x00ec85e8), *(int*)SWR_GLOBAL_PTR(0x00ec8da0 + 0xc), *(int*)SWR_GLOBAL_PTR(0x00ec8da0 + 0x10), *(int*)SWR_GLOBAL_PTR(0x0052d458), *(int*)SWR_GLOBAL_PTR(0x004c86c0));
                 {
                     const float* v = (const float*)SWR_GLOBAL_PTR(0x00b6b0e8);
                     for (int k = 0; k < 3; k++, v += 8)

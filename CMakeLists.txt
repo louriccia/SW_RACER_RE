@@ -122,22 +122,53 @@ add_subdirectory(dinput_hook)
 # SWEP1RCR.EXE at runtime (standalone/standalone_main.c). Launch it with the game directory as cwd.
 option(SWR_STANDALONE "Build swe1r_standalone.exe" OFF)
 option(SWR_STANDALONE_DATA_RELOC "Standalone keeps retail data in its own image instead of at 0x4ac000" ON)
+option(SWR_STANDALONE_OWNED_GUARDED "Diagnostic: every owned global ends at a guard page (finds reads/writes past it)" OFF)
 if (SWR_STANDALONE)
     set(STANDALONE_SOURCES ${SOURCES})
+
+    # Owned globals: every named global with bytes of its own becomes a real variable
+    # (standalone/tools/gen_owned_globals.py). Sizes come from the compiler, via a small program.
+    set(OWNED_DIR ${CMAKE_CURRENT_BINARY_DIR}/owned)
+    set(OWNED_SIZES_C ${OWNED_DIR}/global_sizes.c)
+    add_custom_command(OUTPUT ${OWNED_SIZES_C}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${OWNED_DIR}
+        COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/standalone/tools/gen_owned_globals.py sizes
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/globals.h ${OWNED_SIZES_C}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/globals.h ${CMAKE_CURRENT_SOURCE_DIR}/standalone/tools/gen_owned_globals.py
+        VERBATIM)
+    add_executable(swr_global_sizes ${OWNED_SIZES_C})
+    add_dependencies(swr_global_sizes generate_global_h)
+    target_link_libraries(swr_global_sizes PRIVATE swe1r_globals)
+    target_include_directories(swr_global_sizes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
+    add_custom_command(OUTPUT ${OWNED_DIR}/globals_owned.h ${OWNED_DIR}/globals_owned.c
+        COMMAND swr_global_sizes > ${OWNED_DIR}/global_sizes.txt
+        COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/standalone/tools/gen_owned_globals.py owned
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/globals.h ${OWNED_DIR}/global_sizes.txt
+                ${CMAKE_CURRENT_SOURCE_DIR}/standalone/owned_extents.txt
+                ${OWNED_DIR}/globals_owned.h ${OWNED_DIR}/globals_owned.c $<$<BOOL:${SWR_STANDALONE_OWNED_GUARDED}>:guarded>
+        DEPENDS swr_global_sizes ${CMAKE_CURRENT_SOURCE_DIR}/standalone/tools/gen_owned_globals.py
+                ${CMAKE_CURRENT_SOURCE_DIR}/standalone/owned_extents.txt
+        VERBATIM)
+    add_custom_target(generate_owned_globals DEPENDS ${OWNED_DIR}/globals_owned.h ${OWNED_DIR}/globals_owned.c)
+    # Keeps each canary right after its block (see gen_owned_globals.py).
+    set_source_files_properties(${OWNED_DIR}/globals_owned.c PROPERTIES COMPILE_OPTIONS "-fno-toplevel-reorder;-fno-common")
+    set(OWNED_DEFS $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_GLOBALS_OWNED=1>)
     list(FILTER STANDALONE_SOURCES EXCLUDE REGEX "(hook_mode\\.c|Platform/cstdlib\\.c)$")
     file(GLOB STANDALONE_OWN standalone/*.c standalone/*.cpp)
     list(APPEND STANDALONE_OWN ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook/lockstep.cpp)
     add_executable(swe1r_standalone WIN32
         ${STANDALONE_SOURCES}
         ${STANDALONE_OWN}
+        ${OWNED_DIR}/globals_owned.c
         ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/hook_generated.c)
-    add_dependencies(swe1r_standalone generate_global_h generate_hooks)
+    add_dependencies(swe1r_standalone generate_global_h generate_hooks generate_owned_globals)
     target_include_directories(swe1r_standalone PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
         ${CMAKE_CURRENT_SOURCE_DIR}/standalone
-        ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook)
-    target_compile_definitions(swe1r_standalone PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1>)
+        ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook
+        ${OWNED_DIR})
+    target_compile_definitions(swe1r_standalone PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1> ${OWNED_DEFS})
     target_link_libraries(swe1r_standalone PRIVATE swe1r_globals swr_memsafety winmm Comctl32 ole32 version dxguid dinput detours)
     # Keep the image clear of retail's 0x400000-0xED0000 range, which standalone_main.c maps.
     target_link_options(swe1r_standalone PRIVATE "-Wl,--image-base=0x10000000" "-Wl,--disable-dynamicbase" "-Wl,--stack,0x100000" "-static")
@@ -154,12 +185,13 @@ if (SWR_STANDALONE)
     # IPA clones (constprop/isra/part) or merged bodies (icf) that callers could reach instead. Five
     # NOPs at each entry give Detours room that no branch in the body targets.
     add_library(swe1r_game OBJECT ${STANDALONE_SOURCES})
-    add_dependencies(swe1r_game generate_global_h generate_hooks)
+    add_dependencies(swe1r_game generate_global_h generate_hooks generate_owned_globals)
     target_include_directories(swe1r_game PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
-        ${CMAKE_CURRENT_SOURCE_DIR}/standalone)
-    target_compile_definitions(swe1r_game PRIVATE SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1>)
+        ${CMAKE_CURRENT_SOURCE_DIR}/standalone
+        ${OWNED_DIR})
+    target_compile_definitions(swe1r_game PRIVATE SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1> ${OWNED_DEFS})
     target_compile_options(swe1r_game PRIVATE -fno-inline -fno-partial-inlining -fno-ipa-cp -fno-ipa-sra
         -fno-ipa-icf -fno-ipa-pure-const -fno-ipa-modref -fno-ipa-ra -fpatchable-function-entry=5)
     target_link_libraries(swe1r_game PRIVATE swe1r_globals)
@@ -168,15 +200,17 @@ if (SWR_STANDALONE)
         ${SA_FEATURE_OWN}
         ${SA_FEATURE_HOOK_SOURCES}
         ${CMAKE_CURRENT_SOURCE_DIR}/standalone/features/sa_features.cpp
+        ${OWNED_DIR}/globals_owned.c
         ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/hook_generated.c)
-    add_dependencies(swe1r generate_global_h generate_hooks generate_embedded_shaders generate_build_id)
+    add_dependencies(swe1r generate_global_h generate_hooks generate_embedded_shaders generate_build_id generate_owned_globals)
     target_include_directories(swe1r PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
         ${CMAKE_CURRENT_SOURCE_DIR}/standalone
         ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook
-        ${CMAKE_CURRENT_BINARY_DIR}/dinput_hook/generated)
-    target_compile_definitions(swe1r PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1>
+        ${CMAKE_CURRENT_BINARY_DIR}/dinput_hook/generated
+        ${OWNED_DIR})
+    target_compile_definitions(swe1r PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1> ${OWNED_DEFS}
         ENABLE_GLFW_INPUT_HANDLING=0 ENABLE_GAMEPAD_NAV=1 ENABLE_XINPUT_RUMBLE=1)
     target_link_libraries(swe1r PRIVATE swe1r_globals swr_memsafety imgui glad glfw fastgltf detours
         winmm Comctl32 ole32 version dxguid dinput ddraw opengl32 Dwmapi bcrypt kernel32)
