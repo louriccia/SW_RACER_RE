@@ -280,6 +280,10 @@ static DWORD WINAPI watch_thread(LPVOID unused)
             uint32_t** it = *(uint32_t***)0x004bfec0; // eventManagerMain
             for (; it && *it; it++) {
                 uint32_t* m = *it;
+                if (m[0] == 'Jdge' && m[2] > 0) {
+                    uint8_t* j = (uint8_t*)m[4];
+                    fprintf(standalone_log, "jdge: flag %08x raceTimer %.3f\n", *(uint32_t*)(j + 8), (double)*(float*)(j + 0xc));
+                }
                 if (m[0] != 'Test')
                     continue;
                 fprintf(standalone_log, "pods: count %u f0 %08x f1 %08x f2 %08x f3 %08x f4 %08x |", m[2], m[5], m[6], m[7], m[8], m[9]);
