@@ -5,6 +5,7 @@ if ($Boot -gt 0) {
     Start-Sleep 1
     Remove-Item "$g\standalone*.log" -ErrorAction SilentlyContinue
     $env:SWR_STANDALONE_WATCH = "1"
+    if ($env:SA_RES) { $env:SWR_STANDALONE_RES = $env:SA_RES }
     Start-Process -FilePath "C:\Users\louri\Documents\GitHub\SWR_wt_standalone\build_sa\swe1r_standalone.exe" -WorkingDirectory $g | Out-Null
     Start-Sleep $Boot
 }

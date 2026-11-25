@@ -245,6 +245,14 @@ static DWORD WINAPI watch_thread(LPVOID unused)
             c.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
             SuspendThread(main_thread);
             if (GetThreadContext(main_thread, &c)) {
+                fprintf(standalone_log, "watch: screen %dx%d backbuf %dx%d full %d zfill %08x | ", *(int*)0x00ec86c4, *(int*)0x00ec85e8, *(int*)(0x00ec8da0 + 0xc), *(int*)(0x00ec8da0 + 0x10), *(int*)0x0052d458, *(int*)0x004c86c0);
+                {
+                    const float* v = (const float*)0x00b6b0e8;
+                    for (int k = 0; k < 3; k++, v += 8)
+                        fprintf(standalone_log, "v%d (%.1f %.1f z%.4f rhw%.4f) col %08x spec %08x uv %.3f %.3f | ", k, v[0], v[1], v[2], v[3],
+                                ((const uint32_t*)v)[4], ((const uint32_t*)v)[5], v[6], v[7]);
+                }
+                fprintf(standalone_log, "watch: rdCache drawnFaces %d frame %d procFaces %d hwVerts %d | ", *(int*)0x00deb0e8, *(int*)0x00deb0ec, *(int*)0x006930c8, *(int*)0x00a530d0);
                 fprintf(standalone_log, "watch: cooldown %f loaded %d dt %f | ", (double)*(float*)0x004d5588, *(int*)0x004b6c90, *(double*)0x00e22a40);
                 fprintf(standalone_log, "watch: enterHeld %d uiActive %d readtime %d main eip %08lx stack:", ((int*)0x0050e868)[0x1c], *(int*)0x004b2940, *(int*)0x0050fecc, c.Eip);
                 uint32_t* sp = (uint32_t*)c.Esp;

@@ -3,6 +3,7 @@
 // to wrappers that fall back to read access, so settings load; saving them to HKLM is skipped.
 
 #include <windows.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "standalone.h"
@@ -55,12 +56,38 @@ static int patch_own_import(const char* dll, const char* name, void* replacement
     return 0;
 }
 
+// SWR_STANDALONE_RES=WxH overrides the "Display Width"/"Display Height" registry values.
+typedef LSTATUS(WINAPI* RegQueryValueExA_fn)(HKEY, LPCSTR, LPDWORD, LPDWORD, LPBYTE, LPDWORD);
+static RegQueryValueExA_fn real_RegQueryValueExA;
+static int res_override_w, res_override_h;
+
+static LSTATUS WINAPI compat_RegQueryValueExA(HKEY hKey, LPCSTR name, LPDWORD reserved, LPDWORD type, LPBYTE data, LPDWORD size)
+{
+    int value = 0;
+    if (name && !_stricmp(name, "Display Width"))
+        value = res_override_w;
+    else if (name && !_stricmp(name, "Display Height"))
+        value = res_override_h;
+    if (value && data && size && *size >= 4) {
+        *(DWORD*)data = (DWORD)value;
+        *size = 4;
+        if (type)
+            *type = REG_DWORD;
+        return ERROR_SUCCESS;
+    }
+    return real_RegQueryValueExA(hKey, name, reserved, type, data, size);
+}
+
 void standalone_install_compat(void)
 {
     HMODULE advapi = GetModuleHandleA("advapi32.dll");
     real_RegOpenKeyExA = (RegOpenKeyExA_fn)GetProcAddress(advapi, "RegOpenKeyExA");
     real_RegCreateKeyExA = (RegCreateKeyExA_fn)GetProcAddress(advapi, "RegCreateKeyExA");
+    real_RegQueryValueExA = (RegQueryValueExA_fn)GetProcAddress(advapi, "RegQueryValueExA");
     int n = patch_own_import("advapi32.dll", "RegOpenKeyExA", (void*)compat_RegOpenKeyExA);
     n += patch_own_import("advapi32.dll", "RegCreateKeyExA", (void*)compat_RegCreateKeyExA);
+    char res[32];
+    if (GetEnvironmentVariableA("SWR_STANDALONE_RES", res, sizeof(res)) && sscanf(res, "%dx%d", &res_override_w, &res_override_h) == 2)
+        n += patch_own_import("advapi32.dll", "RegQueryValueExA", (void*)compat_RegQueryValueExA);
     fprintf(standalone_log, "registry compat shims: %d\n", n);
 }
