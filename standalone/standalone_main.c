@@ -224,6 +224,25 @@ void standalone_write_jmp(uint32_t retail_addr, uint32_t target)
 }
 
 static HANDLE main_thread = NULL;
+void DirectDraw_FillMainSurface(void);
+void stdPlatform_noop(uint32_t x);
+
+struct std3D_DrawProbe {
+    int calls, dropped, failed, verts, maxBatch;
+    HRESULT lastErr;
+    float zMin, zMax, rhwMin, rhwMax, xMin, xMax, yMin, yMax;
+    unsigned int alphaMin, alphaMax, rgbMax, texNull, fullQuads, fullColor;
+};
+extern struct std3D_DrawProbe std3D_drawProbe;
+
+static void log_draw_probe(void)
+{
+    struct std3D_DrawProbe p = std3D_drawProbe;
+    memset(&std3D_drawProbe, 0, sizeof(std3D_drawProbe));
+    fprintf(standalone_log, "draw: maxVerts %u calls %d dropped %d failed %d (last %08lx) maxBatch %d | 3D verts %d x %.0f..%.0f y %.0f..%.0f z %.4f..%.4f rhw %.4f..%.4f a %u..%u rgbMax %u texNull %u fullQuads %u color %08x\n",
+            *(unsigned int*)0x0052e624, p.calls, p.dropped, p.failed, (unsigned long)p.lastErr, p.maxBatch, p.verts, p.xMin, p.xMax, p.yMin, p.yMax,
+            p.zMin, p.zMax, p.rhwMin, p.rhwMax, p.alphaMin, p.alphaMax, p.rgbMax, p.texNull, p.fullQuads, p.fullColor);
+}
 
 // SWR_STANDALONE_WATCH=1: log a few globals every 2 s (debugging aid for the prototype).
 static DWORD WINAPI watch_thread(LPVOID unused)
@@ -231,6 +250,13 @@ static DWORD WINAPI watch_thread(LPVOID unused)
     (void)unused;
     for (;;) {
         Sleep(2000);
+        log_draw_probe();
+        {
+            uint8_t* pod = *(uint8_t**)0x004d78a8; // currentPlayer_Test
+            if (pod && !IsBadReadPtr(pod, 0x200))
+                fprintf(standalone_log, "pod: %p pos %.2f %.2f %.2f flags0 %08x flags1 %08x throttle %.3f speed %.3f\n", pod, *(float*)(pod + 0x50),
+                        *(float*)(pod + 0x54), *(float*)(pod + 0x58), *(uint32_t*)(pod + 0x60), *(uint32_t*)(pod + 0x64), *(float*)(pod + 0x18c), *(float*)(pod + 0x1a0));
+        }
         {
             LPDIRECTINPUTDEVICEA kbd = *(LPDIRECTINPUTDEVICEA*)0x0050d89c;
             char state[256];
@@ -275,6 +301,26 @@ static DWORD WINAPI watch_thread(LPVOID unused)
     return 0;
 }
 
+// stdDisplay_CreateZBuffer only installs the per-frame z-buffer clear (DirectDraw_FillMainSurface)
+// when the device reports DDCAPS2 bit 0x10000000; DDrawCompat and modern drivers don't, so the
+// z-buffer is never cleared and only z = 0 geometry (the 2D UI) passes the depth test. Retail on
+// a modern system has the same problem. Re-point the fill hook whenever the game sets the no-op.
+// SWR_STANDALONE_NO_ZCLEAR=1 keeps retail's behaviour.
+static DWORD WINAPI zclear_thread(LPVOID unused)
+{
+    void** fill = (void**)0x004c86b8; // stdDisplay_FillMainSurface_ptr
+    (void)unused;
+    for (;;) {
+        if (*fill == (void*)stdPlatform_noop) {
+            *fill = (void*)DirectDraw_FillMainSurface;
+            fprintf(standalone_log, "zclear: installed per-frame z-buffer clear\n");
+            fflush(standalone_log);
+        }
+        Sleep(50);
+    }
+    return 0;
+}
+
 // Runs before the CRT calls WinMain, as early as a constructor can, so the 0x400000 range is still free.
 __attribute__((constructor(101))) static void standalone_init(void)
 {
@@ -302,6 +348,8 @@ __attribute__((constructor(101))) static void standalone_init(void)
     map_retail();
     standalone_install_bodies();
     standalone_install_compat();
+    if (!GetEnvironmentVariableA("SWR_STANDALONE_NO_ZCLEAR", NULL, 0))
+        CreateThread(NULL, 0, zclear_thread, NULL, 0, NULL);
     if (GetEnvironmentVariableA("SWR_STANDALONE_WATCH", NULL, 0)) {
         DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &main_thread, 0, FALSE, DUPLICATE_SAME_ACCESS);
         CreateThread(NULL, 0, watch_thread, NULL, 0, NULL);

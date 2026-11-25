@@ -8,11 +8,13 @@ public static class Scan {
     [StructLayout(LayoutKind.Explicit, Size = 28)] struct INPUT { [FieldOffset(0)] public uint type; [FieldOffset(4)] public KEYBDINPUT ki; }
     [DllImport("user32.dll")] static extern uint SendInput(uint n, INPUT[] inputs, int size);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
-    public static void Hold(ushort scan, int ms) {
-        INPUT[] down = { new INPUT { type = 1, ki = new KEYBDINPUT { wScan = scan, dwFlags = 0x0008 } } };
+    public static void Hold(ushort scan, int ms) { HoldX(scan, ms, false); }
+    public static void HoldX(ushort scan, int ms, bool ext) {
+        uint f = 0x0008u | (ext ? 0x0001u : 0u);
+        INPUT[] down = { new INPUT { type = 1, ki = new KEYBDINPUT { wScan = scan, dwFlags = f } } };
         SendInput(1, down, Marshal.SizeOf(typeof(INPUT)));
         System.Threading.Thread.Sleep(ms);
-        INPUT[] up = { new INPUT { type = 1, ki = new KEYBDINPUT { wScan = scan, dwFlags = 0x000A } } };
+        INPUT[] up = { new INPUT { type = 1, ki = new KEYBDINPUT { wScan = scan, dwFlags = f | 0x0002u } } };
         SendInput(1, up, Marshal.SizeOf(typeof(INPUT)));
     }
     public static void Press(ushort scan, bool ext) {

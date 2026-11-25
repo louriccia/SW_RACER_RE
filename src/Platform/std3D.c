@@ -229,8 +229,69 @@ void std3D_EndScene(void)
 }
 
 // 0x0048a350
+#ifdef SWR_STANDALONE
+// Debugging aid for the standalone prototype, read by standalone_main.c's watch thread.
+struct std3D_DrawProbe {
+    int calls, dropped, failed, verts, maxBatch;
+    HRESULT lastErr;
+    float zMin, zMax, rhwMin, rhwMax, xMin, xMax, yMin, yMax;
+    unsigned int alphaMin, alphaMax, rgbMax, texNull, fullQuads, fullColor;
+} std3D_drawProbe;
+#endif
+
 void std3D_DrawRenderList(LPDIRECT3DTEXTURE2 pTex, Std3DRenderState rdflags, LPD3DTLVERTEX aVerticies, int verticesCount, LPWORD lpwIndices, int indexCount)
 {
+#ifdef SWR_STANDALONE
+    struct std3D_DrawProbe* p = &std3D_drawProbe;
+    p->calls++;
+    if (verticesCount > p->maxBatch)
+        p->maxBatch = verticesCount;
+    if (pTex == NULL && verticesCount > 4)
+        p->texNull++;
+    if (verticesCount == 4) {
+        float x0 = aVerticies[0].sx, x1 = aVerticies[0].sx, y0 = aVerticies[0].sy, y1 = aVerticies[0].sy;
+        for (int i = 1; i < 4; i++) {
+            if (aVerticies[i].sx < x0) x0 = aVerticies[i].sx;
+            if (aVerticies[i].sx > x1) x1 = aVerticies[i].sx;
+            if (aVerticies[i].sy < y0) y0 = aVerticies[i].sy;
+            if (aVerticies[i].sy > y1) y1 = aVerticies[i].sy;
+        }
+        if (x1 - x0 >= 600.0f && y1 - y0 >= 400.0f) {
+            p->fullQuads++;
+            p->fullColor = (unsigned int)aVerticies[0].color;
+        }
+    }
+    if (verticesCount > std3D_g_maxVertices)
+        p->dropped++;
+    for (int i = 0; i < verticesCount && verticesCount > 4; i++) {
+        D3DTLVERTEX* v = &aVerticies[i];
+        unsigned int a = (unsigned int)v->color >> 24;
+        if (p->verts++ == 0) {
+            p->zMin = p->zMax = v->sz;
+            p->rhwMin = p->rhwMax = v->rhw;
+            p->xMin = p->xMax = v->sx;
+            p->yMin = p->yMax = v->sy;
+            p->alphaMin = p->alphaMax = a;
+        }
+        if (v->sz < p->zMin) p->zMin = v->sz;
+        if (v->sz > p->zMax) p->zMax = v->sz;
+        if (v->rhw < p->rhwMin) p->rhwMin = v->rhw;
+        if (v->rhw > p->rhwMax) p->rhwMax = v->rhw;
+        if (v->sx < p->xMin) p->xMin = v->sx;
+        if (v->sx > p->xMax) p->xMax = v->sx;
+        if (v->sy < p->yMin) p->yMin = v->sy;
+        if (v->sy > p->yMax) p->yMax = v->sy;
+        if (a < p->alphaMin) p->alphaMin = a;
+        if (a > p->alphaMax) p->alphaMax = a;
+        {
+            unsigned int c = (unsigned int)v->color;
+            unsigned int m = c & 0xff;
+            if (((c >> 8) & 0xff) > m) m = (c >> 8) & 0xff;
+            if (((c >> 16) & 0xff) > m) m = (c >> 16) & 0xff;
+            if (m > p->rgbMax) p->rgbMax = m;
+        }
+    }
+#endif
     if (verticesCount > std3D_g_maxVertices)
         return;
 
@@ -238,7 +299,16 @@ void std3D_DrawRenderList(LPDIRECT3DTEXTURE2 pTex, Std3DRenderState rdflags, LPD
     if ((pTex != std3D_pD3DTex) && (IDirect3DDevice3_SetTexture(std3D_pD3Device, 0, pTex) == S_OK))
         std3D_pD3DTex = pTex;
 
+#ifdef SWR_STANDALONE
+    HRESULT hr =
+#endif
     IDirect3DDevice3_DrawIndexedPrimitive(std3D_pD3Device, D3DPT_TRIANGLELIST, D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_SPECULAR | D3DFVF_TEX1, aVerticies, verticesCount, lpwIndices, indexCount, D3DDP_DONOTUPDATEEXTENTS | D3DDP_DONOTLIGHT);
+#ifdef SWR_STANDALONE
+    if (hr != D3D_OK) {
+        std3D_drawProbe.failed++;
+        std3D_drawProbe.lastErr = hr;
+    }
+#endif
 }
 
 // 0x0048a3c0
