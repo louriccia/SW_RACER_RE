@@ -12,6 +12,7 @@
 
 extern "C" {
 #include <Main/swrControl.h>
+#include <Swr/swrEvent.h>
 #include <Swr/swrObj.h>
 #include <Swr/swrRace.h>
 #include <Win95/stdDisplay.h>
@@ -35,9 +36,57 @@ extern "C" void shadow_report(void) {}
 extern "C" void __cdecl swrControl_ProcessInputs_lockstep(void);
 extern "C" void __cdecl swrObjHang_F0_lockstep(swrObjHang *hang);
 
+// Test aid: SWR_STANDALONE_FREEZE_FRAME=N holds the presented image of race frame N (messages keep
+// pumping) and writes freeze.txt, so screenshots of two runs can be compared at the same sim frame.
+static void freeze_service(void) {
+    static int at = -2;
+    if (at == -2) {
+        const char *v = getenv("SWR_STANDALONE_FREEZE_FRAME");
+        at = v && *v ? atoi(v) : -1;
+    }
+    if (at < 0 || lockstep_shadow_frame() < at)
+        return;
+    // Every puppet's state and root node transform, so runs can be diffed whatever the camera sees.
+    FILE *e = fopen("elmo_dump.txt", "w");
+    if (e) {
+        int n = swrEvent_GetEventCount('Elmo');
+        for (int i = 0; i < n; i++) {
+            swrObjElmo *elmo = (swrObjElmo *) swrEvent_GetItem('Elmo', i);
+            if (!elmo)
+                continue;
+            fprintf(e, "%d kind %d anim %d pos %.4f %.4f %.4f yaw %.4f tgt %.4f %.4f %.4f wp %d", i, (int) elmo->kind,
+                    elmo->animCmd, elmo->position.x, elmo->position.y, elmo->position.z, elmo->yaw, elmo->moveTarget.x,
+                    elmo->moveTarget.y, elmo->moveTarget.z, elmo->lastWaypoint);
+            swrModel_NodeTransformed *root = elmo->unk30_nodes ? (swrModel_NodeTransformed *) elmo->unk30_nodes[0] : NULL;
+            if (root) {
+                const float *m = (const float *) &root->transform;
+                fprintf(e, " root");
+                for (int k = 0; k < 12; k++)
+                    fprintf(e, " %.4f", m[k]);
+            }
+            fprintf(e, "\n");
+        }
+        fclose(e);
+    }
+    FILE *f = fopen("freeze.txt", "w");
+    if (f) {
+        fprintf(f, "%d\n", lockstep_shadow_frame());
+        fclose(f);
+    }
+    for (;;) {
+        MSG msg;
+        while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageA(&msg);
+        }
+        Sleep(20);
+    }
+}
+
 static int __cdecl stdDisplay_Update_lockstep(void) {
     int r = hook_call_original(stdDisplay_Update);
     lockstep_frame_service();
+    freeze_service();
     return r;
 }
 
