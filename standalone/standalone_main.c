@@ -223,6 +223,50 @@ void standalone_write_jmp(uint32_t retail_addr, uint32_t target)
     *(uint32_t*)(p + 1) = target - retail_addr - 5;
 }
 
+static HANDLE main_thread = NULL;
+
+// SWR_STANDALONE_WATCH=1: log a few globals every 2 s (debugging aid for the prototype).
+static DWORD WINAPI watch_thread(LPVOID unused)
+{
+    (void)unused;
+    for (;;) {
+        Sleep(2000);
+        {
+            LPDIRECTINPUTDEVICEA kbd = *(LPDIRECTINPUTDEVICEA*)0x0050d89c;
+            char state[256];
+            HRESULT hr = kbd ? IDirectInputDevice_GetDeviceState(kbd, sizeof(state), state) : E_POINTER;
+            int down = 0;
+            for (int k = 0; hr == DI_OK && k < 256; k++)
+                down += state[k] != 0;
+            fprintf(standalone_log, "watch: kbd GetDeviceState hr %08lx keys down %d\n", (unsigned long)hr, down);
+        }
+        if (main_thread) {
+            CONTEXT c;
+            c.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+            SuspendThread(main_thread);
+            if (GetThreadContext(main_thread, &c)) {
+                fprintf(standalone_log, "watch: cooldown %f loaded %d dt %f | ", (double)*(float*)0x004d5588, *(int*)0x004b6c90, *(double*)0x00e22a40);
+                fprintf(standalone_log, "watch: enterHeld %d uiActive %d readtime %d main eip %08lx stack:", ((int*)0x0050e868)[0x1c], *(int*)0x004b2940, *(int*)0x0050fecc, c.Eip);
+                uint32_t* sp = (uint32_t*)c.Esp;
+                for (int i = 0, n = 0; i < 4096 && n < 16 && !IsBadReadPtr(sp + i, 4); i++)
+                    if (sp[i] >= 0x10001000u && sp[i] < 0x10200000u) {
+                        fprintf(standalone_log, " %08x", sp[i]);
+                        n++;
+                    }
+                fprintf(standalone_log, "\n");
+            }
+            ResumeThread(main_thread);
+        }
+        fprintf(standalone_log, "watch: startup %d open %d active %d enterN %d escN %d | ", *(int*)0x0050fea8, *(int*)0x0050feac, *(int*)0x0050feb4, ((int*)0x0050f668)[0x1c], ((int*)0x0050f668)[0x01]);
+        fprintf(standalone_log, "watch: kbd dev %08x nkbd %d mouse dev %08x skip %d movies %d fg %d\n", *(uint32_t*)0x0050d89c,
+                *(int*)0x0050febc, *(uint32_t*)0x00ecb484, *(int*)0x0050b5b8, *(int*)0x0050b5c4,
+                GetForegroundWindow() != NULL && GetWindowThreadProcessId(GetForegroundWindow(), NULL) != 0
+                    && ({ DWORD pid = 0; GetWindowThreadProcessId(GetForegroundWindow(), &pid); pid == GetCurrentProcessId(); }));
+        fflush(standalone_log);
+    }
+    return 0;
+}
+
 // Runs before the CRT calls WinMain, as early as a constructor can, so the 0x400000 range is still free.
 __attribute__((constructor(101))) static void standalone_init(void)
 {
@@ -250,5 +294,9 @@ __attribute__((constructor(101))) static void standalone_init(void)
     map_retail();
     standalone_install_bodies();
     standalone_install_compat();
+    if (GetEnvironmentVariableA("SWR_STANDALONE_WATCH", NULL, 0)) {
+        DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &main_thread, 0, FALSE, DUPLICATE_SAME_ACCESS);
+        CreateThread(NULL, 0, watch_thread, NULL, 0, NULL);
+    }
     fflush(standalone_log);
 }
