@@ -140,4 +140,45 @@ if (SWR_STANDALONE)
     target_link_libraries(swe1r_standalone PRIVATE swe1r_globals swr_memsafety winmm Comctl32 ole32 version dxguid dinput detours)
     # Keep the image clear of retail's 0x400000-0xED0000 range, which standalone_main.c maps.
     target_link_options(swe1r_standalone PRIVATE "-Wl,--image-base=0x10000000" "-Wl,--disable-dynamicbase" "-Wl,--stack,0x100000" "-static")
+
+    # swe1r.exe: the standalone plus the dinput_hook feature layer (GL renderer, deltas, mods, UI),
+    # attached to our own bodies by standalone/features/sa_features.cpp instead of to retail.
+    file(GLOB SA_FEATURE_HOOK_SOURCES
+        dinput_hook/*.c dinput_hook/*.cpp dinput_hook/game_deltas/*.c dinput_hook/game_deltas/*.cpp
+        dinput_hook/camera/*.cpp dinput_hook/nv_dds/*.cpp)
+    list(FILTER SA_FEATURE_HOOK_SOURCES EXCLUDE REGEX "dinput_hook/(main\.cpp|hook_helper\.cpp|dinput_hook\.c)$")
+    set(SA_FEATURE_OWN ${STANDALONE_OWN})
+    list(FILTER SA_FEATURE_OWN EXCLUDE REGEX "(standalone_lockstep\.cpp|dinput_hook/lockstep\.cpp)$")
+    # Deltas attach at our function entries, so every call has to reach one: no inlining, and no
+    # IPA clones (constprop/isra/part) or merged bodies (icf) that callers could reach instead. Five
+    # NOPs at each entry give Detours room that no branch in the body targets.
+    add_library(swe1r_game OBJECT ${STANDALONE_SOURCES})
+    add_dependencies(swe1r_game generate_global_h generate_hooks)
+    target_include_directories(swe1r_game PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
+        ${CMAKE_CURRENT_SOURCE_DIR}/standalone)
+    target_compile_definitions(swe1r_game PRIVATE SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1)
+    target_compile_options(swe1r_game PRIVATE -fno-inline -fno-partial-inlining -fno-ipa-cp -fno-ipa-sra
+        -fno-ipa-icf -fno-ipa-pure-const -fno-ipa-modref -fno-ipa-ra -fpatchable-function-entry=5)
+    target_link_libraries(swe1r_game PRIVATE swe1r_globals)
+    add_executable(swe1r WIN32
+        $<TARGET_OBJECTS:swe1r_game>
+        ${SA_FEATURE_OWN}
+        ${SA_FEATURE_HOOK_SOURCES}
+        ${CMAKE_CURRENT_SOURCE_DIR}/standalone/features/sa_features.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/hook_generated.c)
+    add_dependencies(swe1r generate_global_h generate_hooks generate_embedded_shaders generate_build_id)
+    target_include_directories(swe1r PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
+        ${CMAKE_CURRENT_SOURCE_DIR}/standalone
+        ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook
+        ${CMAKE_CURRENT_BINARY_DIR}/dinput_hook/generated)
+    target_compile_definitions(swe1r PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1
+        ENABLE_GLFW_INPUT_HANDLING=0 ENABLE_GAMEPAD_NAV=1 ENABLE_XINPUT_RUMBLE=1)
+    target_link_libraries(swe1r PRIVATE swe1r_globals swr_memsafety imgui glad glfw fastgltf detours
+        winmm Comctl32 ole32 version dxguid dinput ddraw opengl32 Dwmapi bcrypt kernel32)
+    target_link_options(swe1r PRIVATE "-Wl,--image-base=0x10000000" "-Wl,--disable-dynamicbase" "-Wl,--stack,0x100000" "-static"
+        "-Wl,--wrap=WinMain@16")
 endif()

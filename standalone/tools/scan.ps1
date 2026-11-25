@@ -27,7 +27,7 @@ public static class Scan {
     }
 }
 "@
-$p = Get-Process swe1r_standalone -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -ne "" } | Select-Object -First 1
+$p = Get-Process $(if ($env:SA_PROC) { $env:SA_PROC } else { "swe1r_standalone" }) -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -ne "" } | Select-Object -First 1
 if (-not $p) { "game not running"; exit 1 }
 [void][Scan]::SetForegroundWindow($p.MainWindowHandle)
 Start-Sleep -Milliseconds 300

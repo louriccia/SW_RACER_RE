@@ -456,9 +456,11 @@ void virtual_block_RegisterHooks() {
     hook_replace(swrLoader_ReadAt, swrLoader_ReadAt_delta);
     hook_replace(swrLoader_CloseBlock, swrLoader_CloseBlock_delta);
 
+#ifndef SWR_STANDALONE// the standalone hooks the src bodies themselves
     route_reimpl_to_delta((void *) swrLoader_OpenBlock, (void *) swrLoader_OpenBlock_delta);
     route_reimpl_to_delta((void *) swrLoader_ReadAt, (void *) swrLoader_ReadAt_delta);
     route_reimpl_to_delta((void *) swrLoader_CloseBlock, (void *) swrLoader_CloseBlock_delta);
+#endif
 }
 
 // Defined after the block_path helper above.

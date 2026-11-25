@@ -23,17 +23,22 @@ static void modify_texture_data(RdMaterial *mat, const char *name,
     // clear error flag
     glGetError();
 
-    uint32_t *pixel_data = (uint32_t *) malloc(tex->ddsd.dwWidth * tex->ddsd.dwHeight * 4);
+    // Size from GL, not the game's header: a replaced (HD) texture is larger than ddsd says.
+    GLint w = 0, h = 0;
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h);
+    if (w <= 0 || h <= 0)
+        abort();
+    uint32_t *pixel_data = (uint32_t *) malloc((size_t) w * h * 4);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixel_data);
     if (glGetError() != GL_NO_ERROR)
         abort();
 
-    modify_callback(pixel_data, tex->ddsd.dwWidth, tex->ddsd.dwHeight);
+    modify_callback(pixel_data, w, h);
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tex->ddsd.dwWidth, tex->ddsd.dwHeight, 0, GL_RGBA,
-                 GL_UNSIGNED_BYTE, pixel_data);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixel_data);
     glGenerateMipmap(GL_TEXTURE_2D);
     if (glGetError() != GL_NO_ERROR)
         abort();

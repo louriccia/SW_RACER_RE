@@ -8,7 +8,7 @@ public static class Click {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
 }
 "@
-$p = Get-Process swe1r_standalone -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -ne "" } | Select-Object -First 1
+$p = Get-Process $(if ($env:SA_PROC) { $env:SA_PROC } else { "swe1r_standalone" }) -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -ne "" } | Select-Object -First 1
 if ($p) { [void][Click]::SetForegroundWindow($p.MainWindowHandle) }
 Start-Sleep -Milliseconds 300
 for ($i = 0; $i -lt $Clicks; $i++) {

@@ -228,7 +228,6 @@ void std3D_EndScene(void)
     std3D_pD3DTex = 0;
 }
 
-// 0x0048a350
 #ifdef SWR_STANDALONE
 // Debugging aid for the standalone prototype, read by standalone_main.c's watch thread.
 struct std3D_DrawProbe {
@@ -239,6 +238,7 @@ struct std3D_DrawProbe {
 } std3D_drawProbe;
 #endif
 
+// 0x0048a350
 void std3D_DrawRenderList(LPDIRECT3DTEXTURE2 pTex, Std3DRenderState rdflags, LPD3DTLVERTEX aVerticies, int verticesCount, LPWORD lpwIndices, int indexCount)
 {
 #ifdef SWR_STANDALONE

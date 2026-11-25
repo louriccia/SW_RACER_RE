@@ -17,6 +17,19 @@ void* (*hook_mode_shadow_entry)(const char* function_name, uint32_t reimpl_addr,
 
 void standalone_ftol(void);
 
+#define MAX_BODIES 4096
+static uint32_t body_addr[MAX_BODIES], body_retail[MAX_BODIES];
+static int body_count = 0;
+
+// The retail entry a src body was installed at, or 0.
+uint32_t standalone_retail_of(uint32_t body)
+{
+    for (int i = 0; i < body_count; i++)
+        if (body_addr[i] == body)
+            return body_retail[i];
+    return 0;
+}
+
 static int installed = 0;
 static int skipped = 0;
 static int retail_run = 0;
@@ -107,6 +120,10 @@ void hook_install(const char* function_name, uint32_t reimpl_addr, uint32_t reta
     if (!strcmp(function_name, "c__ftol"))
         reimpl_addr = (uint32_t)standalone_ftol;
     standalone_write_jmp(retail_addr, reimpl_addr);
+    if (body_count < MAX_BODIES) {
+        body_addr[body_count] = reimpl_addr;
+        body_retail[body_count++] = retail_addr;
+    }
     installed++;
 }
 
