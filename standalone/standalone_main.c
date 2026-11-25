@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "standalone.h"
+#include "swr_data_addr.h"
 
 #define RETAIL_BASE 0x00400000u
 #define RETAIL_TEXT_LO 0x00401000u
@@ -21,6 +22,19 @@
 
 // SizeOfImage of SWEP1RCR.EXE, .bind included.
 #define RETAIL_SPAN 0x00af3000u
+
+#ifdef SWR_DATA_RELOC
+// Retail's .rdata/.data/.bss image, at our own address. globals.h reaches it through SWR_GLOBAL_PTR.
+__attribute__((aligned(4096))) char swr_data_image[SWR_DATA_HI - SWR_DATA_LO];
+extern const uint32_t standalone_data_relocs[];
+extern const int standalone_data_reloc_count;
+#endif
+
+// Where a retail virtual address lives in this process.
+static uint8_t* retail_va(uint32_t va)
+{
+    return (uint8_t*)SWR_GLOBAL_PTR(va);
+}
 
 FILE* standalone_log = NULL;
 FILE* hook_log = NULL;
@@ -100,13 +114,13 @@ static void resolve_imports(const IMAGE_NT_HEADERS32* nt)
     const IMAGE_DATA_DIRECTORY* dir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
     if (!dir->VirtualAddress)
         return;
-    IMAGE_IMPORT_DESCRIPTOR* d = (IMAGE_IMPORT_DESCRIPTOR*)(RETAIL_BASE + dir->VirtualAddress);
+    IMAGE_IMPORT_DESCRIPTOR* d = (IMAGE_IMPORT_DESCRIPTOR*)retail_va(RETAIL_BASE + dir->VirtualAddress);
     for (; d->Name; d++) {
-        const char* dll = (const char*)(RETAIL_BASE + d->Name);
+        const char* dll = (const char*)retail_va(RETAIL_BASE + d->Name);
         HMODULE mod = LoadLibraryA(dll);
         fprintf(standalone_log, "import %-14s -> %p\n", dll, (void*)mod);
-        uint32_t* thunk = (uint32_t*)(RETAIL_BASE + d->FirstThunk);
-        uint32_t* names = (uint32_t*)(RETAIL_BASE + (d->OriginalFirstThunk ? d->OriginalFirstThunk : d->FirstThunk));
+        uint32_t* thunk = (uint32_t*)retail_va(RETAIL_BASE + d->FirstThunk);
+        uint32_t* names = (uint32_t*)retail_va(RETAIL_BASE + (d->OriginalFirstThunk ? d->OriginalFirstThunk : d->FirstThunk));
         for (; *names; names++, thunk++) {
             FARPROC fn = NULL;
             const char* what;
@@ -116,7 +130,7 @@ static void resolve_imports(const IMAGE_NT_HEADERS32* nt)
                 what = ord;
                 fn = mod ? GetProcAddress(mod, (LPCSTR)(uintptr_t)(*names & 0xffff)) : NULL;
             } else {
-                what = (const char*)(RETAIL_BASE + *names + 2);
+                what = (const char*)retail_va(RETAIL_BASE + *names + 2);
                 fn = mod ? GetProcAddress(mod, what) : NULL;
             }
             if (!fn)
@@ -126,12 +140,21 @@ static void resolve_imports(const IMAGE_NT_HEADERS32* nt)
     }
 }
 
+#ifdef SWR_DATA_RELOC
+// Only the header page and the code range: the data range stays reserved and inaccessible, so any
+// pointer into it that missed relocation faults instead of reading stale memory.
+#define RETAIL_COMMIT_SPAN (RETAIL_TEXT_HI - RETAIL_BASE)
+#else
+#define RETAIL_COMMIT_SPAN RETAIL_SPAN
+#endif
+
 static int commit_retail_range(void)
 {
     // Reserved for us by the parent (see relaunch_with_reserved_range), or still free.
-    if (VirtualAlloc((void*)RETAIL_BASE, RETAIL_SPAN, MEM_COMMIT, PAGE_EXECUTE_READWRITE) == (void*)RETAIL_BASE)
+    if (VirtualAlloc((void*)RETAIL_BASE, RETAIL_COMMIT_SPAN, MEM_COMMIT, PAGE_EXECUTE_READWRITE) == (void*)RETAIL_BASE)
         return 1;
-    return VirtualAlloc((void*)RETAIL_BASE, RETAIL_SPAN, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE) == (void*)RETAIL_BASE;
+    return VirtualAlloc((void*)RETAIL_BASE, RETAIL_SPAN, MEM_RESERVE, PAGE_NOACCESS) == (void*)RETAIL_BASE &&
+        VirtualAlloc((void*)RETAIL_BASE, RETAIL_COMMIT_SPAN, MEM_COMMIT, PAGE_EXECUTE_READWRITE) == (void*)RETAIL_BASE;
 }
 
 // Windows places the process heap at 0x400000 when no image sits there, before any of our code
@@ -201,7 +224,13 @@ static void map_retail(void)
     for (int i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
         char name[9] = { 0 };
         memcpy(name, s->Name, 8);
-        uint8_t* dst = base + s->VirtualAddress;
+        uint8_t* dst = retail_va(RETAIL_BASE + s->VirtualAddress);
+#ifdef SWR_DATA_RELOC
+        if (RETAIL_BASE + s->VirtualAddress >= SWR_DATA_HI) {
+            fprintf(standalone_log, "section %-8s not loaded\n", name);
+            continue;
+        }
+#endif
         if (s->VirtualAddress + RETAIL_BASE == RETAIL_TEXT_LO) {
             // Encrypted by SteamStub on disk. Traps by default; SWR_STANDALONE_RETAIL_TEXT names a
             // decrypted image of the running game (base 0x400000) to take retail's code from, so the
@@ -234,6 +263,19 @@ static void map_retail(void)
     memcpy((void*)0x0049e690, &c_dfDIKeyboard, sizeof(DIDATAFORMAT));
     memcpy((void*)0x0049e720, &c_dfDIMouse, sizeof(DIDATAFORMAT));
     memcpy((void*)0x0049d670, &c_dfDIJoystick, sizeof(DIDATAFORMAT));
+#ifdef SWR_DATA_RELOC
+    // Pointers inside the image still hold retail addresses; move them with the image.
+    const uint32_t delta = (uint32_t)swr_data_image - SWR_DATA_LO;
+    int moved = 0;
+    for (int i = 0; i < standalone_data_reloc_count; i++) {
+        uint32_t* slot = (uint32_t*)retail_va(standalone_data_relocs[i]);
+        if (*slot >= SWR_DATA_LO && *slot < SWR_DATA_HI) {
+            *slot += delta;
+            moved++;
+        }
+    }
+    fprintf(standalone_log, "data image at %p: %d of %d pointers relocated\n", (void*)swr_data_image, moved, standalone_data_reloc_count);
+#endif
     resolve_imports((const IMAGE_NT_HEADERS32*)(base + dos->e_lfanew));
     HeapFree(GetProcessHeap(), 0, file);
 }
@@ -262,7 +304,7 @@ static void log_draw_probe(void)
     struct std3D_DrawProbe p = std3D_drawProbe;
     memset(&std3D_drawProbe, 0, sizeof(std3D_drawProbe));
     fprintf(standalone_log, "draw: maxVerts %u calls %d dropped %d failed %d (last %08lx) maxBatch %d | 3D verts %d x %.0f..%.0f y %.0f..%.0f z %.4f..%.4f rhw %.4f..%.4f a %u..%u rgbMax %u texNull %u fullQuads %u color %08x\n",
-            *(unsigned int*)0x0052e624, p.calls, p.dropped, p.failed, (unsigned long)p.lastErr, p.maxBatch, p.verts, p.xMin, p.xMax, p.yMin, p.yMax,
+            *(unsigned int*)SWR_GLOBAL_PTR(0x0052e624), p.calls, p.dropped, p.failed, (unsigned long)p.lastErr, p.maxBatch, p.verts, p.xMin, p.xMax, p.yMin, p.yMax,
             p.zMin, p.zMax, p.rhwMin, p.rhwMax, p.alphaMin, p.alphaMax, p.rgbMax, p.texNull, p.fullQuads, p.fullColor);
 }
 
@@ -273,11 +315,11 @@ static DWORD WINAPI watch_thread(LPVOID unused)
     for (;;) {
         Sleep(2000);
         log_draw_probe();
-        fprintf(standalone_log, "sound: A3Dinitted %d IA3d4 %08x streamSource %08x mapSounds %d layeredStream %d\n", *(int*)0x004c7d80,
-                *(uint32_t*)0x0050d548, *(uint32_t*)0x004eb414, *(int*)0x00e9f360, *(int*)0x0050c69c);
+        fprintf(standalone_log, "sound: A3Dinitted %d IA3d4 %08x streamSource %08x mapSounds %d layeredStream %d\n", *(int*)SWR_GLOBAL_PTR(0x004c7d80),
+                *(uint32_t*)SWR_GLOBAL_PTR(0x0050d548), *(uint32_t*)SWR_GLOBAL_PTR(0x004eb414), *(int*)SWR_GLOBAL_PTR(0x00e9f360), *(int*)SWR_GLOBAL_PTR(0x0050c69c));
         {
             // every 'Test' (pod) object: position, speed, flags0
-            uint32_t** it = *(uint32_t***)0x004bfec0; // eventManagerMain
+            uint32_t** it = *(uint32_t***)SWR_GLOBAL_PTR(0x004bfec0); // eventManagerMain
             for (; it && *it; it++) {
                 uint32_t* m = *it;
                 if (m[0] == 'Jdge' && m[2] > 0) {
@@ -296,13 +338,13 @@ static DWORD WINAPI watch_thread(LPVOID unused)
             }
         }
         {
-            uint8_t* pod = *(uint8_t**)0x004d78a8; // currentPlayer_Test
+            uint8_t* pod = *(uint8_t**)SWR_GLOBAL_PTR(0x004d78a8); // currentPlayer_Test
             if (pod && !IsBadReadPtr(pod, 0x200))
                 fprintf(standalone_log, "pod: %p pos %.2f %.2f %.2f flags0 %08x flags1 %08x throttle %.3f speed %.3f\n", pod, *(float*)(pod + 0x50),
                         *(float*)(pod + 0x54), *(float*)(pod + 0x58), *(uint32_t*)(pod + 0x60), *(uint32_t*)(pod + 0x64), *(float*)(pod + 0x18c), *(float*)(pod + 0x1a0));
         }
         {
-            LPDIRECTINPUTDEVICEA kbd = *(LPDIRECTINPUTDEVICEA*)0x0050d89c;
+            LPDIRECTINPUTDEVICEA kbd = *(LPDIRECTINPUTDEVICEA*)SWR_GLOBAL_PTR(0x0050d89c);
             char state[256];
             HRESULT hr = kbd ? IDirectInputDevice_GetDeviceState(kbd, sizeof(state), state) : E_POINTER;
             int down = 0;
@@ -316,16 +358,16 @@ static DWORD WINAPI watch_thread(LPVOID unused)
             SuspendThread(main_thread);
             if (GetThreadContext(main_thread, &c)) {
                 fprintf(standalone_log, "fpu: main thread x87 control word %04lx (PC %s)\n", c.FloatSave.ControlWord & 0xffff, ((c.FloatSave.ControlWord >> 8) & 3) == 0 ? "24-bit" : ((c.FloatSave.ControlWord >> 8) & 3) == 2 ? "53-bit" : "64-bit");
-                fprintf(standalone_log, "watch: screen %dx%d backbuf %dx%d full %d zfill %08x | ", *(int*)0x00ec86c4, *(int*)0x00ec85e8, *(int*)(0x00ec8da0 + 0xc), *(int*)(0x00ec8da0 + 0x10), *(int*)0x0052d458, *(int*)0x004c86c0);
+                fprintf(standalone_log, "watch: screen %dx%d backbuf %dx%d full %d zfill %08x | ", *(int*)SWR_GLOBAL_PTR(0x00ec86c4), *(int*)SWR_GLOBAL_PTR(0x00ec85e8), *(int*)(0x00ec8da0 + 0xc), *(int*)(0x00ec8da0 + 0x10), *(int*)SWR_GLOBAL_PTR(0x0052d458), *(int*)SWR_GLOBAL_PTR(0x004c86c0));
                 {
-                    const float* v = (const float*)0x00b6b0e8;
+                    const float* v = (const float*)SWR_GLOBAL_PTR(0x00b6b0e8);
                     for (int k = 0; k < 3; k++, v += 8)
                         fprintf(standalone_log, "v%d (%.1f %.1f z%.4f rhw%.4f) col %08x spec %08x uv %.3f %.3f | ", k, v[0], v[1], v[2], v[3],
                                 ((const uint32_t*)v)[4], ((const uint32_t*)v)[5], v[6], v[7]);
                 }
-                fprintf(standalone_log, "watch: rdCache drawnFaces %d frame %d procFaces %d hwVerts %d | ", *(int*)0x00deb0e8, *(int*)0x00deb0ec, *(int*)0x006930c8, *(int*)0x00a530d0);
-                fprintf(standalone_log, "watch: cooldown %f loaded %d dt %f | ", (double)*(float*)0x004d5588, *(int*)0x004b6c90, *(double*)0x00e22a40);
-                fprintf(standalone_log, "watch: enterHeld %d uiActive %d readtime %d main eip %08lx stack:", ((int*)0x0050e868)[0x1c], *(int*)0x004b2940, *(int*)0x0050fecc, c.Eip);
+                fprintf(standalone_log, "watch: rdCache drawnFaces %d frame %d procFaces %d hwVerts %d | ", *(int*)SWR_GLOBAL_PTR(0x00deb0e8), *(int*)SWR_GLOBAL_PTR(0x00deb0ec), *(int*)SWR_GLOBAL_PTR(0x006930c8), *(int*)SWR_GLOBAL_PTR(0x00a530d0));
+                fprintf(standalone_log, "watch: cooldown %f loaded %d dt %f | ", (double)*(float*)SWR_GLOBAL_PTR(0x004d5588), *(int*)SWR_GLOBAL_PTR(0x004b6c90), *(double*)SWR_GLOBAL_PTR(0x00e22a40));
+                fprintf(standalone_log, "watch: enterHeld %d uiActive %d readtime %d main eip %08lx stack:", ((int*)SWR_GLOBAL_PTR(0x0050e868))[0x1c], *(int*)SWR_GLOBAL_PTR(0x004b2940), *(int*)SWR_GLOBAL_PTR(0x0050fecc), c.Eip);
                 uint32_t* sp = (uint32_t*)c.Esp;
                 for (int i = 0, n = 0; i < 4096 && n < 16 && !IsBadReadPtr(sp + i, 4); i++)
                     if (sp[i] >= 0x10001000u && sp[i] < 0x10200000u) {
@@ -336,9 +378,9 @@ static DWORD WINAPI watch_thread(LPVOID unused)
             }
             ResumeThread(main_thread);
         }
-        fprintf(standalone_log, "watch: startup %d open %d active %d enterN %d escN %d | ", *(int*)0x0050fea8, *(int*)0x0050feac, *(int*)0x0050feb4, ((int*)0x0050f668)[0x1c], ((int*)0x0050f668)[0x01]);
-        fprintf(standalone_log, "watch: kbd dev %08x nkbd %d mouse dev %08x skip %d movies %d fg %d\n", *(uint32_t*)0x0050d89c,
-                *(int*)0x0050febc, *(uint32_t*)0x00ecb484, *(int*)0x0050b5b8, *(int*)0x0050b5c4,
+        fprintf(standalone_log, "watch: startup %d open %d active %d enterN %d escN %d | ", *(int*)SWR_GLOBAL_PTR(0x0050fea8), *(int*)SWR_GLOBAL_PTR(0x0050feac), *(int*)SWR_GLOBAL_PTR(0x0050feb4), ((int*)SWR_GLOBAL_PTR(0x0050f668))[0x1c], ((int*)SWR_GLOBAL_PTR(0x0050f668))[0x01]);
+        fprintf(standalone_log, "watch: kbd dev %08x nkbd %d mouse dev %08x skip %d movies %d fg %d\n", *(uint32_t*)SWR_GLOBAL_PTR(0x0050d89c),
+                *(int*)SWR_GLOBAL_PTR(0x0050febc), *(uint32_t*)SWR_GLOBAL_PTR(0x00ecb484), *(int*)SWR_GLOBAL_PTR(0x0050b5b8), *(int*)SWR_GLOBAL_PTR(0x0050b5c4),
                 GetForegroundWindow() != NULL && GetWindowThreadProcessId(GetForegroundWindow(), NULL) != 0
                     && ({ DWORD pid = 0; GetWindowThreadProcessId(GetForegroundWindow(), &pid); pid == GetCurrentProcessId(); }));
         fflush(standalone_log);
@@ -353,7 +395,7 @@ static DWORD WINAPI watch_thread(LPVOID unused)
 // SWR_STANDALONE_NO_ZCLEAR=1 keeps retail's behaviour.
 static DWORD WINAPI zclear_thread(LPVOID unused)
 {
-    void** fill = (void**)0x004c86b8; // stdDisplay_FillMainSurface_ptr
+    void** fill = (void**)SWR_GLOBAL_PTR(0x004c86b8); // stdDisplay_FillMainSurface_ptr
     (void)unused;
     for (;;) {
         if (*fill == (void*)stdPlatform_noop) {

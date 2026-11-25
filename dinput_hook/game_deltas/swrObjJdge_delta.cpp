@@ -1,3 +1,4 @@
+#include <swr_data_addr.h>
 #include <macros.h>
 #include <cstring>
 #include <cstdio>
@@ -739,7 +740,7 @@ static bool race_time_cap_enable(ModId self, void *) {
     int patched = 0;
     const int total = (int) (sizeof(sites) / sizeof(sites[0]));
     for (const CapSite &site: sites) {
-        uint8_t *p = (uint8_t *) site.address;
+        uint8_t *p = (uint8_t *) SWR_GLOBAL_PTR(site.address);
         if (std::memcmp(p, old_3000, 4) != 0) {
             if (std::memcmp(p, cap_bytes, 4) == 0)
                 continue; // already patched

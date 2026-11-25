@@ -1,3 +1,4 @@
+#include <swr_data_addr.h>
 #include "reimpl_verify.h"
 
 #include <windows.h>
@@ -3512,13 +3513,13 @@ namespace {
 
     void capture_inputs(uint8_t *out) {
         for (const InputRegion &r : input_regions) {
-            std::memcpy(out, (const void *) (uintptr_t) r.addr, r.size);
+            std::memcpy(out, SWR_GLOBAL_PTR(r.addr), r.size);
             out += r.size;
         }
     }
     void apply_inputs(const uint8_t *in) {
         for (const InputRegion &r : input_regions) {
-            std::memcpy((void *) (uintptr_t) r.addr, in, r.size);
+            std::memcpy(SWR_GLOBAL_PTR(r.addr), in, r.size);
             in += r.size;
         }
     }

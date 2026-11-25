@@ -10,6 +10,8 @@
 
 #include <windows.h>
 
+#include <swr_data_addr.h>
+
 extern "C" FILE *hook_log;
 
 namespace {
@@ -42,6 +44,7 @@ namespace {
 bool WriteMemory(PatchOwner owner, void *addr, const void *src, size_t len) {
     if (!addr || !src || len == 0)
         return false;
+    addr = SWR_GLOBAL_PTR((uintptr_t) addr);// a retail data address, wherever the image lives
 
     const uintptr_t a = (uintptr_t) addr;
 
@@ -77,6 +80,7 @@ bool WriteMemory(PatchOwner owner, void *addr, const void *src, size_t len) {
 }
 
 bool PatchPointer(PatchOwner owner, void *addr, uint32_t value) {
+    value = (uint32_t) (uintptr_t) SWR_GLOBAL_PTR(value);
     return WriteMemory(owner, addr, &value, sizeof(value));
 }
 

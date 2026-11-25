@@ -121,6 +121,7 @@ add_subdirectory(dinput_hook)
 # Standalone EXE: runs the game from src/ alone; retail's data sections come from the player's
 # SWEP1RCR.EXE at runtime (standalone/standalone_main.c). Launch it with the game directory as cwd.
 option(SWR_STANDALONE "Build swe1r_standalone.exe" OFF)
+option(SWR_STANDALONE_DATA_RELOC "Standalone keeps retail data in its own image instead of at 0x4ac000" ON)
 if (SWR_STANDALONE)
     set(STANDALONE_SOURCES ${SOURCES})
     list(FILTER STANDALONE_SOURCES EXCLUDE REGEX "(hook_mode\\.c|Platform/cstdlib\\.c)$")
@@ -136,7 +137,7 @@ if (SWR_STANDALONE)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
         ${CMAKE_CURRENT_SOURCE_DIR}/standalone
         ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook)
-    target_compile_definitions(swe1r_standalone PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1)
+    target_compile_definitions(swe1r_standalone PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1>)
     target_link_libraries(swe1r_standalone PRIVATE swe1r_globals swr_memsafety winmm Comctl32 ole32 version dxguid dinput detours)
     # Keep the image clear of retail's 0x400000-0xED0000 range, which standalone_main.c maps.
     target_link_options(swe1r_standalone PRIVATE "-Wl,--image-base=0x10000000" "-Wl,--disable-dynamicbase" "-Wl,--stack,0x100000" "-static")
@@ -158,7 +159,7 @@ if (SWR_STANDALONE)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
         ${CMAKE_CURRENT_SOURCE_DIR}/standalone)
-    target_compile_definitions(swe1r_game PRIVATE SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1)
+    target_compile_definitions(swe1r_game PRIVATE SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1>)
     target_compile_options(swe1r_game PRIVATE -fno-inline -fno-partial-inlining -fno-ipa-cp -fno-ipa-sra
         -fno-ipa-icf -fno-ipa-pure-const -fno-ipa-modref -fno-ipa-ra -fpatchable-function-entry=5)
     target_link_libraries(swe1r_game PRIVATE swe1r_globals)
@@ -175,7 +176,7 @@ if (SWR_STANDALONE)
         ${CMAKE_CURRENT_SOURCE_DIR}/standalone
         ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook
         ${CMAKE_CURRENT_BINARY_DIR}/dinput_hook/generated)
-    target_compile_definitions(swe1r PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1
+    target_compile_definitions(swe1r PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1>
         ENABLE_GLFW_INPUT_HANDLING=0 ENABLE_GAMEPAD_NAV=1 ENABLE_XINPUT_RUMBLE=1)
     target_link_libraries(swe1r PRIVATE swe1r_globals swr_memsafety imgui glad glfw fastgltf detours
         winmm Comctl32 ole32 version dxguid dinput ddraw opengl32 Dwmapi bcrypt kernel32)

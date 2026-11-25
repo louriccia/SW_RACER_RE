@@ -1,4 +1,5 @@
 #include "imgui_utils.h"
+#include <swr_data_addr.h>
 #include "perf_stats.h"
 #include "debug_ui.h"
 #include "n64_shader.h"
@@ -2417,7 +2418,7 @@ static void apply_cheats() {
     // effect on the next race load. .rdata is read-only, so VirtualProtect the 4 bytes and only
     // rewrite when the current value differs from the target (i.e. on toggle), not every frame.
     {
-        volatile float *const speed_cap = (volatile float *) 0x004acb28;
+        volatile float *const speed_cap = (volatile float *) SWR_GLOBAL_PTR(0x004acb28);
         const float target = (on && g_cheat_uncapped_speed) ? 1.0e9f : 650.0f;
         if (*speed_cap != target) {
             DWORD old_protect;

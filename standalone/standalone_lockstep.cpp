@@ -15,6 +15,7 @@ extern "C" {
 #include <Swr/swrEvent.h>
 #include <Swr/swrObj.h>
 #include <Swr/swrRace.h>
+#include <Win95/Window.h>
 #include <Win95/stdDisplay.h>
 }
 
@@ -119,6 +120,12 @@ static int __cdecl stdDisplay_Update_elmo(void) {
     return r;
 }
 
+// Lockstep runs skip every Smush movie: they only cost wall-clock time, and whether the intro
+// played (it also polls input every frame) made some replays diverge.
+static int __cdecl Window_PlayCinematic_skip(char *) {
+    return 1;
+}
+
 static bool attach(const char *name, void *key, void *target, void *detour) {
     DebugFunctionInfo info{name, detour, target, target};
     DetourTransactionBegin();
@@ -155,6 +162,8 @@ __attribute__((constructor(110))) static void standalone_lockstep_init(void) {
                 (void *) swrControl_ProcessInputs_lockstep);
     n += attach("swrObjHang_F0", (void *) swrObjHang_F0_ADDR, (void *) swrObjHang_F0, (void *) swrObjHang_F0_lockstep);
     n += attach("stdDisplay_Update", (void *) stdDisplay_Update_ADDR, (void *) stdDisplay_Update, (void *) stdDisplay_Update_lockstep);
+    n += attach("Window_PlayCinematic", (void *) Window_PlayCinematic_ADDR, (void *) Window_PlayCinematic,
+                (void *) Window_PlayCinematic_skip);
     fprintf(standalone_log, "lockstep: %d hooks installed, vanilla %d\n", n, (int) lockstep_vanilla());
     fflush(standalone_log);
 }

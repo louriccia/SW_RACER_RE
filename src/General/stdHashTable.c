@@ -65,7 +65,7 @@ int stdHashTable_GetPrime(int x)
         piVar1 = piVar1 + 1;
         i = i + 1;
         res = x;
-    } while ((int)piVar1 < 0x4aef30);
+    } while (piVar1 < stdMath_Primes + 32); // 0x4aef30, the end of stdMath_Primes
     if (1999 < x)
     {
         res = stdHashTable_nextPrime(x);

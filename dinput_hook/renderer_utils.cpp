@@ -1,3 +1,4 @@
+#include <swr_data_addr.h>
 #include "renderer_utils.h"
 #include "perf_stats.h"
 
@@ -1140,7 +1141,7 @@ void renderer_drawGLTFPod(const rdMatrix44 &proj_matrix, const rdMatrix44 &view_
         if (strncasecmp(node.name.c_str(), "engineR", strlen("engineR")) == 0) {
             rdMatrix_Multiply44(&model_matrix, &model_matrix, &engineR_model_matrix);
             // In a race
-            if ((uint32_t) root_node == 0x00E28980) {
+            if ((void *) root_node == SWR_GLOBAL_PTR(0x00E28980)) {
                 swrModel_Node *engineR_node = root_node->children.nodes[1]
                                                   ->children.nodes[0]
                                                   ->children.nodes[0]
@@ -1155,7 +1156,7 @@ void renderer_drawGLTFPod(const rdMatrix44 &proj_matrix, const rdMatrix44 &view_
         } else if (strncasecmp(node.name.c_str(), "engineL", strlen("engineL")) == 0) {
             rdMatrix_Multiply44(&model_matrix, &model_matrix, &engineL_model_matrix);
             // In a race
-            if ((uint32_t) root_node == 0x00E28980) {
+            if ((void *) root_node == SWR_GLOBAL_PTR(0x00E28980)) {
                 swrModel_Node *engineL_node = root_node->children.nodes[1]
                                                   ->children.nodes[0]
                                                   ->children.nodes[0]
@@ -1170,7 +1171,7 @@ void renderer_drawGLTFPod(const rdMatrix44 &proj_matrix, const rdMatrix44 &view_
         } else if (strncasecmp(node.name.c_str(), "cockpit", strlen("cockpit")) == 0) {
             rdMatrix_Multiply44(&model_matrix, &model_matrix, &cockpit_model_matrix);
         } else if (strncasecmp(node.name.c_str(), "binder", strlen("binder")) == 0) {
-            if ((uint32_t) root_node == 0x00E28980) {// In a race
+            if ((void *) root_node == SWR_GLOBAL_PTR(0x00E28980)) {// In a race
                 // Get middle point of the two engines and rotate appropriately. Use THIS pod's
                 // engines (the ones passed in), not the local player's.
                 const rdVector4 *posR = &engineR_model_matrix.vD;

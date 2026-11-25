@@ -24,6 +24,7 @@
 
 extern "C" {
 #include <hook_mode.h>
+#include <Win95/Window.h>
 #include "standalone.h"
 }
 
@@ -61,6 +62,24 @@ static int delta_owned(uint32_t reimpl_addr, uint32_t retail_addr) {
     return hook_replacements.contains((void *) reimpl_addr) || hooks.contains((void *) retail_addr);
 }
 
+// lockstep.txt asks for a record or replay run.
+static bool lockstep_configured() {
+    FILE *f = fopen("lockstep.txt", "r");
+    char line[64];
+    bool on = false;
+    while (f && fgets(line, sizeof(line), f))
+        on |= !strncmp(line, "record", 6) || !strncmp(line, "replay", 6);
+    if (f)
+        fclose(f);
+    return on;
+}
+
+// Lockstep runs skip every Smush movie: they only cost wall-clock time, and whether the intro played
+// (it polls input every frame) made some replays diverge.
+static int __cdecl Window_PlayCinematic_skip(char *) {
+    return 1;
+}
+
 struct Attach {
     std::string name;
     void *delta;
@@ -75,6 +94,8 @@ extern "C" void init_hooks() {
     fprintf(hook_log, "[init_hooks standalone]\n");
     lockstep_vanilla_filter();
     hook_mode_delta_owned = delta_owned;
+    if (lockstep_configured())
+        hook_replacements[(void *) Window_PlayCinematic] = (void *) Window_PlayCinematic_skip;
 
     std::map<void *, std::vector<Attach>> forward, replace;// keyed by body
     std::set<std::pair<void *, void *>> seen;
