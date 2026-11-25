@@ -36,6 +36,45 @@ extern "C" void shadow_report(void) {}
 extern "C" void __cdecl swrControl_ProcessInputs_lockstep(void);
 extern "C" void __cdecl swrObjHang_F0_lockstep(swrObjHang *hang);
 
+// Every puppet's state and root node transform, so runs can be diffed whatever the camera sees.
+static void dump_elmo(FILE *e) {
+    int n = swrEvent_GetEventCount('Elmo');
+    for (int i = 0; i < n; i++) {
+        swrObjElmo *elmo = (swrObjElmo *) swrEvent_GetItem('Elmo', i);
+        if (!elmo)
+            continue;
+        fprintf(e, "%d kind %d anim %d pos %.4f %.4f %.4f yaw %.4f tgt %.4f %.4f %.4f wp %d", i, (int) elmo->kind,
+                elmo->animCmd, elmo->position.x, elmo->position.y, elmo->position.z, elmo->yaw, elmo->moveTarget.x,
+                elmo->moveTarget.y, elmo->moveTarget.z, elmo->lastWaypoint);
+        swrModel_NodeTransformed *root = elmo->unk30_nodes ? (swrModel_NodeTransformed *) elmo->unk30_nodes[0] : NULL;
+        if (root) {
+            const float *m = (const float *) &root->transform;
+            fprintf(e, " root");
+            for (int k = 0; k < 12; k++)
+                fprintf(e, " %.4f", m[k]);
+        }
+        fprintf(e, "\n");
+    }
+}
+
+// Test aid: SWR_STANDALONE_ELMO_LOG=N appends every puppet's state to elmo_log.txt each N presented
+// frames (menus and cutscenes included).
+static void elmo_log_service(void) {
+    static int every = -2, frame = 0;
+    if (every == -2) {
+        const char *v = getenv("SWR_STANDALONE_ELMO_LOG");
+        every = v && *v ? atoi(v) : -1;
+    }
+    if (every <= 0 || ++frame % every)
+        return;
+    FILE *e = fopen("elmo_log.txt", "a");
+    if (!e)
+        return;
+    fprintf(e, "frame %d count %d\n", frame, swrEvent_GetEventCount('Elmo'));
+    dump_elmo(e);
+    fclose(e);
+}
+
 // Test aid: SWR_STANDALONE_FREEZE_FRAME=N holds the presented image of race frame N (messages keep
 // pumping) and writes freeze.txt, so screenshots of two runs can be compared at the same sim frame.
 static void freeze_service(void) {
@@ -46,26 +85,9 @@ static void freeze_service(void) {
     }
     if (at < 0 || lockstep_shadow_frame() < at)
         return;
-    // Every puppet's state and root node transform, so runs can be diffed whatever the camera sees.
     FILE *e = fopen("elmo_dump.txt", "w");
     if (e) {
-        int n = swrEvent_GetEventCount('Elmo');
-        for (int i = 0; i < n; i++) {
-            swrObjElmo *elmo = (swrObjElmo *) swrEvent_GetItem('Elmo', i);
-            if (!elmo)
-                continue;
-            fprintf(e, "%d kind %d anim %d pos %.4f %.4f %.4f yaw %.4f tgt %.4f %.4f %.4f wp %d", i, (int) elmo->kind,
-                    elmo->animCmd, elmo->position.x, elmo->position.y, elmo->position.z, elmo->yaw, elmo->moveTarget.x,
-                    elmo->moveTarget.y, elmo->moveTarget.z, elmo->lastWaypoint);
-            swrModel_NodeTransformed *root = elmo->unk30_nodes ? (swrModel_NodeTransformed *) elmo->unk30_nodes[0] : NULL;
-            if (root) {
-                const float *m = (const float *) &root->transform;
-                fprintf(e, " root");
-                for (int k = 0; k < 12; k++)
-                    fprintf(e, " %.4f", m[k]);
-            }
-            fprintf(e, "\n");
-        }
+        dump_elmo(e);
         fclose(e);
     }
     FILE *f = fopen("freeze.txt", "w");
@@ -87,6 +109,13 @@ static int __cdecl stdDisplay_Update_lockstep(void) {
     int r = hook_call_original(stdDisplay_Update);
     lockstep_frame_service();
     freeze_service();
+    elmo_log_service();
+    return r;
+}
+
+static int __cdecl stdDisplay_Update_elmo(void) {
+    int r = hook_call_original(stdDisplay_Update);
+    elmo_log_service();
     return r;
 }
 
@@ -112,8 +141,11 @@ __attribute__((constructor(110))) static void standalone_lockstep_init(void) {
         on |= !strncmp(line, "record", 6) || !strncmp(line, "replay", 6);
     if (f)
         fclose(f);
-    if (!on)
+    if (!on) {
+        if (getenv("SWR_STANDALONE_ELMO_LOG"))
+            attach("stdDisplay_Update", (void *) stdDisplay_Update_ADDR, (void *) stdDisplay_Update, (void *) stdDisplay_Update_elmo);
         return;
+    }
     int n = 0;
     n += attach("swrRace_IncrementFrameTimer", (void *) swrRace_IncrementFrameTimer_ADDR, (void *) swrRace_IncrementFrameTimer,
                 (void *) swrRace_IncrementFrameTimer_lockstep);
