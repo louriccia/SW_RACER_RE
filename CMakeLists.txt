@@ -117,3 +117,25 @@ if (USE_RELEASE_HOOK)
 endif()
 
 add_subdirectory(dinput_hook)
+
+# Standalone EXE: runs the game from src/ alone; retail's data sections come from the player's
+# SWEP1RCR.EXE at runtime (standalone/standalone_main.c). Launch it with the game directory as cwd.
+option(SWR_STANDALONE "Build swe1r_standalone.exe" OFF)
+if (SWR_STANDALONE)
+    set(STANDALONE_SOURCES ${SOURCES})
+    list(FILTER STANDALONE_SOURCES EXCLUDE REGEX "(hook_mode\\.c|Platform/cstdlib\\.c)$")
+    file(GLOB STANDALONE_OWN standalone/*.c)
+    add_executable(swe1r_standalone WIN32
+        ${STANDALONE_SOURCES}
+        ${STANDALONE_OWN}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/hook_generated.c)
+    add_dependencies(swe1r_standalone generate_global_h generate_hooks)
+    target_include_directories(swe1r_standalone PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
+        ${CMAKE_CURRENT_SOURCE_DIR}/standalone)
+    target_compile_definitions(swe1r_standalone PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1)
+    target_link_libraries(swe1r_standalone PRIVATE swe1r_globals swr_memsafety winmm Comctl32 ole32 version dxguid dinput)
+    # Keep the image clear of retail's 0x400000-0xED0000 range, which standalone_main.c maps.
+    target_link_options(swe1r_standalone PRIVATE "-Wl,--image-base=0x10000000" "-Wl,--disable-dynamicbase" "-Wl,--stack,0x100000" "-static")
+endif()

@@ -1,0 +1,13 @@
+#ifndef SWR_STANDALONE_H
+#define SWR_STANDALONE_H
+
+#include <stdint.h>
+#include <stdio.h>
+
+extern FILE* standalone_log;
+
+void standalone_write_jmp(uint32_t retail_addr, uint32_t target);
+void standalone_install_bodies(void);
+void standalone_install_compat(void);
+
+#endif
