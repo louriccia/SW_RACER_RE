@@ -654,7 +654,7 @@ const RdMaterial *material_from_texture_id(TEXID id) {
     if (!texture_buffer_replacement || !texture_buffer_replacement[id])
         return nullptr;
 
-    return *(const RdMaterial **) texture_buffer_replacement[id];
+    return *(const RdMaterial* SWR_P32*) texture_buffer_replacement[id];
 }
 
 GLuint gl_texture_from_texture_id(TEXID id) {

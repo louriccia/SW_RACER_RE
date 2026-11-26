@@ -10,6 +10,7 @@
 // SWR_STANDALONE_RETAIL_TEXT retail's own code for the functions listed in SWR_STANDALONE_RETAIL
 // (that needs -DSWR_STANDALONE_DATA_RELOC=OFF, which keeps retail's data at its retail address).
 
+#include "cpu_context.h"
 #include <windows.h>
 #define DIRECTINPUT_VERSION 0x0500
 #include <dinput.h>
@@ -86,7 +87,7 @@ static LONG CALLBACK owned_guard_handler(EXCEPTION_POINTERS* ep)
         if (!owned_guard_reported[i]++)
             fprintf(standalone_log, "GUARD %s past %s (0x%08x, size 0x%x) by 0x%x, eip %08lx\n",
                     ep->ExceptionRecord->ExceptionInformation[0] ? "write" : "read", g->name, g->retail, g->size, past + 1,
-                    ep->ContextRecord->Eip);
+                    ep->ContextRecord->SWR_REG_IP);
         fflush(standalone_log);
         DWORD old;
         VirtualProtect((void*)owned_guard_pages[i], 0x1000, PAGE_READWRITE, &old);
@@ -200,8 +201,8 @@ static LONG CALLBACK watch_write_handler(EXCEPTION_POINTERS* ep)
 {
     if (ep->ExceptionRecord->ExceptionCode != EXCEPTION_SINGLE_STEP || !(ep->ContextRecord->Dr6 & 1))
         return EXCEPTION_CONTINUE_SEARCH;
-    uint32_t* esp = (uint32_t*)ep->ContextRecord->Esp;
-    fprintf(standalone_log, "WATCH write at eip %08lx, value now %08x, stack:", ep->ContextRecord->Eip,
+    uint32_t* esp = (uint32_t*)ep->ContextRecord->SWR_REG_SP;
+    fprintf(standalone_log, "WATCH write at eip %08lx, value now %08x, stack:", ep->ContextRecord->SWR_REG_IP,
             *(uint32_t*)ep->ContextRecord->Dr0);
     for (int i = 0, n = 0; i < 512 && n < 10; i++)
         if (in_our_code(esp[i])) {
@@ -261,7 +262,7 @@ static LONG CALLBACK retail_trap_handler(EXCEPTION_POINTERS* ep)
     DWORD code = ep->ExceptionRecord->ExceptionCode;
     if (code != EXCEPTION_BREAKPOINT && code != EXCEPTION_ACCESS_VIOLATION && code != EXCEPTION_ILLEGAL_INSTRUCTION)
         return EXCEPTION_CONTINUE_SEARCH;
-    uint32_t* esp = (uint32_t*)ep->ContextRecord->Esp;
+    uint32_t* esp = (uint32_t*)ep->ContextRecord->SWR_REG_SP;
     fprintf(standalone_log, "EXCEPTION 0x%08lx at 0x%08x (esp 0x%08x, [esp] 0x%08x)", code, pc, (uint32_t)esp,
             IsBadReadPtr(esp, 4) ? 0 : esp[0]);
     if (code == EXCEPTION_ACCESS_VIOLATION)
@@ -275,7 +276,7 @@ static LONG CALLBACK retail_trap_handler(EXCEPTION_POINTERS* ep)
         GetModuleFileNameA(pcmod, modname, sizeof(modname));
     CONTEXT* c = ep->ContextRecord;
     fprintf(standalone_log, "  in %s+0x%x\n  eax %08lx ebx %08lx ecx %08lx edx %08lx esi %08lx edi %08lx ebp %08lx", modname,
-            pc - (uint32_t)pcmod, c->Eax, c->Ebx, c->Ecx, c->Edx, c->Esi, c->Edi, c->Ebp);
+            pc - (uint32_t)pcmod, c->SWR_REG_AX, c->SWR_REG_BX, c->SWR_REG_CX, c->SWR_REG_DX, c->SWR_REG_SI, c->SWR_REG_DI, c->SWR_REG_BP);
     fprintf(standalone_log, "\n  stack code refs:");
     // Candidate return addresses into our image (resolve with nm -n) or into retail's code range.
     for (int i = 0, n = 0; i < 2048 && n < 24; i++) {
@@ -610,8 +611,8 @@ static DWORD WINAPI watch_thread(LPVOID unused)
                 }
                 fprintf(standalone_log, "watch: rdCache drawnFaces %d frame %d procFaces %d hwVerts %d | ", *(int*)SWR_GLOBAL_PTR(0x00deb0e8), *(int*)SWR_GLOBAL_PTR(0x00deb0ec), *(int*)SWR_GLOBAL_PTR(0x006930c8), *(int*)SWR_GLOBAL_PTR(0x00a530d0));
                 fprintf(standalone_log, "watch: cooldown %f loaded %d dt %f | ", (double)*(float*)SWR_GLOBAL_PTR(0x004d5588), *(int*)SWR_GLOBAL_PTR(0x004b6c90), *(double*)SWR_GLOBAL_PTR(0x00e22a40));
-                fprintf(standalone_log, "watch: enterHeld %d uiActive %d readtime %d main eip %08lx stack:", ((int*)SWR_GLOBAL_PTR(0x0050e868))[0x1c], *(int*)SWR_GLOBAL_PTR(0x004b2940), *(int*)SWR_GLOBAL_PTR(0x0050fecc), c.Eip);
-                uint32_t* sp = (uint32_t*)c.Esp;
+                fprintf(standalone_log, "watch: enterHeld %d uiActive %d readtime %d main eip %08lx stack:", ((int*)SWR_GLOBAL_PTR(0x0050e868))[0x1c], *(int*)SWR_GLOBAL_PTR(0x004b2940), *(int*)SWR_GLOBAL_PTR(0x0050fecc), c.SWR_REG_IP);
+                uint32_t* sp = (uint32_t*)c.SWR_REG_SP;
                 for (int i = 0, n = 0; i < 4096 && n < 16 && !IsBadReadPtr(sp + i, 4); i++)
                     if (in_our_code(sp[i])) {
                         fprintf(standalone_log, " %08x", sp[i]);

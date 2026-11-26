@@ -383,9 +383,10 @@ int stdControl_Startup_delta(void) {
     HINSTANCE hinst = ((HINSTANCE(*)(void)) SWR_FN(Window_GetHINSTANCE))();
     // DirectInputCreateA is __stdcall (callee cleans the stack); the cast must match or
     // the stack is corrupted on return.
-    HRESULT hr = ((HRESULT(__stdcall *)(HINSTANCE, DWORD, LPDIRECTINPUTA *, LPUNKNOWN))
-                      SWR_FN(DirectX_DirectInputCreateA))(hinst, 0x0500 /* DInput v5 */,
-                                                       &iDirectInputA_ptr, NULL);
+    HRESULT hr = SWR_OUT_NATIVE(
+        LPDIRECTINPUTA, iDirectInputA_ptr,
+        ((HRESULT(__stdcall *)(HINSTANCE, DWORD, LPDIRECTINPUTA *, LPUNKNOWN))
+             SWR_FN(DirectX_DirectInputCreateA))(hinst, 0x0500 /* DInput v5 */, swr_out_, NULL));
     if (hr != S_OK)
         return 1;
 

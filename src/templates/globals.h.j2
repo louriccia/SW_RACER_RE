@@ -17,7 +17,8 @@ extern "C"
 #endif
 {% for g in globals %}
 // Line {{g.line}}: {{g.name}} {{g.address}} {{g.type}}
-#define {{g.new_name}} (*({{g.new_type}}({{"* SWR_P32 *" if "function_specifier" in g else "*"}}){{g.array_specifier}}{{g.function_specifier}})SWR_IMAGE_PTR({{g.address}}))
+{% if "function_specifier" in g %}typedef {{g.new_type}}(* SWR_P32 swr_fn32_{{g.new_name}}){{g.function_specifier}};
+#define {{g.new_name}} (*(swr_fn32_{{g.new_name}}(*){{g.array_specifier}})SWR_IMAGE_PTR({{g.address}})){% else %}#define {{g.new_name}} (*({{g.new_type}}(*){{g.array_specifier}})SWR_IMAGE_PTR({{g.address}})){% endif %}
 {% endfor %}
 #ifdef __cplusplus
 }

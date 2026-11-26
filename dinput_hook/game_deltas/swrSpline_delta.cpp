@@ -110,6 +110,6 @@ char *swrSpline_LoadSplineById_delta(char *splineBuffer) {
     char *res = hook_call_original(swrSpline_LoadSplineById, splineBuffer);
 
     if (is_custom_track)
-        finalize_loading_custom_track_spline(*(swrSpline **) res);
+        finalize_loading_custom_track_spline(*(swrSpline* SWR_P32*) res);
     return res;
 }

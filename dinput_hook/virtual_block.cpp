@@ -256,7 +256,7 @@ namespace {
 
     // The path pointer the game reads when it opens a block. Swapping these is how a custom track
     // substitutes its own archive; the sprite block is never swapped.
-    const char **block_path(swrLoader_TYPE type) {
+    const char *SWR_P32 *block_path(swrLoader_TYPE type) {
         switch (type) {
             case swrLoader_TYPE_SPLINE_BLOCK:
                 return SWR_SPLINEBLOCK_PATH_PTR;
@@ -278,8 +278,8 @@ void swrLoader_OpenBlock_delta(swrLoader_TYPE type) {
     // The game opens a block only when its handle is NULL, so a path swap while the handle is still
     // open is silently ignored and the next read comes from the previous archive. Log what the
     // handle and the path pointer are on the way in; a mismatch is the bug.
-    const char **path = block_path(type);
-    if (path != nullptr && valid_type(type) && last_open_path[type] != (*path ? *path : "")) {
+    const char *SWR_P32 *path = block_path(type);
+    if (path != nullptr && valid_type(type) && last_open_path[type] != (*path ? (const char *) *path : "")) {
         last_open_path[type] = *path ? *path : "";
         fprintf(hook_log, "[virtual_block] %s block now reads '%s' (handle=%p on entry)\n",
                 type_name(type), last_open_path[type].c_str(), (const void *) block_handle(type));
@@ -300,8 +300,8 @@ size_t swrLoader_ReadAt_delta(swrLoader_TYPE type, long offset, void *dst, size_
 
     // A view's fall-through offsets only mean anything in the block it was built from, and a
     // custom track swaps the block path out from under us. Serve the real file instead.
-    const char **path = block_path(type);
-    if (path != nullptr && *path != nullptr && view.source_path != *path) {
+    const char *SWR_P32 *path = block_path(type);
+    if (path != nullptr && *path != nullptr && view.source_path != (const char *) *path) {
         stats[type].wrong_block++;
         return hook_call_original(swrLoader_ReadAt, type, offset, dst, size);
     }
@@ -443,7 +443,7 @@ void virtual_block_LoadFolderOverrides() {
         if (overrides.empty())
             continue;
 
-        const char **path = block_path(type);
+        const char *SWR_P32 *path = block_path(type);
         VirtualBlockView view;
         if (path != nullptr && *path != nullptr &&
             virtual_block_BuildView(type, *path, std::move(overrides), &view))
@@ -465,6 +465,6 @@ void virtual_block_RegisterHooks() {
 }
 
 // Defined after the block_path helper above.
-const char **virtual_block_SourcePath(swrLoader_TYPE type) {
+const char *SWR_P32 *virtual_block_SourcePath(swrLoader_TYPE type) {
     return block_path(type);
 }

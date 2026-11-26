@@ -53,7 +53,7 @@ static float compute_cable_amplitude(const swrRace* player, float k) {
 void swrRace_PoddAnimateVariousThings_delta(swrRace* player) {
     hook_call_original(swrRace_PoddAnimateVariousThings, player);
 
-    swrModel_Node** nodes = player->partNodes;
+    swrModel_Node* SWR_P32* nodes = player->partNodes;
     if (!nodes)
         return;
 
@@ -82,11 +82,11 @@ void swrRace_PoddAnimateVariousThings_delta(swrRace* player) {
 // falloff is 1 and the cable amplitude is exactly that value). Register those cables so the GL
 // path bends them too. Not reimplemented in src: declared (swrRace_AnimateDisplayPod_ADDR +
 // prototype) in swrObj.h, so call the original through its address via this typedef.
-typedef void(__cdecl* swrRace_AnimateDisplayPod_t)(swrModel_Node** nodes, void* transform, int a3,
+typedef void(__cdecl* swrRace_AnimateDisplayPod_t)(swrModel_Node* SWR_P32* nodes, void* transform, int a3,
                                                    float a4, float a5, float a6, float a7,
                                                    int animated, float a9, float a10);
 
-void __cdecl swrRace_AnimateDisplayPod_delta(swrModel_Node** nodes, void* transform, int a3,
+void __cdecl swrRace_AnimateDisplayPod_delta(swrModel_Node* SWR_P32* nodes, void* transform, int a3,
                                              float a4, float a5, float a6, float a7, int animated,
                                              float a9, float a10) {
     hook_call_original((swrRace_AnimateDisplayPod_t) swrRace_AnimateDisplayPod_ADDR, nodes,
@@ -207,8 +207,8 @@ void __cdecl swrRace_SpawnGroundDustKick_delta(swrRace* player, float* transform
 // and their trails gap while the (unchecked) player stays smooth. More headroom keeps AI continuous.
 static const int DUST_POOL_SIZE = 128;
 static swrModel_Node g_dustWrappers[DUST_POOL_SIZE * 4];
-static swrModel_Node* g_dustChildNodes[DUST_POOL_SIZE];
-static swrModel_Node* g_dustChildArray2[DUST_POOL_SIZE];
+static swrModel_Node* SWR_P32 g_dustChildNodes[DUST_POOL_SIZE];
+static swrModel_Node* SWR_P32 g_dustChildArray2[DUST_POOL_SIZE];
 static swrModel_Node g_dustRootNode;
 
 void swrObjToss_AddDustKickModelsToScene_delta() {

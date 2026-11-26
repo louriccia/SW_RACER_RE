@@ -64,7 +64,7 @@ static void note_special_material(TEXID texture_index, swrMaterial* material)
 }
 
 // 0x00447490
-void refined_swrModel_LoadModelTexture(TEXID texture_index, swrMaterial** material_ptr, uint8_t** palette_data_ptr)
+void refined_swrModel_LoadModelTexture(TEXID texture_index, swrMaterial* SWR_P32* material_ptr, uint8_t* SWR_P32* palette_data_ptr)
 {
     uint32_t count;
     void** entries = slots(&count);
@@ -77,8 +77,8 @@ void refined_swrModel_LoadModelTexture(TEXID texture_index, swrMaterial** materi
     }
     // an entry points at the first loader's {material, palette} pair
     if (entries[index] != NULL) {
-        *material_ptr = ((swrMaterial**)entries[index])[0];
-        *palette_data_ptr = ((uint8_t**)entries[index])[1];
+        *material_ptr = ((swrMaterial* SWR_P32*)entries[index])[0];
+        *palette_data_ptr = ((uint8_t* SWR_P32*)entries[index])[1];
         return;
     }
 
@@ -86,7 +86,7 @@ void refined_swrModel_LoadModelTexture(TEXID texture_index, swrMaterial** materi
     swrLoader_ReadAt(swrLoader_TYPE_TEXTURE_BLOCK, index * 8 + 4, offsets, sizeof(offsets));
     for (int i = 0; i < 3; i++)
         offsets[i] = SWAP32(offsets[i]);
-    swrModel_LoadTextureDataAndPalette(offsets, (uint8_t**)material_ptr, palette_data_ptr);
+    swrModel_LoadTextureDataAndPalette(offsets, (uint8_t* SWR_P32*)material_ptr, palette_data_ptr);
     swrModel_DoConvertTextureDataToRdMaterial(material_ptr, palette_data_ptr);
     entries[index] = material_ptr;
     note_special_material(texture_index, *material_ptr);

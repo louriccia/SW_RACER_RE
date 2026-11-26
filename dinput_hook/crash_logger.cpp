@@ -1,3 +1,4 @@
+#include "cpu_context.h"
 #include "crash_logger.h"
 
 #include <windows.h>
@@ -200,7 +201,7 @@ static volatile LONG g_crash_reported = 0;
 
 static void report_crash(EXCEPTION_POINTERS *ep) {
     const EXCEPTION_RECORD *er = ep->ExceptionRecord;
-    const UINT_PTR esp = ep->ContextRecord->Esp;
+    const UINT_PTR esp = ep->ContextRecord->SWR_REG_SP;
 
     // Write the standalone crash file first, via Win32 file I/O only, so a crash that faulted
     // while holding the CRT heap lock -- the most common native crash -- still produces a report
@@ -280,8 +281,8 @@ static void capture_hang(HANDLE thread, const char *kind, const char *headline, 
         write_build_line(cf);
         write_fmt(cf, "  last stage: %s\n", g_last_stage);
         write_fmt(cf, "  frozen instruction:\n");
-        log_addr(cf, (void *) (UINT_PTR) ctx.Eip);
-        log_stack_scan(cf, ctx.Esp);
+        log_addr(cf, (void *) (UINT_PTR) ctx.SWR_REG_IP);
+        log_stack_scan(cf, ctx.SWR_REG_SP);
         write_fmt(cf, "*** end %s report ***\n", kind);
         CloseHandle(cf);
     }

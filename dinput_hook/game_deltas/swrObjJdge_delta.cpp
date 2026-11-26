@@ -57,7 +57,7 @@ static void forget_trigger_state();
 static float g_countdown_ms = 0.0f;
 static bool g_countdown_valid = false;
 
-int fixup_invalid_node_ptrs(swrModel_Node *&node) {
+int fixup_invalid_node_ptrs(swrModel_Node *SWR_P32 &node) {
     if (!node)
         return 0;
 
@@ -268,7 +268,7 @@ typedef swrModel_NodeTransformedWithPivot *(__cdecl *swrObjTrig_FindNode_t)(
     swrModel_TriggerDescription *);
 struct FlagNode {
     swrModel_Node *node;
-    swrModel_Node **standing_children;
+    swrModel_Node* SWR_P32*standing_children;
     uint32_t standing_flags_1;
 };
 static FlagNode g_flag_node[64];

@@ -6,7 +6,7 @@ void swrRace_PoddAnimateVariousThings_delta(swrRace* player);
 
 // Hook for the display-pod animator (FUN_004337e0): hangar inspect, selection menu, cutscenes.
 // Registers the display pod's cables so they curve in the GL path outside racing.
-void swrRace_AnimateDisplayPod_delta(swrModel_Node** nodes, void* transform, int a3, float a4,
+void swrRace_AnimateDisplayPod_delta(swrModel_Node* SWR_P32* nodes, void* transform, int a3, float a4,
                                      float a5, float a6, float a7, int animated, float a9,
                                      float a10);
 

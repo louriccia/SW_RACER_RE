@@ -1,3 +1,4 @@
+#include "cpu_context.h"
 #include "shadow.h"
 
 #include "hook_helper.h"
@@ -336,7 +337,7 @@ LONG CALLBACK shadow_veh(EXCEPTION_POINTERS *ep) {
         // The write is real and must stand: stop tracking this page.
         g_foreign++;
         g_last_foreign_tid = GetCurrentThreadId();
-        g_last_foreign_eip = ep->ContextRecord->Eip;
+        g_last_foreign_eip = ep->ContextRecord->SWR_REG_IP;
         g_last_foreign_addr = (DWORD) er->ExceptionInformation[1];
         if (e)
             e->foreign = true;
@@ -1501,8 +1502,8 @@ static DWORD WINAPI shadow_watchdog(void *) {
         uint32_t stack[24] = {};
         if (main && SuspendThread(main) != (DWORD) -1) {
             if (GetThreadContext(main, &ctx)) {
-                eip = ctx.Eip;
-                esp = ctx.Esp;
+                eip = ctx.SWR_REG_IP;
+                esp = ctx.SWR_REG_SP;
                 SIZE_T got;
                 ReadProcessMemory(GetCurrentProcess(), (void *) esp, stack, sizeof(stack), &got);
             }

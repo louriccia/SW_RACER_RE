@@ -2552,10 +2552,10 @@ static void draw_deferred_sprite_pass2(void) {
 
 // swrSprite_Draw clamps the quad to spriteViewportMin/Max but takes the UV span from the clamped
 // size, so edge sprites crop from the wrong side. GL clips on its own: widen a full-screen viewport.
-typedef void(__cdecl *swrSprite_Draw_t)(int *, swrSpriteTexture *, RdMaterial **, float, float, float,
+typedef void(__cdecl *swrSprite_Draw_t)(int *, swrSpriteTexture *, RdMaterial* SWR_P32*, float, float, float,
                                         float, int, int, int, int, int, int, int, short, float, float,
                                         int);
-static void __cdecl swrSprite_Draw_delta(int *arg0, swrSpriteTexture *tex, RdMaterial **page,
+static void __cdecl swrSprite_Draw_delta(int *arg0, swrSpriteTexture *tex, RdMaterial* SWR_P32*page,
                                          float x0, float y0, float x1, float y1, int p8, int p9,
                                          int p10, int p11, int p12, int p13, int p14, short p15,
                                          float p16, float p17, int flags) {

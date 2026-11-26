@@ -47,8 +47,8 @@ extern std::vector<AssetPointerToModel> asset_pointer_to_model;
 
 typedef void (*Original_ConvertTextureDataToRdMaterial)(int texture_type_a, int texture_type_b,
                                                         int orig_width, int orig_height, int width,
-                                                        int height, swrMaterial **texture_data_ptr,
-                                                        uint8_t **palette_ptr, char flipSomething,
+                                                        int height, swrMaterial* SWR_P32*texture_data_ptr,
+                                                        uint8_t* SWR_P32* palette_ptr, char flipSomething,
                                                         char adjustWidthHeightFlag);
 
 // C was this close to being perfect, but Andrew Kelley gave us zig
@@ -124,7 +124,7 @@ int readFontToBuffer(unsigned char *out_buffer, const char *path) {
 // restores the built-in through the journal. The original is always run first so the built-in
 // materials exist to revert to. This makes the F5 toggle apply live, no restart.
 struct HdFontSlot {
-    swrMaterial **page;// font-table glyph-page slot the converter fills (swrText_fonts[f].pages[p])
+    swrMaterial* SWR_P32*page;// font-table glyph-page slot the converter fills (swrText_fonts[f].pages[p])
     uint8_t *buffer;   // HD texture data the slot is pointed at before conversion
 };
 static const HdFontSlot kHdFontSlots[] = {
@@ -167,9 +167,9 @@ static bool ensure_hd_fonts_built() {
 
     Original_ConvertTextureDataToRdMaterial converter =
         (Original_ConvertTextureDataToRdMaterial) SWR_FN(swrModel_ConvertTextureDataToRdMaterial);
-    uint8_t *palette = nullptr;
+    uint8_t *SWR_P32 palette = nullptr;
     for (int i = 0; i < kNumHdFontSlots; i++) {
-        swrMaterial **page = kHdFontSlots[i].page;
+        swrMaterial* SWR_P32*page = kHdFontSlots[i].page;
         swrMaterial *builtin = *page;                  // built-in material (set by the original)
         *page = (swrMaterial *) kHdFontSlots[i].buffer;// point at HD data, then convert in place
         converter(3, 0, HD_FONT_WIDTH, HD_FONT_HEIGHT, HD_FONT_WIDTH, HD_FONT_HEIGHT, page,
@@ -356,11 +356,11 @@ void swrModel_InitializeTextureBuffer_delta() {
     swrLoader_CloseBlock(swrLoader_TYPE_TEXTURE_BLOCK);
 }
 
-typedef void(__cdecl *swrModel_DoConvertTextureDataToRdMaterialFn)(swrMaterial **, uint8_t **);
+typedef void(__cdecl *swrModel_DoConvertTextureDataToRdMaterialFn)(swrMaterial* SWR_P32*, uint8_t* SWR_P32*);
 
 // 0x00446C20
-void swrModel_DoConvertTextureDataToRdMaterial_delta(swrMaterial **texture_data_ptr,
-                                                     uint8_t **palette_data_ptr) {
+void swrModel_DoConvertTextureDataToRdMaterial_delta(swrMaterial* SWR_P32*texture_data_ptr,
+                                                     uint8_t* SWR_P32* palette_data_ptr) {
     if (*texture_data_ptr == nullptr) {
         // The material stays NULL, so the renderer draws it with the default white texture.
         fprintf(hook_log,

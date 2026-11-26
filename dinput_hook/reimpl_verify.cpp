@@ -2860,7 +2860,7 @@ namespace {
                 o.ret = 0.0f;
             });
 
-        static swrModel_Node *fake_nodes[6];
+        static swrModel_Node *SWR_P32 fake_nodes[6];
         run_racer(
             "swrRace_ApplyPartSinkOffset", swrRace_ApplyPartSinkOffset_ADDR,
             (V_racer_only) swrRace_ApplyPartSinkOffset,
@@ -3365,13 +3365,13 @@ namespace {
         *start = (float) elmo->unk88 * 0.37f + 0.05f;
         *end = *start + 1.25f;
     }
-    void stub_anim_settings(swrModel_Animation **anims, float time, float start, float end, int loop,
+    void stub_anim_settings(swrModel_Animation* SWR_P32*anims, float time, float start, float end, int loop,
                             float transition, float loopTransition) {
         log_word(0xb2000000u | ((uint32_t) loop & 0xffu));
         log_word(float_bits(time)), log_word(float_bits(start)), log_word(float_bits(end));
         log_word(float_bits(transition)), log_word(float_bits(loopTransition));
     }
-    void stub_anim_speed(swrModel_Animation **anims, float speed) {
+    void stub_anim_speed(swrModel_Animation* SWR_P32*anims, float speed) {
         log_word(0xb3000000u);
         log_word(float_bits(speed));
     }
@@ -3773,7 +3773,7 @@ namespace {
         const V_node_closest retail = (V_node_closest) hook_retail_ptr(swrModel_NodeClosestPoint_ADDR);
         static Vtx verts[2][24];
         static swrModel_Mesh meshes[2];
-        static swrModel_Mesh *mesh_ptrs[2];
+        static swrModel_Mesh *SWR_P32 mesh_ptrs[2];
         static swrModel_Node node;
         Stats s;
         stats_init(s, name);
@@ -3811,7 +3811,7 @@ namespace {
         report(s);
     }
 
-    using V_face_intensity = void (*)(rdLight **, rdVector3 *, int, RdFace *, rdVector3 *, rdVector3 *, float, void *);
+    using V_face_intensity = void (*)(rdLight* SWR_P32*, rdVector3 *, int, RdFace *, rdVector3 *, rdVector3 *, float, void *);
 
     void run_calc_face_intensity() {
         const char *name = "rdLight_CalcFaceIntensity";
@@ -3819,7 +3819,7 @@ namespace {
             return;
         const V_face_intensity retail = (V_face_intensity) hook_retail_ptr(rdLight_CalcFaceIntensity_ADDR);
         static rdLight lights[6];
-        static rdLight *light_ptrs[6];
+        static rdLight *SWR_P32 light_ptrs[6];
         Stats s;
         stats_init(s, name);
         for (int i = 0; i < VERIFY_ITERATIONS; i++) {

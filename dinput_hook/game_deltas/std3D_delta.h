@@ -11,7 +11,7 @@ void std3D_DrawRenderList_delta(LPDIRECT3DTEXTURE2 pTex, Std3DRenderState rdflag
                                 LPD3DTLVERTEX aVerticies, int verticesCount, LPWORD lpwIndices,
                                 int indexCount);
 void std3D_SetRenderState_delta(Std3DRenderState rdflags);
-void std3D_AllocSystemTexture_delta(tSystemTexture *pTexture, tVBuffer **apVBuffers,
+void std3D_AllocSystemTexture_delta(tSystemTexture *pTexture, tVBuffer* SWR_P32*apVBuffers,
                                     unsigned int numMipLevels, StdColorFormatType formatType);
 void std3D_ClearTexture_delta(tSystemTexture *pTex);
 void std3D_AddToTextureCache_delta(tSystemTexture *pCacheTexture, StdColorFormatType format);

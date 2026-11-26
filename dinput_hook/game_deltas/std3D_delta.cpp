@@ -292,7 +292,7 @@ void std3D_SetRenderState_delta(Std3DRenderState rdflags) {
 }
 
 // 0x0048a5e0
-void std3D_AllocSystemTexture_delta(tSystemTexture *pTexture, tVBuffer **apVBuffers,
+void std3D_AllocSystemTexture_delta(tSystemTexture *pTexture, tVBuffer* SWR_P32*apVBuffers,
                                     unsigned int numMipLevels, StdColorFormatType formatType) {
     *pTexture = (tSystemTexture) {0};
     GLuint gl_tex = 0;

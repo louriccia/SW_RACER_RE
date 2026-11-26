@@ -72,7 +72,7 @@ void virtual_block_LoadFolderOverrides();
 
 // The pointer the game reads a block path from, i.e. the archive a view must be built against.
 // Null for the sprite block, which nothing swaps.
-const char **virtual_block_SourcePath(swrLoader_TYPE type);
+const char *SWR_P32 *virtual_block_SourcePath(swrLoader_TYPE type);
 
 void virtual_block_RegisterHooks();
 

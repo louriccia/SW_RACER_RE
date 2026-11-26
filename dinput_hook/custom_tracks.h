@@ -20,9 +20,9 @@ struct CustomTrack {
 
 // The loader's three block file paths (swrLoader_OpenBlock reads them). Redirecting them is how
 // a custom track's blocks load in place of data/lev01.
-#define SWR_SPLINEBLOCK_PATH_PTR ((const char **) &swrLoader_spline_path)
-#define SWR_TEXTUREBLOCK_PATH_PTR ((const char **) &swrLoader_texture_path)
-#define SWR_MODELBLOCK_PATH_PTR ((const char **) &swrLoader_model_path)
+#define SWR_SPLINEBLOCK_PATH_PTR ((const char* SWR_P32*)&swrLoader_spline_path)
+#define SWR_TEXTUREBLOCK_PATH_PTR ((const char* SWR_P32*)&swrLoader_texture_path)
+#define SWR_MODELBLOCK_PATH_PTR ((const char* SWR_P32*)&swrLoader_model_path)
 
 extern int currentCustomID;
 extern std::optional<CustomTrack> currentCustomTrack;

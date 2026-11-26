@@ -133,7 +133,7 @@ void begin_texture_replacement() {
         // replace loaded texture opengl handles
         replacement_backup.clear();
         for (const auto& [tex_id, replacement] : replacement_textures) {
-            RdMaterial** mat_ptr = (RdMaterial **)texture_buffer_replacement[tex_id];
+            RdMaterial* SWR_P32* mat_ptr = (RdMaterial* SWR_P32*)texture_buffer_replacement[tex_id];
             if (!mat_ptr)
                 continue;
 

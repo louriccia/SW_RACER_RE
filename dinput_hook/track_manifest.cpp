@@ -316,7 +316,7 @@ bool track_manifest_InstallViews(const TrackManifest &manifest) {
         if (by_type[i]->empty())
             continue;
 
-        const char **path = virtual_block_SourcePath(pending[i].type);
+        const char *SWR_P32 *path = virtual_block_SourcePath(pending[i].type);
         if (path == nullptr || *path == nullptr ||
             !virtual_block_BuildView(pending[i].type, *path, std::move(*by_type[i]),
                                      &pending[i].view))
