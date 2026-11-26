@@ -8,6 +8,7 @@
 // the trampoline, whether the caller names the retail address or the src symbol.
 
 #include "audio/openal_audio.h"
+#include "movies/movie_player.h"
 #include <cstdio>
 #include <cstring>
 #include <set>
@@ -200,6 +201,9 @@ extern "C" int __stdcall __wrap_WinMain(HINSTANCE hInstance, HINSTANCE hPrev, PS
     init_renderer_hooks();
 #ifdef SWR_OPENAL_AUDIO
     init_openal_audio_hooks();
+#endif
+#ifdef SWR_OWN_MOVIES
+    init_movie_player();
 #endif
     crash_logger_stage("init: game hooks");
     init_hooks();

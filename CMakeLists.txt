@@ -123,7 +123,7 @@ add_subdirectory(dinput_hook)
 option(SWR_STANDALONE "Build swe1r_standalone.exe" OFF)
 option(SWR_STANDALONE_DATA_RELOC "Standalone keeps retail data in its own image instead of at 0x4ac000" ON)
 # swe1r: OpenAL Soft (OpenAL32.dll, loaded at runtime) instead of A3D.
-option(SWR_STANDALONE_OPENAL "swe1r plays audio through OpenAL instead of A3D" ON)
+option(SWR_STANDALONE_OPENAL "swe1r plays audio through OpenAL instead of A3D, and movies with its own SANM player" ON)
 option(SWR_STANDALONE_OWNED_GUARDED "Diagnostic: every owned global ends at a guard page (finds reads/writes past it)" OFF)
 if (SWR_STANDALONE)
     set(STANDALONE_SOURCES ${SOURCES})
@@ -190,7 +190,9 @@ if (SWR_STANDALONE)
         dinput_hook/*.c dinput_hook/*.cpp dinput_hook/game_deltas/*.c dinput_hook/game_deltas/*.cpp
         dinput_hook/camera/*.cpp dinput_hook/nv_dds/*.cpp)
     if (SWR_STANDALONE_OPENAL)
-        list(APPEND SA_FEATURE_HOOK_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook/audio/openal_audio.cpp)
+        list(APPEND SA_FEATURE_HOOK_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook/audio/openal_audio.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook/movies/sanm.c
+            ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook/movies/movie_player.cpp)
     endif()
     list(FILTER SA_FEATURE_HOOK_SOURCES EXCLUDE REGEX "dinput_hook/(main\.cpp|hook_helper\.cpp|dinput_hook\.c)$")
     set(SA_FEATURE_OWN ${STANDALONE_OWN})
@@ -226,7 +228,7 @@ if (SWR_STANDALONE)
         ${OWNED_DIR})
     target_compile_definitions(swe1r PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1> ${OWNED_DEFS}
         ENABLE_GLFW_INPUT_HANDLING=0 ENABLE_GAMEPAD_NAV=1 ENABLE_XINPUT_RUMBLE=1
-        $<$<BOOL:${SWR_STANDALONE_OPENAL}>:SWR_OPENAL_AUDIO=1>)
+        $<$<BOOL:${SWR_STANDALONE_OPENAL}>:SWR_OPENAL_AUDIO=1 SWR_OWN_MOVIES=1>)
     target_link_libraries(swe1r PRIVATE swe1r_globals swr_memsafety imgui glad glfw fastgltf detours
         winmm Comctl32 ole32 version dxguid dinput ddraw opengl32 Dwmapi bcrypt psapi kernel32)
     target_link_options(swe1r PRIVATE "-Wl,--image-base=0x10000000" "-Wl,--disable-dynamicbase" "-Wl,--stack,0x100000" "-static"

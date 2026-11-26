@@ -47,6 +47,7 @@ namespace {
         AL_REFERENCE_DISTANCE = 0x1020,
         AL_ROLLOFF_FACTOR = 0x1021,
         AL_MAX_DISTANCE = 0x1023,
+        AL_SAMPLE_OFFSET = 0x1025,
         AL_BYTE_OFFSET = 0x1026,
         AL_FORMAT_MONO8 = 0x1100,
         AL_FORMAT_MONO16 = 0x1101,
@@ -95,7 +96,12 @@ namespace {
         }
     }
 
+    int al_state = 0;// 0 not tried, 1 loaded, -1 unavailable
+
     bool load_openal(void) {
+        if (al_state != 0)
+            return al_state > 0;
+        al_state = -1;
         HMODULE dll = LoadLibraryA("OpenAL32.dll");
         if (!dll) {
             log_line("OpenAL32.dll not found, keeping A3D");
@@ -109,6 +115,7 @@ namespace {
     }
         AL_FUNCTIONS(AL_RESOLVE)
 #undef AL_RESOLVE
+        al_state = 1;
         return true;
     }
 
@@ -605,4 +612,76 @@ void init_openal_audio_hooks(void) {
     hook_replace(swrSound_SetPlayEvent, SetPlayEvent_openal);
     close_openal_on_exit();
     log_line("replacing A3D");
+}
+
+// --- movie soundtrack (dinput_hook/movies) ---
+// Plays on the game's OpenAL device when sound is up, otherwise on a device of its own for the
+// length of the movie (the intro plays before swrSound_Init).
+
+namespace {
+    ALuint movie_source = 0;
+    ALuint movie_buffer = 0;
+    int movie_rate = 22050;
+    bool movie_own_device = false;
+}// namespace
+
+int openal_movie_audio_start(const int16_t *pcm, int samples, int channels, int rate, float gain) {
+    if (pcm == nullptr || samples <= 0 || !load_openal())
+        return 0;
+    if (device == nullptr) {
+        device = alcOpenDevice(nullptr);
+        context = device ? alcCreateContext(device, nullptr) : nullptr;
+        if (context == nullptr || !alcMakeContextCurrent(context)) {
+            if (context)
+                alcDestroyContext(context);
+            if (device)
+                alcCloseDevice(device);
+            device = nullptr;
+            context = nullptr;
+            return 0;
+        }
+        movie_own_device = true;
+    }
+    alGenSources(1, &movie_source);
+    alGenBuffers(1, &movie_buffer);
+    alBufferData(movie_buffer, channels == 2 ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16, pcm,
+                 (ALsizei) (samples * channels * 2), (ALsizei) rate);
+    alSourcei(movie_source, AL_BUFFER, (ALint) movie_buffer);
+    alSourcei(movie_source, AL_SOURCE_RELATIVE, AL_TRUE);
+    alSource3f(movie_source, AL_POSITION, 0.0f, 0.0f, 0.0f);
+    alSourcef(movie_source, AL_ROLLOFF_FACTOR, 0.0f);
+    alSourcef(movie_source, AL_GAIN, gain);
+    alSourcePlay(movie_source);
+    movie_rate = rate;
+    return 1;
+}
+
+// Seconds played so far, or -1 once the soundtrack has ended (or never started).
+double openal_movie_audio_time(void) {
+    if (movie_source == 0)
+        return -1.0;
+    ALint state = 0, offset = 0;
+    alGetSourcei(movie_source, AL_SOURCE_STATE, &state);
+    if (state != AL_PLAYING)
+        return -1.0;
+    alGetSourcei(movie_source, AL_SAMPLE_OFFSET, &offset);
+    return (double) offset / movie_rate;
+}
+
+void openal_movie_audio_stop(void) {
+    if (movie_source != 0) {
+        alSourceStop(movie_source);
+        alSourcei(movie_source, AL_BUFFER, 0);
+        alDeleteSources(1, &movie_source);
+        alDeleteBuffers(1, &movie_buffer);
+        movie_source = movie_buffer = 0;
+    }
+    if (movie_own_device) {
+        alcMakeContextCurrent(nullptr);
+        alcDestroyContext(context);
+        alcCloseDevice(device);
+        context = nullptr;
+        device = nullptr;
+        movie_own_device = false;
+    }
 }

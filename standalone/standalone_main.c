@@ -306,6 +306,17 @@ static void resolve_imports(const IMAGE_NT_HEADERS32* nt)
     IMAGE_IMPORT_DESCRIPTOR* d = (IMAGE_IMPORT_DESCRIPTOR*)retail_va(RETAIL_BASE + dir->VirtualAddress);
     for (; d->Name; d++) {
         const char* dll = (const char*)retail_va(RETAIL_BASE + d->Name);
+        // Our code calls through retail's import table only for IFORCE2 (cifr_IF*) and Smush;
+        // everything else is linked or loaded directly. Retail code (bisecting) needs them all.
+        int used = !_stricmp(dll, "IFORCE2.dll") || !_stricmp(dll, "Smush.dll");
+#ifdef SWR_OWN_MOVIES
+        if (!_stricmp(dll, "Smush.dll") && !GetEnvironmentVariableA("SWR_MOVIES_SMUSH", NULL, 0))
+            used = 0;
+#endif
+        if (!used && !standalone_retail_text_loaded()) {
+            fprintf(standalone_log, "import %-14s not loaded (unused)\n", dll);
+            continue;
+        }
         HMODULE mod = LoadLibraryA(dll);
         fprintf(standalone_log, "import %-14s -> %p\n", dll, (void*)mod);
         uint32_t* thunk = (uint32_t*)retail_va(RETAIL_BASE + d->FirstThunk);
