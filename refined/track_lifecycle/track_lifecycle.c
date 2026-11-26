@@ -6,6 +6,8 @@
 #include <globals.h>
 #include <swr.h>
 
+#include <string.h>
+
 typedef struct TrackListener {
     const char* owner;
     track_listener_fn fn;
@@ -62,12 +64,22 @@ void track_lifecycle_notify_loaded(void)
     listeners_run(&loaded_listeners);
 }
 
+// Trigger props/FX by slot. A planet's trigger setup fills only the slots it uses, and only
+// swrObjTrig_LoadPropModel writes ModelArray1, yet the scene nodes of every balloon, flame and flag
+// trigger take their child from ModelArray1[slot]. A slot the new planet does not fill keeps the
+// previous track's node, which the rewind is about to overwrite (U2).
+static void trigger_slots_reset(void)
+{
+    memset(swrObjTrig_ModelArray1, 0, sizeof(swrObjTrig_ModelArray1));
+}
+
 // 0x00445aa0
 void refined_swrAssetBuffer_ResetToIndex(int index)
 {
     char* checkpoint;
 
     listeners_run(&unload_listeners);
+    trigger_slots_reset();
     generation++;
 
     assetBufferIndex = index;

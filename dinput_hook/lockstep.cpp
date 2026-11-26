@@ -155,6 +155,10 @@ struct State {
     int forceMirror = -1;
     int forceRacers = -1;
     int recordFrames = 0;// record: stop after this many frames, 0 = when the race is left
+    // record: at the frame limit, restart the race on these tracks in turn ('RStr', the pause-menu
+    // restart) and record each one; a track switch inside one process
+    int thenTracks[8] = {};
+    int thenCount = 0;
     bool exitWhenDone = false;
     bool stopAtMismatch = false;// replay: stop at the first mismatching frame (bisecting needs only that)
     bool textureHash = false;// log a hash of every texture the renderer uploads (render-path oracle)
@@ -258,6 +262,9 @@ void read_config() {
             s.forceMirror = val[0] ? atoi(val) : 1;
         } else if (strcmp(key, "racers") == 0) {
             s.forceRacers = atoi(val);
+        } else if (strcmp(key, "then") == 0) {
+            if (s.thenCount < (int) (sizeof(s.thenTracks) / sizeof(s.thenTracks[0])))
+                s.thenTracks[s.thenCount++] = atoi(val);
         } else if (strcmp(key, "frames") == 0) {
             s.recordFrames = atoi(val);
         } else if (strcmp(key, "junk") == 0 && val[0]) {
@@ -423,6 +430,27 @@ bool restore_anim_scalars(FILE *f, int count) {
     return true;
 }
 
+// The hangar's next track is selected and the judge restarts the race, which reloads the track
+// (StartRace -> InitTrack) with no menu input. Recording re-arms for the new race.
+bool restart_on_next_track() {
+    swrObjJdge *j = judge();
+    swrObjHang *hang = (swrObjHang *) get_item()('Hang', 0);
+    if (j == nullptr || hang == nullptr)
+        return false;
+    const int track = s.thenTracks[0];
+    s.thenCount--;
+    memmove(s.thenTracks, s.thenTracks + 1, sizeof(s.thenTracks[0]) * s.thenCount);
+    hang->track_index = (char) track;
+    log_line("lockstep: then track %d", track);
+    s.finished = false;
+    s.sawRace = false;
+    s.haveStartRaceRand = false;
+    s.loadTicks = 0;
+    s.frame = 0;
+    ((void(__cdecl *)(swrObjJdge *, int)) SWR_FN(swrObjJdge_Clear))(j, 'RStr');
+    return true;
+}
+
 void stop(const char *why) {
     if (s.file) {
         fclose(s.file);
@@ -455,6 +483,8 @@ void stop(const char *why) {
         fprintf(hook_log, "[lockstep] %s: %u frames, %u mismatched\n", why, s.frame, s.mismatches);
         fflush(hook_log);
     }
+    if (s.mode == MODE_RECORD && s.thenCount > 0 && restart_on_next_track())
+        return;
     if (s.exitWhenDone) {
         if (s.log)
             fclose(s.log);

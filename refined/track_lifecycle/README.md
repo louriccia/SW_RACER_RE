@@ -57,7 +57,8 @@ Seams (crossing edges, debt until the neighbour is refined):
 |---|---|---|---|---|
 | UNSAFE (U1) | 0x00464b90 | `SetupTrackEnvironment` | Returns early when the track has no camera spline (`cam_splineId < 0`), leaving `cam_spline` and `camSweepCursor.spline` aimed at the previous track's arena data. Root cause of the 2026-09 custom-track CTDs (PR #307). Stock data never takes it: the camSplines table has an entry for every one of the 25 stock tracks (2+4+3+3+4+3+3+3); every -1 is a slot with no stock track | Clear `cam_spline`, `camSweepCursor`, `camSweepTransform` on every early return |
 | GLOBAL (G1) | 0x00445aa0 | `ResetToIndex` | The unload is implicit; nobody can tell which pointers it killed | Track generation counter + ordered `on_track_unload` / `on_track_loaded` listeners |
-| UNSAFE (U2) | — | scene roots | Root-child node slots carry nodes from the previous track into the next; the delta nulls any child with an invalid node type after InitTrack (`fixup_invalid_node_ptrs`, logged as HACK). Which slots and why is not yet traced | Trace the slots (step 2); reset them at unload, delete the scan |
+| UNSAFE (U2) | 0x0047d310 | `swrObjTrig_AddNodeToScene` / `swrObjTrig_ModelArray1` | Traced in step 2: trigger-wrapper nodes take their child from `swrObjTrig_ModelArray1[slot]`, which is never cleared between tracks and is written only by `LoadPropModel` and planet 1's flag setup. A planet that fills a slot with `LoadFxModel` (ModelArray2 only) or not at all leaves the previous track's node there. The delta nulls the resulting invalid child after InitTrack (`fixup_invalid_node_ptrs`, HACK) | Clear `ModelArray1` at unload (done, step 2); retire the scan in step 4 |
+| UNSAFE (U5) | 0x0047ddc0 | `swrObjTrig_LoadAndInitializeTriggerModels` | Same carry-over for `swrObjTrig_ModelArray2` and `swrObjTrig_AnimationArray`: trigger handlers (`Handle314Or501Trigger`, earthquake, break FX) write transforms and flags through `ModelArray2[index]` and animate `AnimationArray[index]`, so a trigger whose slot the planet does not fill writes into the previous track's (rewound) data. Not reached by the step-2 repro; clearing them turns a stale write into a NULL path the handlers only partly guard | Audit the handlers' NULL handling, then clear both at unload (later step) |
 | UNSAFE (U3) | 0x0047e8b0 | `CursorSeekToProgress` | Scan falls through without writing when no node matches, keeping a node window from a longer spline. Only reachable with a cursor carried across tracks | With U1/U4 fixed, prove unreachable (log); keep a guard only behind a debug assert |
 | UNSAFE (U4) | — | cursor owners | Any `swrSplineCursor` that outlives its track (fly-by, swrObjTest `splineCursor@0xac`, cMan) holds a raw `swrSpline*` into the arena | Cursors registered with the lifetime owner are reset on unload |
 | TANGLE (T1) | 0x00466bd0 | `InitTrack` (delta) | One wrapper does nine unrelated things for different features: track_registry mapping, cable bends, lap tracking, scene-animation snapshot, trigger state, countdown latch, crash-log stages, node fixup | Each feature registers its own load/unload listener; the wrapper disappears |
@@ -155,3 +156,39 @@ lockstep driver (race A, back to hangar, race B, hash both) would close it (size
 - Verified: swe1r full link; lockstep 25/25 ALL MATCH refined on, 25/25 ALL MATCH with
   `SWR_REFINED_OFF=1` (sa_t0..24, 1500 frames, pod 0); x64 (llvm-mingw, Release) compiles and links.
 
+### Step 2 (done) — U2 traced and fixed
+
+Trace: a temporary walk of `swrViewport_array[0].model_root_node` after InitTrack (logging every
+node `fixup_invalid_node_ptrs` would drop, with its path and arena offset), plus a probe of
+`swrObjTrig_ModelArray1[0..5]` after each InitTrack stage. Track switches were driven by a new
+lockstep key, `then <track>` (record mode: at the frame limit, select that track and restart via
+the judge's `'RStr'`, the pause-menu restart; up to 8 in a row), so one process races several
+tracks without menu input.
+
+Findings (Boonta Training, hangar track 0, then Bowser's Castle 1, custom track 31):
+- Only one scene slot carries over: root child 4 (the trigger root `swrObjTrig_RootNode`),
+  children 3 and 4. Both are trigger wrappers from `swrObjTrig_AddNodeToScene` (static
+  `swrObjTrig_NodePerTriggerArray` pivot nodes, type 0xD065) whose child list is
+  `&swrObjTrig_ModelArray1[2]`.
+- `ModelArray1[2]` is Boonta's `balloon01_part` (planet 0 `LoadPropModel(2, ...)`, arena+675736).
+  Bowser's Castle 1 runs as planet 1, which loads slot 2 with `LoadFxModel` (writes ModelArray2
+  only) but carries BalloonSpawner / FlameSpawner triggers (`AddNodeToScene(desc, flags, 2)`), so
+  its wrappers point at the old balloon, overwritten by the new track's data (type reads 0).
+- A fresh process racing Bowser's Castle 1 first is clean (`ModelArray1` is all NULL), which is
+  why the bug needs a previous track. Big Blue (planet 1, no spawner triggers) is unaffected.
+- Every other root slot is rebuilt by `LoadTrackModels` (it memsets `someRootNodeChildNodes`), and
+  the dust/fireball/pod roots are re-initialized each load.
+
+Fix: `refined_swrAssetBuffer_ResetToIndex` clears `swrObjTrig_ModelArray1` after the unload
+listeners. Retail never reads a slot its planet did not fill on stock data the lockstep covers
+(each lockstep race is the first of its process, where the array is all NULL anyway), so this is
+equivalent tier. Gap: no oracle covers a stock-to-stock switch; whether any stock track wraps a
+slot its planet does not fill is unchecked (a scan of the stock trigger descriptions per planet would
+settle it). The wrappers then get a NULL child, which the renderer already handles (it is what
+the HACK produced). ModelArray2 / AnimationArray have the same carry-over (U5, not fixed: see the
+flaw table).
+
+Verified: repro Boonta -> Bowser 1 -> Big Blue -> Boonta -> Bowser 1, refined on: 0 invalid nodes,
+no HACK line; `SWR_REFINED_OFF=1`: the HACK fires on both Bowser loads (same arena offset).
+
+Gates: swe1r full link; lockstep sa_t0..24 ALL MATCH refined on (25/25) and off (25/25); x64 builds.
