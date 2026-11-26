@@ -182,41 +182,29 @@ void swrObjJdge_RegisterTrackListeners() {
 }
 #endif
 
+#ifndef SWR_REFINED
 unsigned int swrObjJdge_InitTrack_delta(swrObjJdge *judge, swrScore *scores) {
-#ifndef SWR_REFINED
     crash_stage_track_loading();
-#endif
-#ifndef SWR_REFINED
     // Map the selected track's assets before the original loads them (and unmap the previous
     // track's, so a stock track never inherits another track's geometry).
     track_registry_ApplyForCurrentTrack();
-#endif
-#ifndef SWR_REFINED
     // Drop cable nodes from the previous track so freed pointers aren't matched against new meshes.
     swrRace_ClearCableBends();
-#endif
     const unsigned int x = hook_call_original(swrObjJdge_InitTrack, judge, scores);
-#ifndef SWR_REFINED
     crash_stage_track_loaded(judge);
-#endif
-#ifndef SWR_REFINED
     reset_lap_tracking(scores);
-#endif
-#ifndef SWR_REFINED
     capture_scene_animation_state();// record fresh animation state for a later fast restart
     forget_trigger_state();// recorded nodes/descs point into the previous track's asset buffer
     latch_countdown(judge);
-#endif
-#ifndef SWR_REFINED
     const int num_removed_nodes = fixup_invalid_node_ptrs(swrViewport_array[0].model_root_node);
     if (num_removed_nodes != 0)
     {
         fprintf(hook_log, "[swrObjJdge_InitTrack_delta] HACK: removed %d nodes with an invalid node type.\n", num_removed_nodes);
         fflush(hook_log);
     }
-#endif
     return x;
 }
+#endif
 
 // --- fast restart (speedrunner hotkey) -------------------------------------------------------
 // A hotkey (Enter) that restarts the current race INSTANTLY with no loading screen, landing in the

@@ -2995,11 +2995,12 @@ extern "C" void init_renderer_hooks() {
 
     hook_function("swrObjHang_InitTrackSprites", (uint32_t) swrObjHang_InitTrackSprites_ADDR,
                   (uint8_t *) swrObjHang_InitTrackSprites_delta);
+#ifdef SWR_REFINED
+    swrObjJdge_RegisterTrackListeners();
+#else
     hook_function("swrObjJdge_InitTrack", (uint32_t) swrObjJdge_InitTrack,
                   (uint8_t *) swrObjJdge_InitTrack_ADDR);
     hook_replace(swrObjJdge_InitTrack, swrObjJdge_InitTrack_delta);
-#ifdef SWR_REFINED
-    swrObjJdge_RegisterTrackListeners();
 #endif
 
     // Fast restart (speedrunner hotkey): capture each pod's swrRace_Init arguments at spawn time so
