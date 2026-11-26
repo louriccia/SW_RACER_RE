@@ -121,7 +121,7 @@ static BOOL CALLBACK stdControl_EnumJoystickName_cb(LPCDIDEVICEINSTANCEA lpddi, 
         g_joyIsSony[idx] = stdControl_IsSonyProduct(&lpddi->guidProduct);
         g_joyPid[idx] = HIWORD(lpddi->guidProduct.Data1);
     }
-    return ((LPDIENUMDEVICESCALLBACKA) DirectInput_EnumDevice_Callback_ADDR)(lpddi, pvRef);
+    return ((LPDIENUMDEVICESCALLBACKA) SWR_FN(DirectInput_EnumDevice_Callback))(lpddi, pvRef);
 }
 
 static LPDIRECTINPUTDEVICEA stdControl_GetJoystickDevice(int index) {
@@ -313,15 +313,15 @@ void stdControl_SelectJoystickByIndex(int index) {
     stdControl_joystickDeviceIndex = index;
     swrConfig_joystickNbAxis = 0;
     for (int i = 0; i < STDCONTROL_AXES_PER_JOYSTICK; i++) {
-        if (((int (*) (int)) stdControl_EnableAxis_ADDR)(i + index * STDCONTROL_AXES_PER_JOYSTICK))
+        if (((int (*) (int)) SWR_FN(stdControl_EnableAxis))(i + index * STDCONTROL_AXES_PER_JOYSTICK))
             swrConfig_joystickNbAxis++;
     }
     if (swrConfig_joystickNbAxis > 0) {
         joystick_detected = 1;
         swrConfig_joystick_enabled = 1;
     }
-    ((void (*) (int)) swrControl_ApplyAxisConfig_ADDR)(0);
-    ((void (*) (int)) swrControl_ApplyAxisConfig_ADDR)(1);
+    ((void (*) (int)) SWR_FN(swrControl_ApplyAxisConfig))(0);
+    ((void (*) (int)) SWR_FN(swrControl_ApplyAxisConfig))(1);
 }
 
 // After a rescan creates the device, swrControl still has the joystick latched off:
@@ -331,7 +331,7 @@ void stdControl_SelectJoystickByIndex(int index) {
 // re-running all of swrControl_Initialize (which would reset bindings and bails early once
 // stdControl is already started).
 static void stdControl_RefreshJoystickConfig(void) {
-    ((void (*) (void)) swrControl_SelectSavedJoystick_ADDR)();
+    ((void (*) (void)) SWR_FN(swrControl_SelectSavedJoystick))();
     stdControl_SelectJoystickByIndex(stdControl_joystickDeviceIndex);
 }
 
@@ -351,7 +351,7 @@ void stdControl_RescanJoysticks(void) {
     HRESULT hr = di->lpVtbl->EnumDevices(di, DIDEVTYPE_JOYSTICK, stdControl_EnumJoystickName_cb,
                                          NULL, DIEDFL_ATTACHEDONLY);
     const int enumerated = stdControl_numJoystickDevices;
-    ((void (*)(void)) stdControl_InitJoysticks_ADDR)();
+    ((void (*)(void)) SWR_FN(stdControl_InitJoysticks))();
     stdControl_InstallJoystickStateHook();
     stdControl_RefreshJoystickConfig();
     fprintf(hook_log,
@@ -380,11 +380,11 @@ int stdControl_Startup_delta(void) {
     if (stdControl_g_bStartup)
         return 1;
 
-    HINSTANCE hinst = ((HINSTANCE(*)(void)) Window_GetHINSTANCE_ADDR)();
+    HINSTANCE hinst = ((HINSTANCE(*)(void)) SWR_FN(Window_GetHINSTANCE))();
     // DirectInputCreateA is __stdcall (callee cleans the stack); the cast must match or
     // the stack is corrupted on return.
     HRESULT hr = ((HRESULT(__stdcall *)(HINSTANCE, DWORD, LPDIRECTINPUTA *, LPUNKNOWN))
-                      DirectX_DirectInputCreateA_ADDR)(hinst, 0x0500 /* DInput v5 */,
+                      SWR_FN(DirectX_DirectInputCreateA))(hinst, 0x0500 /* DInput v5 */,
                                                        &iDirectInputA_ptr, NULL);
     if (hr != S_OK)
         return 1;
@@ -397,17 +397,17 @@ int stdControl_Startup_delta(void) {
 
     IDirectInputA *di = iDirectInputA_ptr;
     LPDIENUMDEVICESCALLBACKA cb =
-        (LPDIENUMDEVICESCALLBACKA) DirectInput_EnumDevice_Callback_ADDR;
+        (LPDIENUMDEVICESCALLBACKA) SWR_FN(DirectInput_EnumDevice_Callback);
     di->lpVtbl->EnumDevices(di, DIDEVTYPE_KEYBOARD, cb, NULL, DIEDFL_ATTACHEDONLY);
     di->lpVtbl->EnumDevices(di, DIDEVTYPE_MOUSE, cb, NULL, DIEDFL_ATTACHEDONLY);
     di->lpVtbl->EnumDevices(di, DIDEVTYPE_JOYSTICK, stdControl_EnumJoystickName_cb, NULL,
                             DIEDFL_ATTACHEDONLY);
 
-    ((void (*)(void)) stdControl_InitKeyboard_ADDR)();
-    ((void (*)(void)) stdControl_InitJoysticks_ADDR)();
+    ((void (*)(void)) SWR_FN(stdControl_InitKeyboard))();
+    ((void (*)(void)) SWR_FN(stdControl_InitJoysticks))();
     stdControl_InstallJoystickStateHook();
-    ((void (*)(void)) stdControl_InitMouse_ADDR)();
-    ((void (*)(void)) stdControl_Reset_ADDR)();
+    ((void (*)(void)) SWR_FN(stdControl_InitMouse))();
+    ((void (*)(void)) SWR_FN(stdControl_Reset))();
 
     // Pick up controllers hot-plugged after startup.
     glfwSetJoystickCallback(stdControl_JoystickHotplug);

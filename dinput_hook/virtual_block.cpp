@@ -1,4 +1,5 @@
 #include "virtual_block.h"
+#include <swr_data_addr.h>
 
 #include <algorithm>
 #include <cstring>
@@ -249,7 +250,7 @@ namespace {
     typedef FILE **(*swrLoader_TypeToFileFn)(swrLoader_TYPE);
 
     FILE *block_handle(swrLoader_TYPE type) {
-        FILE **file = ((swrLoader_TypeToFileFn) swrLoader_TypeToFile_ADDR)(type);
+        FILE **file = ((swrLoader_TypeToFileFn) SWR_FN(swrLoader_TypeToFile))(type);
         return file ? *file : nullptr;
     }
 

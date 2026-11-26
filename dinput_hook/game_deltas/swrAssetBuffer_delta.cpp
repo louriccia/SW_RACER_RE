@@ -58,6 +58,11 @@ void swrAssetBuffer_PatchSize() {
     const uint32_t wanted = read_asset_buffer_size();
     if (wanted == retail)
         return;
+    if (!retail_code_present()) {
+        fprintf(hook_log, "[swrAssetBuffer_PatchSize] no retail code to patch; asset buffer stays at retail size.\n");
+        fflush(hook_log);
+        return;
+    }
 
     for (uint32_t address: kSizeSites) {
         uint32_t found = 0;

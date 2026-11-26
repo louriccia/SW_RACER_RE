@@ -2136,11 +2136,11 @@ static const uint8_t LIGHT_STREAK_ALPHA = 255;
 static const uint8_t LIGHT_STREAK_PAUSED_ALPHA = 128;
 
 extern "C" void swrSprite_UpdateLightStreakSprites_offscreen(swrViewport *vp) {
-    const auto set_visible = (swrSprite_SetVisible_t) swrSprite_SetVisible_ADDR;
-    const auto set_pos = (swrSprite_SetPosF_t) swrSprite_SetPosF_ADDR;
-    const auto set_rotation = (swrSprite_SetRotation_t) swrSprite_SetRotation_ADDR;
-    const auto set_dim = (swrSprite_SetDim_t) swrSprite_SetDim_ADDR;
-    const auto set_color = (swrSprite_SetColor_t) swrSprite_SetColor_ADDR;
+    const auto set_visible = (swrSprite_SetVisible_t) SWR_FN(swrSprite_SetVisible);
+    const auto set_pos = (swrSprite_SetPosF_t) SWR_FN(swrSprite_SetPosF);
+    const auto set_rotation = (swrSprite_SetRotation_t) SWR_FN(swrSprite_SetRotation);
+    const auto set_dim = (swrSprite_SetDim_t) SWR_FN(swrSprite_SetDim);
+    const auto set_color = (swrSprite_SetColor_t) SWR_FN(swrSprite_SetColor);
 
     const int num_slots = (int) std::size(lightStreakSpriteIDs1);
     for (int slot = 0; slot < num_slots; slot++) {
@@ -2158,7 +2158,7 @@ extern "C" void swrSprite_UpdateLightStreakSprites_offscreen(swrViewport *vp) {
               swrPlayerHUD_lightStreakParam))
             continue;
 
-        const uint8_t alpha = ((swrRace_GetPauseState_t) swrRace_GetPauseState_ADDR)() == 0
+        const uint8_t alpha = ((swrRace_GetPauseState_t) SWR_FN(swrRace_GetPauseState))() == 0
                                   ? LIGHT_STREAK_ALPHA
                                   : LIGHT_STREAK_PAUSED_ALPHA;
         float x, y, z, depth;

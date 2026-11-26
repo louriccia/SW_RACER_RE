@@ -1,4 +1,5 @@
 #include <swr_data_addr.h>
+#include "../patch.h"
 #include <macros.h>
 #include <cstring>
 #include <cstdio>
@@ -209,10 +210,10 @@ static void capture_scene_animation_state() {
 static void restore_scene_animation_state() {
     typedef void(__cdecl * anim_time_t)(swrModel_Animation *, float);
     typedef void(__cdecl * anim_flag_t)(swrModel_Animation *, swrModel_AnimationFlags);
-    anim_time_t setTime = (anim_time_t) swrModel_AnimationSetTime_ADDR;
-    anim_time_t setSpeed = (anim_time_t) swrModel_AnimationSetSpeed_ADDR;
-    anim_flag_t setFlags = (anim_flag_t) swrModel_AnimationSetFlags_ADDR;
-    anim_flag_t clearFlags = (anim_flag_t) swrModel_AnimationClearFlags_ADDR;
+    anim_time_t setTime = (anim_time_t) SWR_FN(swrModel_AnimationSetTime);
+    anim_time_t setSpeed = (anim_time_t) SWR_FN(swrModel_AnimationSetSpeed);
+    anim_flag_t setFlags = (anim_flag_t) SWR_FN(swrModel_AnimationSetFlags);
+    anim_flag_t clearFlags = (anim_flag_t) SWR_FN(swrModel_AnimationClearFlags);
     for (int i = 0; i < g_anim_count; i++) {
         swrModel_Animation *a = swrScene_animations[i];
         if (a == NULL || a != g_anim_ptr[i])// list changed (a full reload happened) -> skip
@@ -273,7 +274,7 @@ static int g_flag_node_count = 0;
 static void record_flag_standing(swrModel_TriggerDescription *desc) {
     if (desc == NULL || g_flag_node_count >= 64)
         return;
-    swrModel_NodeTransformedWithPivot *n = ((swrObjTrig_FindNode_t) swrObjTrig_FindNode_ADDR)(desc);
+    swrModel_NodeTransformedWithPivot *n = ((swrObjTrig_FindNode_t) SWR_FN(swrObjTrig_FindNode))(desc);
     if (n == NULL)
         return;
     swrModel_Node *node = &n->node;
@@ -394,7 +395,7 @@ static void restore_trigger_state() {
     // indices hold stale/freed lists from a previous planet (see the mask's declaration) and walking
     // them crashes. The mask is cleared per track load, so every recorded index is a valid list.
     typedef void(__cdecl * stop_fx_t)(int);
-    stop_fx_t stopFx = (stop_fx_t) swrObjTrig_StopFXAnimation_ADDR;
+    stop_fx_t stopFx = (stop_fx_t) SWR_FN(swrObjTrig_StopFXAnimation);
     for (int i = 0; i < 6; i++)// swrObjTrig_AnimationArray is [6]
         if (g_fx_enabled_mask & (1u << i))
             stopFx(i);
@@ -529,7 +530,7 @@ static void fast_restart_inplace(swrObjJdge *jdge) {
     // the sun/lens-flare sprites). Those sprites/animations regenerate per frame from the unchanged
     // scene, so leaving them as they were is correct for a same-track restart.
     typedef void(__cdecl * void_fn_t)(void);
-    ((void_fn_t) swrWeather_ResetParticles_ADDR)();
+    ((void_fn_t) SWR_FN(swrWeather_ResetParticles))();
 
     // Rewind every scene animation to frame 0 and restore its loaded enabled state: the track's
     // ambient loops restart from the top and destructibles/explosion FX reset to whole, so a
@@ -539,7 +540,7 @@ static void fast_restart_inplace(swrObjJdge *jdge) {
     restore_trigger_state();
 
     // Re-init each resident pod in place by replaying its captured swrRace_Init arguments.
-    swrRace_Init_t init = (swrRace_Init_t) swrRace_Init_ADDR;
+    swrRace_Init_t init = (swrRace_Init_t) SWR_FN(swrRace_Init);
     for (int i = 0; i < jdge->num_players && i < 20; i++) {
         swrScore *score = &swrScoresPtr[i];
         swrRace *pod = score->obj_test_ptr;
@@ -568,7 +569,7 @@ static void fast_restart_inplace(swrObjJdge *jdge) {
     swrEvent_CallF4('cMan', rset);
     void *hang = swrEvent_GetItem('Hang', 0);
     if (hang != NULL)
-        ((swrObjHang_AssignRacerCameras_t) swrObjHang_AssignRacerCameras_ADDR)(hang);
+        ((swrObjHang_AssignRacerCameras_t) SWR_FN(swrObjHang_AssignRacerCameras))(hang);
 
     // Suppress the restart key (Enter) until it's physically released, so holding it into the fresh
     // countdown doesn't register as accelerate input and cancel the boost start. See the wrapper.
@@ -643,6 +644,11 @@ void service_fast_restart() {
 // instruction boundaries are preserved and no trampoline is needed. We verify the original bytes
 // before patching so a mismatched / already-patched / future binary is skipped, never corrupted.
 static bool lap_time_overflow_enable(ModId self, void *) {
+    if (!retail_code_present()) {
+        fprintf(hook_log, "[lap_time_overflow] patches retail code, which is not loaded; not applied\n");
+        fflush(hook_log);
+        return false;
+    }
     struct LapTimeSite {
         uint32_t address;
         uint8_t original[4];
@@ -721,6 +727,11 @@ void swrObjJdge_PatchLapTimeOverflow() {
 // (swrText_CreateTimeEntryPrecise) already prints minutes unbounded (MM:SS.mmm, e.g. 72:34.567),
 // so every total-time readout (in-race timer, results summary, hangar results) follows.
 static bool race_time_cap_enable(ModId self, void *) {
+    if (!retail_code_present()) {
+        fprintf(hook_log, "[race_time_cap] patches retail code, which is not loaded; not applied\n");
+        fflush(hook_log);
+        return false;
+    }
     const float kCap = 86400.0f; // 24h; effectively no cap for any real race, keeps ms precision
     uint8_t cap_bytes[4];
     std::memcpy(cap_bytes, &kCap, 4);
@@ -1066,7 +1077,7 @@ void swrObjJdge_UpdateStandings_delta(swrObjJdge *jdge) {
         numRacers = 20;// swrScoresPtr is swrScore[20]
 
     swrObjJdge_GetRacerProgress_t *getRacerProgress =
-        (swrObjJdge_GetRacerProgress_t *) swrObjJdge_GetRacerProgress_ADDR;
+        (swrObjJdge_GetRacerProgress_t *) SWR_FN(swrObjJdge_GetRacerProgress);
     float progress[20];
     for (int i = 0; i < numRacers; i++)
         progress[i] = getRacerProgress(&swrScoresPtr[i]);
@@ -1285,7 +1296,7 @@ void swrObjJdge_F0_delta(swrObjJdge *jdge) {
             spline_cursor_has_usable_spline(&jdge->camSweepCursor)) {
             savedCamera = (short) unkCameraArrayIndex;
             jdge->camSweepState = jdge->cam_spline;// non-null gate (F0/F2 only test != 0)
-            ((swrViewport_SetActiveCameraFn) swrViewport_SetActiveCamera_ADDR)(5);
+            ((swrViewport_SetActiveCameraFn) SWR_FN(swrViewport_SetActiveCamera))(5);
         } else if (state == 4 && prevState != 4) {
             fprintf(hook_log,
                     "[prerace_sweep] no usable fly-by cursor for track model %d (cam_spline=%p, "
@@ -1295,7 +1306,7 @@ void swrObjJdge_F0_delta(swrObjJdge *jdge) {
             fflush(hook_log);
         } else if (state != 4 && prevState == 4 && savedCamera != 5) {
             jdge->camSweepState = NULL;
-            ((swrViewport_SetActiveCameraFn) swrViewport_SetActiveCamera_ADDR)(savedCamera);
+            ((swrViewport_SetActiveCameraFn) SWR_FN(swrViewport_SetActiveCamera))(savedCamera);
             savedCamera = -1;
         }
     }

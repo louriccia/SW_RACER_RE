@@ -1,4 +1,5 @@
 #include "swrModel_delta.h"
+#include "../patch.h"
 #include "glad/glad.h"
 
 #include <vector>
@@ -162,7 +163,7 @@ static bool ensure_hd_fonts_built() {
     }
 
     Original_ConvertTextureDataToRdMaterial converter =
-        (Original_ConvertTextureDataToRdMaterial) swrModel_ConvertTextureDataToRdMaterial_ADDR;
+        (Original_ConvertTextureDataToRdMaterial) SWR_FN(swrModel_ConvertTextureDataToRdMaterial);
     uint8_t *palette = nullptr;
     for (int i = 0; i < kNumHdFontSlots; i++) {
         swrMaterial **page = kHdFontSlots[i].page;
@@ -327,18 +328,21 @@ void swrModel_InitializeTextureBuffer_delta() {
             block_changed ? "CLEARED (block changed)" : "kept (same block)");
     fflush(hook_log);
 
-    char *range_begin = (char *) 0x00447420;
-    char *range_end = (char *) 0x004475ED;
-    DWORD old_protect;
-    VirtualProtect(range_begin, range_end - range_begin, PAGE_EXECUTE_READWRITE, &old_protect);
+    // Point retail's texture-loading instructions at the replacement buffer (needs retail code).
+    if (retail_code_present()) {
+        char *range_begin = (char *) 0x00447420;
+        char *range_end = (char *) 0x004475ED;
+        DWORD old_protect;
+        VirtualProtect(range_begin, range_end - range_begin, PAGE_EXECUTE_READWRITE, &old_protect);
 
-    *(void **) 0x4474B1 = texture_buffer_replacement;
-    *(void **) 0x4474C4 = texture_buffer_replacement;
-    *(void **) 0x447555 = texture_buffer_replacement;
-    *(void **) 0x4475D5 = texture_buffer_replacement;
-    *(void **) 0x4475E7 = texture_buffer_replacement + texture_count;
+        *(void **) 0x4474B1 = texture_buffer_replacement;
+        *(void **) 0x4474C4 = texture_buffer_replacement;
+        *(void **) 0x447555 = texture_buffer_replacement;
+        *(void **) 0x4475D5 = texture_buffer_replacement;
+        *(void **) 0x4475E7 = texture_buffer_replacement + texture_count;
 
-    VirtualProtect(range_begin, range_end - range_begin, old_protect, &old_protect);
+        VirtualProtect(range_begin, range_end - range_begin, old_protect, &old_protect);
+    }
 
     swrLoader_CloseBlock(swrLoader_TYPE_TEXTURE_BLOCK);
 }

@@ -691,7 +691,7 @@ namespace {
             const float sizeR = racer->exhaustSizeRight;
             racer->exhaustSizeLeft = 2.0f * sizeL - exhaust_target(racer, 0);
             racer->exhaustSizeRight = 2.0f * sizeR - exhaust_target(racer, kNumEnginesPerSide);
-            ((swrRace_UpdateEngineExhaust_t) swrRace_UpdateEngineExhaust_ADDR)(racer, 0, -1.0f, -1.0f);
+            ((swrRace_UpdateEngineExhaust_t) SWR_FN(swrRace_UpdateEngineExhaust))(racer, 0, -1.0f, -1.0f);
             racer->exhaustSizeLeft = sizeL;
             racer->exhaustSizeRight = sizeR;
             for (int i = 0; i < kNumFlameParts; i++) {
@@ -795,7 +795,7 @@ namespace {
                 smok->lifetime -= (float) displaySeconds;
             }
             swrRace_deltaTimeSecs = displaySeconds;
-            ((swrObjSmok_F3_t) swrObjSmok_F3_ADDR)(smok);
+            ((swrObjSmok_F3_t) SWR_FN(swrObjSmok_F3))(smok);
             *smok = saved;
         }
         swrRace_deltaTimeSecs = savedDt;
@@ -829,16 +829,16 @@ namespace {
             if ((uintptr_t) anim < kMinValidAddress || !is_transform_anim(anim))
                 continue;
             s_animSaves.push_back({anim, *anim});
-            ((anim_fn_t) swrModel_AnimationUpdateTime_ADDR)(anim);
+            ((anim_fn_t) SWR_FN(swrModel_AnimationUpdateTime))(anim);
             switch (anim->flags & kAnimTypeMask) {
                 case kAnimTypeAxisAngle:
-                    ((anim_fn_t) swrModel_UpdateAxisAngleAnimation_ADDR)(anim);
+                    ((anim_fn_t) SWR_FN(swrModel_UpdateAxisAngleAnimation))(anim);
                     break;
                 case kAnimTypeTranslation:
-                    ((anim_fn_t) swrModel_UpdateTranslationAnimation_ADDR)(anim);
+                    ((anim_fn_t) SWR_FN(swrModel_UpdateTranslationAnimation))(anim);
                     break;
                 case kAnimTypeScale:
-                    ((anim_fn_t) swrModel_UpdateScaleAnimation_ADDR)(anim);
+                    ((anim_fn_t) SWR_FN(swrModel_UpdateScaleAnimation))(anim);
                     break;
             }
         }
@@ -1076,7 +1076,7 @@ void smoothing_apply_cameras() {
         write_xform(display, shown);
         s_cameraRestores.push_back({vp, vp->unk_mat3, vp->model_matrix});
         // Through the game's setter so model_matrix (= unk_mat1 * unk_mat3) stays consistent.
-        ((swrViewport_SetMat3_t) swrViewport_SetMat3_ADDR)(vp, &display);
+        ((swrViewport_SetMat3_t) SWR_FN(swrViewport_SetMat3))(vp, &display);
         swr_fixedTimestep_smoothedNodes++;
     }
 }

@@ -88,9 +88,9 @@ void swrControl_ProcessInputs_delta(void) {
     hook_call_original(swrControl_ProcessInputs);
 
     // Raw physical state across all sources, independent of uiInputActive.
-    const int acceptDown = ((swrControl_PollFn) swrControl_PollAccept_ADDR)(kPollAllDevices);
-    const int cancelDown = ((swrControl_PollFn) swrControl_PollCancel_ADDR)(kPollAllDevices);
-    const int cancelKeyDown = ((swrControl_PollFn) swrControl_PollCancel_ADDR)(kPollExcludeMouse);
+    const int acceptDown = ((swrControl_PollFn) SWR_FN(swrControl_PollAccept))(kPollAllDevices);
+    const int cancelDown = ((swrControl_PollFn) SWR_FN(swrControl_PollCancel))(kPollAllDevices);
+    const int cancelKeyDown = ((swrControl_PollFn) SWR_FN(swrControl_PollCancel))(kPollExcludeMouse);
 #if ENABLE_GAMEPAD_NAV
     const int startDown = swrGamepadNav_StartHeld();
 #else
@@ -398,7 +398,7 @@ void swrControl_RumbleUpdate(void) {
     if (dt > 0.1f)
         dt = 0.1f;
 
-    const swrObjJdge *jdge = (const swrObjJdge *) ((swrEvent_GetItemFn) swrEvent_GetItem_ADDR)(JDGE_EVENT, 0);
+    const swrObjJdge *jdge = (const swrObjJdge *) ((swrEvent_GetItemFn) SWR_FN(swrEvent_GetItem))(JDGE_EVENT, 0);
     const bool inRace = jdge != nullptr;
     // currentPlayer_Test is never cleared. From swrObjJdge_Clear on, the pods are freed (and the next
     // track's load reuses their memory) while the judge lives on in TEARDOWN, so don't touch it.
@@ -516,7 +516,7 @@ void swrControl_RumbleUpdate(void) {
         if ((player->flags1 & swrObjTest_FLAG1_AIRBORNE) == 0 && player->terrainModel != nullptr &&
             player->speedValue > RUMBLE_TERRAIN_MIN_SPEED) {
             swrModel_Behavior *behavior =
-                    ((swrModel_MeshGetBehaviorFn) swrModel_MeshGetBehavior_ADDR)(
+                    ((swrModel_MeshGetBehaviorFn) SWR_FN(swrModel_MeshGetBehavior))(
                             (swrModel_Mesh *) player->terrainModel);
             if (behavior != nullptr) {
                 float terrain = 0.0f;

@@ -162,12 +162,11 @@ FILE* hook_log = NULL;
 static uint32_t retail_image_size = 0;
 static int retail_text_loaded = 0;
 
-// The plain standalone runs without retail's address range: no code there, data in its own
-// storage. The feature build's deltas still call game functions through *_ADDR constants, and
-// retail bisecting needs retail's code at its real address, so those map the range.
+// The standalone runs without retail's address range: no code there, data in its own storage.
+// Retail bisecting needs retail's code at its real address, so it maps the range.
 int standalone_code_range_mapped(void)
 {
-#if defined(SWR_STANDALONE_FEATURES) || !defined(SWR_DATA_RELOC)
+#if !defined(SWR_DATA_RELOC)
     return 1; // without SWR_DATA_RELOC retail's data itself sits in the range
 #else
     static int mapped = -1;

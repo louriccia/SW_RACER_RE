@@ -30,6 +30,10 @@ bool WriteMemory(PatchOwner owner, void *addr, const void *src, size_t len);
 // 4 bytes at `addr` (an IAT / vtable / relative-call slot). Same journaling + overlap rules.
 bool PatchPointer(PatchOwner owner, void *addr, uint32_t value);
 
+// Whether retail's machine code is in memory: always in the hook DLL; in the standalone only when
+// retail .text was loaded for bisecting. Patches of retail instructions are skipped without it.
+bool retail_code_present(void);
+
 // Revert every journal entry owned by `owner` (newest first), restoring captured originals, then
 // drop those entries. No-op if the owner holds nothing journaled.
 void UndoOwner(PatchOwner owner);

@@ -96,13 +96,13 @@ void swrPlayerHUD_RenderDistanceText_delta(void *viewport, bool secondaryPass) {
             continue;
 
         const char *name =
-            ((swrMultiplayer_GetPlayerNameAscii_t *) swrMultiplayer_GetPlayerNameAscii_ADDR)(player);
+            ((swrMultiplayer_GetPlayerNameAscii_t *) SWR_FN(swrMultiplayer_GetPlayerNameAscii))(player);
         if (name && name[0]) {
             snprintf(g_slotName[slot], sizeof(g_slotName[slot]), "~F%d~c~s%s", HUD_NAME_FONT, name);
         } else {
             // No player name for this slot: fall back to the character name.
             const int podIndex =
-                ((swrMultiplayer_GetRacerId_t *) swrMultiplayer_GetRacerId_ADDR)(player);
+                ((swrMultiplayer_GetRacerId_t *) SWR_FN(swrMultiplayer_GetRacerId))(player);
             if (podIndex >= 0 && podIndex < HUD_NAME_MAX_PODS) {
                 char podName[32];
                 swrText_FormatPodName(podIndex, podName, sizeof(podName));

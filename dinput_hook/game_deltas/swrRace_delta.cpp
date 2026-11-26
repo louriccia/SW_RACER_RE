@@ -374,7 +374,7 @@ void __cdecl swrObjHang_ResultsMenu_delta(swrObjHang* hang) {
             if ((swrRace_favPilotUnlockMask & bit) == 0) {
                 swrRace_favPilotUnlockMask |= bit;
                 swrRace_unlockedPilotsMask |= swrRace_favPilotUnlockMask;
-                ((void (*)(void)) swrRace_SaveCurrentProfile_ADDR)();
+                ((void (*)(void)) SWR_FN(swrRace_SaveCurrentProfile))();
             }
         }
     }

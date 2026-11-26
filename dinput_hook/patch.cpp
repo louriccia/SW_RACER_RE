@@ -41,10 +41,28 @@ namespace {
     }
 }
 
+#ifdef SWR_STANDALONE
+extern "C" int standalone_retail_text_loaded(void);
+#endif
+
+bool retail_code_present(void) {
+#ifdef SWR_STANDALONE
+    return standalone_retail_text_loaded() != 0;
+#else
+    return true;
+#endif
+}
+
 bool WriteMemory(PatchOwner owner, void *addr, const void *src, size_t len) {
     if (!addr || !src || len == 0)
         return false;
-    addr = SWR_GLOBAL_PTR((uintptr_t) addr);// a retail data address, wherever the image lives
+    if ((uintptr_t) addr >= 0x00401000u && (uintptr_t) addr < SWR_DATA_LO && !retail_code_present()) {
+        if (hook_log) {
+            fprintf(hook_log, "[patch] '%s' skipped: retail code at %p is not loaded\n", owner ? owner : "(null)", addr);
+            fflush(hook_log);
+        }
+        return false;
+    }
 
     const uintptr_t a = (uintptr_t) addr;
 
@@ -80,7 +98,6 @@ bool WriteMemory(PatchOwner owner, void *addr, const void *src, size_t len) {
 }
 
 bool PatchPointer(PatchOwner owner, void *addr, uint32_t value) {
-    value = (uint32_t) (uintptr_t) SWR_GLOBAL_PTR(value);
     return WriteMemory(owner, addr, &value, sizeof(value));
 }
 

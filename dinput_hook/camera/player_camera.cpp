@@ -141,7 +141,7 @@ void set_view(swrObjcMan *cman, int view) {
     else if (g_cockpit_cman == cman)
         g_cockpit_cman = nullptr;
     if (mode == CAM_MODE_CHASE_NEAR || mode == CAM_MODE_CHASE_FAR)
-        ((swrObjcMan_CommitStagedCameraFn) swrObjcMan_CommitStagedCamera_ADDR)(cman, mode);
+        ((swrObjcMan_CommitStagedCameraFn) SWR_FN(swrObjcMan_CommitStagedCamera))(cman, mode);
     else
         cman->mode_type = mode;
     cman->mode_respawn = mode;

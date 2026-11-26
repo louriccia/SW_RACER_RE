@@ -37,14 +37,10 @@ static bool in_retail_text(uintptr_t a) {
     return a >= SWR_TEXT_ADDR_ && a < 0x004ac000u;
 }
 
-// The body a retail entry runs: standalone_install_bodies wrote `jmp body` there.
+// The body installed for a retail entry (standalone_install_bodies records each one).
 static void *body_of(uintptr_t retail) {
-    const uint8_t *p = (const uint8_t *) retail;
-    if (p[0] != 0xe9)
-        return (void *) retail;
-    int32_t rel;
-    memcpy(&rel, p + 1, sizeof(rel));
-    return (void *) (retail + 5 + rel);
+    const uint32_t body = standalone_body_of((uint32_t) retail);
+    return body ? (void *) (uintptr_t) body : (void *) retail;
 }
 
 extern "C" void hook_function(const char *function_name, uint32_t original_address, uint8_t *hook_address) {
@@ -111,9 +107,10 @@ extern "C" void init_hooks() {
         if (in_retail_text(orig)) {
             // hook_function(name, retail, delta); a reimpl named as the delta may itself be replaced
             auto r = hook_replacements.find(info.address);
-            if (body_of(orig) == info.original_address)
-                fprintf(hook_log, "    WARNING %s: no src body installed at 0x%08x, src callers bypass the delta\n",
-                        info.name.c_str(), (unsigned) orig);
+            if (body_of(orig) == info.original_address) {
+                fprintf(hook_log, "    WARNING %s: no src body for 0x%08x, delta not attached\n", info.name.c_str(), (unsigned) orig);
+                continue;
+            }
             add(forward, body_of(orig), r != hook_replacements.end() ? r->second : info.address, info.original_address, info.name);
         } else {
             // reverse form, hook_function(name, reimpl, retail): only matters if a delta replaces it

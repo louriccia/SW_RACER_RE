@@ -134,7 +134,7 @@ int swrUI_Menu_MpRaceSetup_delta(swrUI_unk *self, unsigned int msg, void *elemen
     const bool is_inc = (msg == MP_MSG_NUMBERFIELD_INC);
     const bool is_dec = (msg == MP_MSG_NUMBERFIELD_DEC);
     if ((is_inc || is_dec) && element == (void *) MP_LAPS_FIELD_ID) {
-        int laps = ((swrUI_GetNumberValue_t *) swrUI_GetNumberValue_ADDR)(widget);
+        int laps = ((swrUI_GetNumberValue_t *) SWR_FN(swrUI_GetNumberValue))(widget);
         if (is_inc) {
             laps += (laps < 5) ? 1 : 5;
             if (laps > MP_LAPS_MAX)
@@ -144,10 +144,10 @@ int swrUI_Menu_MpRaceSetup_delta(swrUI_unk *self, unsigned int msg, void *elemen
             if (laps < MP_LAPS_MIN)
                 laps = MP_LAPS_MAX; // wrap backward
         }
-        ((swrUI_SetNumberValue_t *) swrUI_SetNumberValue_ADDR)(widget, laps);
+        ((swrUI_SetNumberValue_t *) SWR_FN(swrUI_SetNumberValue))(widget, laps);
         swrMultiplayer_laps = laps;
         // host -> all: track/laps/racers (msg 0x3a)
-        ((swrMultiplayer_BroadcastRaceSettings_t *) swrMultiplayer_BroadcastRaceSettings_ADDR)();
+        ((swrMultiplayer_BroadcastRaceSettings_t *) SWR_FN(swrMultiplayer_BroadcastRaceSettings))();
         return 0;
     }
 
@@ -414,23 +414,23 @@ void swrMultiplayer_PopulateRacerList_delta(void) {
     static const int MP_RACER_LIST_ID = 0x30d42;
 
     swrUI_unk *list = swrUI_GetById(NULL, MP_RACER_LIST_ID);
-    ((swrUI_RefreshListSelection_t *) swrUI_RefreshListSelection_ADDR)(list);
+    ((swrUI_RefreshListSelection_t *) SWR_FN(swrUI_RefreshListSelection))(list);
 
     for (int slot = 0; slot < (int) std::size(swrMultiplayer_aPlayerQuit); slot++) {
         // Row per participating slot -- connected, retired mid-race, or finished -- rather than
         // vanilla's 0..activeCount-1.
-        if (((swrMultiplayer_IsPlayerActive_t *) swrMultiplayer_IsPlayerActive_ADDR)(slot) == 0 &&
+        if (((swrMultiplayer_IsPlayerActive_t *) SWR_FN(swrMultiplayer_IsPlayerActive))(slot) == 0 &&
             swrMultiplayer_aPlayerQuit[slot] == 0 && swrMultiplayer_aPlayerFinished[slot] == 0)
             continue;
 
-        swrUI_unk *element = ((swrUI_CreateRaceResultRow_t *) swrUI_CreateRaceResultRow_ADDR)(slot);
+        swrUI_unk *element = ((swrUI_CreateRaceResultRow_t *) SWR_FN(swrUI_CreateRaceResultRow))(slot);
         if (element == NULL)
             continue;
         // Read back by swrUI_DrawRaceResultRow. Vanilla writes it straight into the widget's class
         // payload at +0x56c (MOV dword ptr [EAX+0x56c],ESI at 0x420cf3): a struct offset, NOT an
         // indirection through the int at +0x538.
         element->result_player_slot = slot;
-        ((swrUI_AddListElement_t *) swrUI_AddListElement_ADDR)(list, element);
+        ((swrUI_AddListElement_t *) SWR_FN(swrUI_AddListElement))(list, element);
     }
 }
 
@@ -450,7 +450,7 @@ int swrMultiplayer_GetActivePlayerCount_delta(void) {
     int highest_active = -1;
     int active_count = 0;
     for (int slot = 0; slot < scanned; slot++) {
-        if (((swrMultiplayer_IsPlayerActive_t *) swrMultiplayer_IsPlayerActive_ADDR)(slot) != 0) {
+        if (((swrMultiplayer_IsPlayerActive_t *) SWR_FN(swrMultiplayer_IsPlayerActive))(slot) != 0) {
             highest_active = slot;
             active_count++;
         }

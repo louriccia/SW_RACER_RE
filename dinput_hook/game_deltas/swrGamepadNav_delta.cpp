@@ -273,10 +273,10 @@ void __cdecl swrUI_ProcessMouse_delta(void) {
                 g_navNextFire[i] = now + NAV_REPEAT_RATE_MS;
             }
             if (fire)
-                ((swrUI_HandleKeyEventFn) swrUI_HandleKeyEvent_ADDR)(NAV_VK[i], 1);// key-down
+                ((swrUI_HandleKeyEventFn) SWR_FN(swrUI_HandleKeyEvent))(NAV_VK[i], 1);// key-down
             g_navPrevHeld |= NAV_BIT[i];
         } else if (wasHeld) {
-            ((swrUI_HandleKeyEventFn) swrUI_HandleKeyEvent_ADDR)(NAV_VK[i], 0);// key-up
+            ((swrUI_HandleKeyEventFn) SWR_FN(swrUI_HandleKeyEvent))(NAV_VK[i], 0);// key-up
             g_navPrevHeld &= ~NAV_BIT[i];
         }
     }
@@ -320,7 +320,7 @@ void __cdecl swrRace_UpdateInRaceInputBitsets_delta(void) {
     hook_call_original((updateInRaceInputBitsetsFn) swrRace_UpdateInRaceInputBitsets_ADDR);
     if (!imgui_state.enable_gamepad_nav)
         return;
-    if (((swrEvent_GetItemFn) swrEvent_GetItem_ADDR)(JDGE_EVENT, 0) == nullptr)
+    if (((swrEvent_GetItemFn) SWR_FN(swrEvent_GetItem))(JDGE_EVENT, 0) == nullptr)
         return;// not in a race
 
     if (g_pressed & XINPUT_GAMEPAD_START) {

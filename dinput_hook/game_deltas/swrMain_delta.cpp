@@ -146,8 +146,8 @@ void reset_fixed_step_state() {
 
 // swrControl_ProcessInputs already refreshed the device snapshot (in swrMain_GuiAdvance).
 void runFrameOncePrologue() {
-    ((void_fn_t) swrMain_UpdateInRaceLoopSfx_ADDR)();
-    ((void_fn_t) swrRace_UpdateInRaceInputBitsets_ADDR)();
+    ((void_fn_t) SWR_FN(swrMain_UpdateInRaceLoopSfx))();
+    ((void_fn_t) SWR_FN(swrRace_UpdateInRaceInputBitsets))();
     for (int p = 0; p < kNumLocalInputSlots; p++) {
         s_trueHeld[p] = inRaceLocalPlayerInputBitset3[p];
         s_pressLatch[p] |= inRaceLocalPlayerInputBitset1[p];
@@ -161,7 +161,7 @@ void runFrameOncePrologue() {
         if (btn[i] > s_btnLatch[i])
             s_btnLatch[i] = btn[i];
     }
-    ((void_fn_t) swrObjJdge_PollPause_ADDR)();
+    ((void_fn_t) SWR_FN(swrObjJdge_PollPause))();
 }
 
 // One fixed-dt world-sim tick. swrText_ResetOverlayDrawQueues first, or N ticks stack N copies of every
@@ -187,7 +187,7 @@ void wrapLoopsLandingOnEnd() {
             anim->animation_time != anim->animation_end_time)
             continue;
         anim->animation_time -= anim->animation_duration;
-        anim->key_frame_index = ((findKeyFrame_t) swrModel_AnimationFindKeyFrameIndex_ADDR)(anim);
+        anim->key_frame_index = ((findKeyFrame_t) SWR_FN(swrModel_AnimationFindKeyFrameIndex))(anim);
     }
 }
 
@@ -195,11 +195,11 @@ void wrapLoopsLandingOnEnd() {
 // run once per tick: per render frame they ran fps/hz too fast, and the music fade gain (re-armed by
 // the judge once per tick) sawtoothed into an audible tremolo.
 void runWorldSimTick(bool firstTick) {
-    ((void_fn_t) swrSound_UpdateDelayedSfx_ADDR)();
-    ((void_fn_t) swrSound_UpdateMusic_ADDR)();
+    ((void_fn_t) SWR_FN(swrSound_UpdateDelayedSfx))();
+    ((void_fn_t) SWR_FN(swrSound_UpdateMusic))();
     smoothing_tick_begin();
-    ((void_fn_t) swrText_ResetOverlayDrawQueues_ADDR)();
-    ((void_fn_t) swrRace_IncrementFrameTimer_ADDR)();
+    ((void_fn_t) SWR_FN(swrText_ResetOverlayDrawQueues))();
+    ((void_fn_t) SWR_FN(swrRace_IncrementFrameTimer))();
     frametotal = s_frametotalThisFrame;
     float* btn = procButtons();
     for (int p = 0; p < kNumLocalInputSlots; p++) {
@@ -209,12 +209,12 @@ void runWorldSimTick(bool firstTick) {
     }
     for (int i = 0; i < kNumProcButtons; i++)
         btn[i] = firstTick ? s_btnLatch[i] : s_btnTrue[i];
-    ((void_fn_t) swrModel_UpdateAnimations_ADDR)();
+    ((void_fn_t) SWR_FN(swrModel_UpdateAnimations))();
     wrapLoopsLandingOnEnd();
-    ((void_fn_t) swrEvent_CallAllF0_ADDR)();
-    ((void_fn_t) swrEvent_CallAllF1_ADDR)();
-    ((void_fn_t) swrEvent_CallAllF2_ADDR)();
-    ((void_fn_t) swrEvent_CallAllF3_ADDR)();
+    ((void_fn_t) SWR_FN(swrEvent_CallAllF0))();
+    ((void_fn_t) SWR_FN(swrEvent_CallAllF1))();
+    ((void_fn_t) SWR_FN(swrEvent_CallAllF2))();
+    ((void_fn_t) SWR_FN(swrEvent_CallAllF3))();
 }
 // swrObjJdge_F0's state machine (flag & 0xf): countdown and racing are the only states the world
 // sim should tick in. swrRace_resultsScreenActive stays set through the quit transition into the
@@ -241,7 +241,7 @@ bool is_actively_driving() {
     const bool driving =
         currentPlayer_Test != nullptr &&
         (currentPlayer_Test->flags0 & (swrObjTest_FLAG0_RESPAWN | swrObjTest_FLAG0_DEAD)) == 0;
-    return driving && ((int_fn_t) swrRace_GetPauseState_ADDR)() == 0 && swrGui_Stopped == 0 &&
+    return driving && ((int_fn_t) SWR_FN(swrRace_GetPauseState))() == 0 && swrGui_Stopped == 0 &&
            swrRace_resultsScreenActive != 0 && race_is_running();
 }
 }// namespace
@@ -294,9 +294,9 @@ void __cdecl swrMain_RunFrame_delta(short flags, short phase) {
 
         // Vanilla re-reads the pause state after PollPause: the frame pause is pressed runs the
         // pause menu instead of the world sim. Next frame the gate fails and vanilla takes over.
-        if (((int_fn_t) swrRace_GetPauseState_ADDR)() != 0) {
-            ((void_fn_t) swrRace_UpdatePauseMenu_ADDR)();
-            ((void_fn_t) swrViewport_UpdateCameras_ADDR)();
+        if (((int_fn_t) SWR_FN(swrRace_GetPauseState))() != 0) {
+            ((void_fn_t) SWR_FN(swrRace_UpdatePauseMenu))();
+            ((void_fn_t) SWR_FN(swrViewport_UpdateCameras))();
             swr_systemTimeMs = timeGetTime();
             smoothing_reset();
             reset_fixed_step_state();
@@ -391,7 +391,7 @@ void __cdecl swrMain_RunFrame_delta(short flags, short phase) {
 
         // Cameras are copied out of cMan from the true tick poses; the display poses (racers, then
         // the cameras themselves) are swapped in after, for render only.
-        ((void_fn_t) swrViewport_UpdateCameras_ADDR)();
+        ((void_fn_t) SWR_FN(swrViewport_UpdateCameras))();
         if (steps > 0) {
             const double savedDt = swrRace_deltaTimeSecs;
             swrRace_deltaTimeSecs = dt0 * steps;

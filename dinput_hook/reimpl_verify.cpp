@@ -4141,6 +4141,13 @@ extern "C" void reimpl_verify_tick(FILE *hook_log) {
         return;
     already_run = true;
 
-    if (hook_verify_requested())
-        reimpl_verify_run(hook_log);
+    if (!hook_verify_requested())
+        return;
+#ifdef SWR_STANDALONE
+    // Compares reimplementations against retail's code, which the standalone does not have.
+    fprintf(hook_log, "[reimpl_verify] not available in the standalone\n");
+    fflush(hook_log);
+#else
+    reimpl_verify_run(hook_log);
+#endif
 }

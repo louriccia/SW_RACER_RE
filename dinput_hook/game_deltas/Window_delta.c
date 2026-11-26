@@ -322,7 +322,7 @@ int Window_SmushPlayCallback_delta(const SmushImage *image) {
     // dormant HANG stub, and swrControl_ProcessInputs is hook_replaced onto the game address (see
     // swrControl_delta.cpp -- the accept/cancel edge debounce), so the game entry routes through
     // that delta. Calling the reimpl symbol here would hit the hang stub.
-    ((void (*)(void)) swrControl_ProcessInputs_ADDR)();
+    ((void (*)(void)) SWR_FN(swrControl_ProcessInputs))();
 
     renderer_drawSmushFrame(image);
 

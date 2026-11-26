@@ -1,4 +1,5 @@
 #include "custom_tracks.h"
+#include "patch.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -245,6 +246,8 @@ bool try_load_custom_track_folder(const std::filesystem::path &folder) {
 
 int patch_occurrence(uint32_t value, uint32_t replacement) {
     int num_occurrences = 0;
+    if (!retail_code_present())
+        return 0;
     // search for all occurrences of pointers to the track infos array and replace them.
     std::string_view code_section((const char *) 0x401000, (const char *) 0x04AB800);
 

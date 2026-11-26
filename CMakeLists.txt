@@ -231,6 +231,8 @@ if (SWR_STANDALONE)
         $<$<BOOL:${SWR_STANDALONE_OPENAL}>:SWR_OPENAL_AUDIO=1 SWR_OWN_MOVIES=1>)
     target_link_libraries(swe1r PRIVATE swe1r_globals swr_memsafety imgui glad glfw fastgltf detours
         winmm Comctl32 ole32 version dxguid dinput ddraw opengl32 Dwmapi bcrypt psapi kernel32)
+    # Nothing lives at retail addresses, but the feature layer still tells retail addresses from its
+    # own by value (hook registration), so its code must not sit in 0x400000-0xECE000.
     target_link_options(swe1r PRIVATE "-Wl,--image-base=0x10000000" "-Wl,--disable-dynamicbase" "-Wl,--stack,0x100000" "-static"
         "-Wl,--wrap=WinMain@16")
 endif()

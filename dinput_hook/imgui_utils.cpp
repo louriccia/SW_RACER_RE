@@ -1,4 +1,5 @@
 #include "imgui_utils.h"
+#include "patch.h"
 #include <swr_data_addr.h>
 #include "perf_stats.h"
 #include "debug_ui.h"
@@ -2374,6 +2375,8 @@ static bool g_death_defaults_captured = false;
 // Overwrite `n` code bytes at `addr` with `want`, but only when they differ (i.e. on a
 // toggle edge, not every frame). .text is execute-only, so flip it writable first.
 static void patch_code(void *addr, const unsigned char *want, size_t n) {
+    if (!retail_code_present())
+        return;
     unsigned char *const p = (unsigned char *) addr;
     bool same = true;
     for (size_t i = 0; i < n; i++)
@@ -2563,7 +2566,7 @@ static void panel_cheats() {
     // swrRace_CheatUnlockAll is not reimplemented yet (no linkable body), so call
     // the original through its named _ADDR rather than by symbol.
     if (ImGui::Button("Unlock all pods & tracks"))
-        ((void (*)(void)) swrRace_CheatUnlockAll_ADDR)();
+        ((void (*)(void)) SWR_FN(swrRace_CheatUnlockAll))();
     ImGui::SameLine();
     if (ImGui::Button("+1000 truguts"))
         swrRace_truguts += 1000;
