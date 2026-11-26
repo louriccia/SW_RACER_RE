@@ -22,6 +22,8 @@ typedef struct TrackListenerList {
 static uint32_t generation;
 static TrackListenerList unload_listeners;
 static TrackListenerList loaded_listeners;
+static swrSplineCursor* cursors[TRACK_LIFECYCLE_MAX_CURSORS];
+static int cursor_count;
 
 static int listener_add(TrackListenerList* list, const char* owner, track_listener_fn fn, void* user)
 {
@@ -54,6 +56,34 @@ int track_on_unload(const char* owner, track_listener_fn fn, void* user)
     return listener_add(&unload_listeners, owner, fn, user);
 }
 
+int track_register_cursor(swrSplineCursor* cursor)
+{
+    for (int i = 0; i < cursor_count; i++) {
+        if (cursors[i] == cursor)
+            return 1;
+    }
+    if (cursor == NULL || cursor_count >= TRACK_LIFECYCLE_MAX_CURSORS)
+        return 0;
+    cursors[cursor_count++] = cursor;
+    return 1;
+}
+
+void track_unregister_cursor(swrSplineCursor* cursor)
+{
+    for (int i = 0; i < cursor_count; i++) {
+        if (cursors[i] == cursor) {
+            cursors[i] = cursors[--cursor_count];
+            return;
+        }
+    }
+}
+
+static void cursors_reset(void)
+{
+    for (int i = 0; i < cursor_count; i++)
+        memset(cursors[i], 0, sizeof(*cursors[i]));
+}
+
 int track_on_loaded(const char* owner, track_listener_fn fn, void* user)
 {
     return listener_add(&loaded_listeners, owner, fn, user);
@@ -80,6 +110,7 @@ void refined_swrAssetBuffer_ResetToIndex(int index)
 
     listeners_run(&unload_listeners);
     trigger_slots_reset();
+    cursors_reset();
     generation++;
 
     assetBufferIndex = index;

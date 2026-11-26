@@ -29,6 +29,8 @@ const RefinedSlot refined_slots[] = {
     {"swrObjTest_F0", (void*)swrObjTest_F0, (void*)refined_swrObjTest_F0},
     {"swrAssetBuffer_ResetToIndex", (void*)swrAssetBuffer_ResetToIndex, (void*)refined_swrAssetBuffer_ResetToIndex},
     {"swrObjJdge_InitTrack", (void*)swrObjJdge_InitTrack, (void*)refined_swrObjJdge_InitTrack},
+    {"swrObjJdge_SetupTrackEnvironment", (void*)swrObjJdge_SetupTrackEnvironment,
+     (void*)refined_swrObjJdge_SetupTrackEnvironment},
 };
 
 const int refined_slot_count = sizeof(refined_slots) / sizeof(refined_slots[0]);

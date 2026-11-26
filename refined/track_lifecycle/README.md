@@ -1,6 +1,6 @@
 # track_lifecycle (refined) — dossier
 
-Status: steps 1-3 in progress (2026-11-26), see "Progress" at the end. Base: `proto/x64` (the line that carries
+Status: steps 1-3 done (2026-11-26), see "Progress" at the end. Base: `proto/x64` (the line that carries
 `refined/`; the 32-bit build is the oracle build, the 64-bit build must still compile and race).
 
 The problem in one line: retail has no notion of "the track was unloaded". A track's models,
@@ -192,3 +192,33 @@ Verified: repro Boonta -> Bowser 1 -> Big Blue -> Boonta -> Bowser 1, refined on
 no HACK line; `SWR_REFINED_OFF=1`: the HACK fires on both Bowser loads (same arena offset).
 
 Gates: swe1r full link; lockstep sa_t0..24 ALL MATCH refined on (25/25) and off (25/25); x64 builds.
+
+### Step 3 (done) — U1 + U4
+
+- `track_environment_refined.c`: `refined_swrObjJdge_SetupTrackEnvironment` (0x00464b90,
+  equivalent) is the src/ body plus `flyby_clear()` on both early returns: `cam_spline` and
+  `camSweepAnim` NULL, `camSweepCursor` zeroed, `camSweepTransform` identity (the values the
+  judge's 'Load'/'RSet' reset uses). The fog/draw-distance tail the early returns skip stays skipped,
+  as in retail.
+- Cursor registry (`track_register_cursor` / `track_unregister_cursor`, `TRACK_LIFECYCLE_MAX_CURSORS`):
+  registered cursors are zeroed at every unload. Only the judge's `camSweepCursor` is registered (on
+  every SetupTrackEnvironment call). That is safe because the judge is allocated once at world init
+  (`swrScene_LoadObjects`, below checkpoint 1) and never freed. Not registered yet: `swrObjJdge.cursor`,
+  swrObjTest `splineCursor@0xac`, cMan cursors. They are re-seeded before use in retail, and some
+  live in objects freed at race end, so each needs its owner's unregister point first.
+- Interplay to keep in mind for step 5: the unload zeroes the fly-by cursor even if the restored
+  sweep gate (`camSweepState`, set by the `prerace_sweep` delta) were still open. InitTrack closes it
+  right after its rewind, and the StartRace rewind happens with the race torn down, so F2 never
+  evaluates a zeroed cursor. The delta's EvaluateToMatrix refusal still backs that up.
+
+Verified: crash repro Boonta Training (0) -> Big Blue (28) -> Bowser's Castle 1 (31), all deltas,
+`restore_prerace_track_sweep=1`: refined on, both custom tracks log `cam_spline=00000000, cursor
+spline=00000000` and leave the sweep dormant, no exception, and Boonta still plays its sweep;
+`SWR_REFINED_OFF=1` logs Boonta's stale cursor spline on both custom tracks.
+Gates: swe1r full link; lockstep sa_t0..24 ALL MATCH refined on (25/25) and off (25/25); x64 builds.
+
+Oracle gaps (all steps): lockstep only covers the first race of a process, so the unload-time
+resets (trigger slots, cursor registry) are machine-checked only for "no change on a first race".
+Track switches are covered by the scripted `then` repro and log checks, not by hashes. A lockstep
+sequence mode (step 6) would close that.
+
