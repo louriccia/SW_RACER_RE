@@ -11,6 +11,8 @@ file. See issue: https://github.com/tim-tim707/SW_RACER_RE/issues/153
 Update 2026-11-20: content packs now share this API's governance (one `mod.json` manifest, the
 same dependency / conflict / sim-affecting rules); the content formats themselves stay in
 MODDING_ARCHITECTURE.md. See "End-game architecture" and Phase 6 "Hosting and distribution".
+Update 2026-11-26: a 64-bit standalone build exists; see "64-bit build implications" (ABI
+neutrality, lobby `arch` field, byte-patch backend retail-only).
 
 ## Current state (RE-grounded, master @ 32427ce)
 
@@ -769,6 +771,37 @@ manifest, `"kind": "script"`.
 3. Publish the SDK template; the #437 pod editor export is a good first third-party test.
 4. Stand up the git index with build-from-source CI.
 5. In-game browser last.
+
+## 64-bit build implications (2026-11-26)
+
+The standalone `swe1r` now builds and races as a 64-bit exe (branch `proto/x64`; see
+REFINEMENT_LAYER_ROADMAP section 10 for how it works). Every pointer stored in game memory stays
+4 bytes and all game memory sits below 2 GB; x64 physics is not bit-identical to retail.
+
+- **The governance/backend split is now load-bearing.** The retail-hooking `dinput.dll` cannot
+  follow to 64-bit (retail is a 32-bit exe; a 64-bit DLL cannot load into it). Governance (Phases
+  2-5: registry, lifecycle, observer/replacement, conflict rules, events) carries over unchanged.
+  The byte-patch backend (Phase 1 journal over retail `.text`) only matters on the retail-DLL
+  path: in `swe1r` no feature patches retail code any more (all four byte-patch mods are
+  refined), and on x64 there is no retail code to patch. Deltas still attach by symbol to our own
+  bodies (`hook_function` / `hook_replace`, 250 attached on x64).
+- **Plugin ABI must be architecture-neutral.** A plugin must match the exe's bitness, and raw game
+  struct pointers mean different things per build (4-byte `__ptr32` slots on x64). So `SwrHostApi`
+  hands plugins versioned read snapshots, handles (request -> Handle -> release-by-owner) and a
+  versioned function table, never raw `swrRace*` / `swrObj*` pointers. This was the "borrow from
+  annodue" idea; x64 makes it a requirement. Source-compatible across architectures,
+  binary-compatible only within one (as Hosting already says).
+- **Existing retail-DLL mods do not run on x64.** annodue-style plugins targeting retail addresses
+  stay on the 32-bit retail path. The WASM/Lua scripting tier becomes more attractive: one binary
+  for both architectures.
+- **Play contexts gain an architecture field.** x86 and x64 sims can drift, so the online lobby
+  handshake includes `arch` (and FP mode) alongside the sim-affecting set; mismatched clients are
+  refused or put on a common build. Verified runs require the 32-bit build (the oracle build)
+  unless the x64 build gets its own certification. Cosmetic mods are unaffected.
+- **Manifest:** `mod.json` gets an optional `"arch": ["x86", "x64"]` for plugins that ship
+  prebuilt binaries; the index CI builds each listed architecture from source.
+- **Address space.** Mod content (HD textures, custom tracks) does not gain from 64-bit until the
+  subsystems that hold it store native pointers (refinement work, not mod-host work).
 
 ## Pitfalls (carried from the design discussion)
 

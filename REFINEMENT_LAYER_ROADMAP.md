@@ -1,6 +1,6 @@
 # SW_RACER_RE — Refinement Layer Roadmap
 
-**Status:** proposal / design (2026-11-18). Living document. Owner: lightningpirate.
+**Status:** proposal / design (2026-11-18; x64 implications added 2026-11-26, section 10). Living document. Owner: lightningpirate.
 Companion skill: `/refine-subsystem` (`.claude/skills/refine-subsystem/SKILL.md`).
 
 ---
@@ -80,6 +80,7 @@ these tags.
 | `DECOMP` | Artifacts of decompilation, not of the original source: `CONCAT44`, `__ftol` shapes, pointer arithmetic into structs, `unkNN` fields | Real types and fields; idiomatic expressions |
 | `BUG` | Genuine defects | **Tier-dependent:** see section 3 |
 | `SILENT` | `HANG`, ignored return codes, silent failure | Explicit error path, logged |
+| `PORT` | Code that only works on 32-bit x86: `size_t`/`long` assumed 4 bytes in data headers, signed-overflow UB the retail compiler happened to wrap, pointers stored in 4-byte slots, calling-convention reliance (float-for-pointer args, `float` vs `long double` returns) | Fixed-width types, defined arithmetic, subsystem-owned native data (see section 10) |
 
 Two cautions:
 - **`DECOMP` ≠ `CLEVER`.** Much code that looks strange was written by the compiler or the
@@ -175,6 +176,7 @@ known.
 | Flaw density | Payoff | Quick flaw-catalogue scan of the faithful bodies |
 | Tier mix | Equivalent-tier subsystems are cheaper and safer to learn on | Rough share of sacred functions |
 | Conflicts | Avoid stepping on open PRs and active work | Open upstream PRs touching its files |
+| 4-byte-pointer surface | Each subsystem that owns its data natively shrinks the x64 compatibility shim (section 10) | `SWR_P32` / `SWR_FNSLOT` members and globals the subsystem owns |
 
 ### 6.2 Dossier (written before any refactor)
 
@@ -251,13 +253,51 @@ a dossier before work.
 | Upstream mission mismatch | Agree on location and scope first (R0); fall back to a separate tree if needed |
 | Sacred FP drift on new toolchains | Pin x87 for sacred code until the FP decision is made |
 | Speedrun community trust | Sacred tier + vanilla toggles + run-verification roadmap |
+| A refinement only tested on one architecture | CI builds both; x86 lockstep gates equivalence, x64 boot+race smoke gates portability (section 10) |
 
 ## 9. Open questions
 
 1. **Location:** `refined/` in upstream, or a separate repo/fork? (Ask tim.)
 2. **Language:** C only, or C++ allowed in `refined/` (the modding layer already uses C++)?
 3. **FP policy:** x87 forever for sacred code, or a tolerance-based modern build plus a strict
-   verification build?
+   verification build? *Partly answered by the x64 build (section 10):* the 32-bit build is the
+   strict verification build; the 64-bit build is the tolerance build. Still open: whether a
+   tolerance oracle (bounded drift per tick) is worth building for x64.
+6. **`src/` portability markup:** the x64 port adds `SWR_P32` / `SWR_FNSLOT` annotations to
+   `src/types.h`, globals and a few bodies (no-ops on 32-bit, lockstep-identical). Does tim accept
+   them upstream as portability markup, or do they live in a fork overlay? (Ask tim.)
+
+## 10. The 64-bit build (2026-11-26)
+
+`swe1r` now builds as a 64-bit exe (branch `proto/x64`): boots, movies, menus, races, OpenAL
+sound. It is possible only because the standalone build runs zero retail code. How it works:
+every pointer stored in game memory stays 4 bytes (`SWR_P32` = clang `__ptr32`, function
+pointers as 4-byte integer slots), and all game code and memory sit below 2 GB, so retail data
+layouts, asset files and the faithful layer's raw offsets are unchanged.
+
+What that means for this layer:
+
+- **Two builds, two jobs.** x64 physics is not bit-identical to retail (SSE vs x87), so lockstep
+  against retail only works on the 32-bit build. The 32-bit build is the **oracle build** (every
+  refinement step is gated there); the 64-bit build is the **player build**. Refined code must
+  compile and run on both; CI builds both from the same source (x86: lockstep; x64: boot + race
+  smoke).
+- **The 4-byte-pointer layer is a shim this layer retires.** It exists so faithful code and retail
+  data layouts keep working. A refined subsystem that owns its data (as the asset buffer and
+  texture cache already do) can use native pointers internally and only keep 4-byte slots at
+  the seams where faithful code or asset files still read them. "How much shim it removes" is now
+  a readiness signal (6.1).
+- **x64 exposed a real flaw class** (`PORT`, section 2): `daSmallAlloc`'s `size_t` header,
+  `swrUtils_Rand` signed-overflow UB, an index that only wrapped on 32-bit, local message structs
+  with native pointers, delta signatures that relied on stack-passed args. These are exactly what
+  refinement should fix at the source rather than patch around.
+- **The extra address space is not usable yet.** Game memory is pinned below 2 GB. Big HD texture
+  or custom-track packs only benefit once the subsystems that hold them store native pointers.
+- **Verification contexts.** Verified speedruns stay on the 32-bit build (or the x64 build gets
+  its own certification). See MODDING_API_ROADMAP "64-bit build" for the online/lobby side.
+
+Missing on x64 today: gamepads untested, IFORCE2 force feedback cannot load (32-bit DLL),
+shadow mode is x86-only, OpenAL DLL is copied by hand into the build dir.
 4. **Data format:** JSON for every externalized table (consistent with MODDING_ARCHITECTURE), or
    a binary format for large ones?
 5. **Pilot subsystem:** pick with `/refine-subsystem` once R0 is done.
