@@ -1792,7 +1792,7 @@ void swrMultiplayer_PublishPodState(swrRace* player)
 // 0x0041b750
 void swrMultiplayer_RegisterHandler(int subtype, void* handler)
 {
-    swrCallback_multiplayer[subtype] = (tSithCallback*)handler;
+    swrCallback_multiplayer[subtype] = (tSithCallback SWR_P32*)handler;
 }
 
 // 0x0041ba00

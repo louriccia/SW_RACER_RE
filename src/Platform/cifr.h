@@ -38,7 +38,7 @@ void cifr_Init(cifr_EffectSet* effects);
 void cifr_ReinitEffects(cifr_EffectSet* effects);
 
 // Load an Immersion .fcr project file and give slot i the first effect after slotLastIds[i - 1].
-int cifr_LoadProjectFile(cifr_EffectSet* effects, char* projectFile, int* slotLastIds, char** names);
+int cifr_LoadProjectFile(cifr_EffectSet* effects, char* projectFile, int* slotLastIds, char* SWR_P32* names);
 
 // Create and download all of a controller's effects to the device.
 int cifr_LoadAllEffects(cifr_EffectSet* effects);

@@ -23,7 +23,7 @@ int rdLight_NewEntry(rdLight* light)
 }
 
 // 0x00490550
-void rdLight_CalcVertexIntensities(rdLight** apLights, rdVector3* aLightPos, int numLights, rdVector3* aVertexNormal, rdVector3* aVertices, rdVector4* aVertexColors, rdVector4* aLightColors, int numVertices, float scalar)
+void rdLight_CalcVertexIntensities(rdLight* SWR_P32* apLights, rdVector3* aLightPos, int numLights, rdVector3* aVertexNormal, rdVector3* aVertices, rdVector4* aVertexColors, rdVector4* aLightColors, int numVertices, float scalar)
 {
     rdVector3 toLight;
     rdVector4* out;
@@ -76,7 +76,7 @@ void rdLight_CalcVertexIntensities(rdLight** apLights, rdVector3* aLightPos, int
 }
 
 // 0x00490750
-RETAIL_FP void rdLight_CalcFaceIntensity(rdLight** meshLights, rdVector3* localLightPoses, int numLights, RdFace* face, rdVector3* faceNormal, rdVector3* vertices, float scalar, void* outInfos)
+RETAIL_FP void rdLight_CalcFaceIntensity(rdLight* SWR_P32* meshLights, rdVector3* localLightPoses, int numLights, RdFace* face, rdVector3* faceNormal, rdVector3* vertices, float scalar, void* outInfos)
 {
     rdVector4* out = (rdVector4*)outInfos;
     rdVector3 toLight;

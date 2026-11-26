@@ -204,7 +204,7 @@ void* swrModel_ExtractTextureTile(void* outTile, void* src, int x, int y, int ti
 }
 
 // 0x0044b330
-void swrModel_SetAnimListSpeed(swrModel_Animation** anims, float speed)
+void swrModel_SetAnimListSpeed(swrModel_Animation* SWR_P32* anims, float speed)
 {
     if (anims == NULL)
         return;
@@ -321,7 +321,7 @@ swrModel_Header* swrModel_LoadFromId(MODELID id)
         if ((data & 0xFF000000) == 0xA000000)
         {
             // this is a texture index
-            swrModel_LoadModelTexture((TEXID)(data & 0xFFFFFF), (swrMaterial**)&model_buff[i], (uint8_t**)&model_buff[i + 1]);
+            swrModel_LoadModelTexture((TEXID)(data & 0xFFFFFF), (swrMaterial* SWR_P32*)&model_buff[i], (uint8_t**)&model_buff[i + 1]);
         }
         else if (data != 0)
         {
@@ -798,7 +798,7 @@ void swrModel_FixupAltNodePointers(int* model, int* altModel)
 }
 
 // 0x00448BD0
-swrModel_Animation** swrModel_LoadAllAnimationsOfModel(swrModel_Header* model_header)
+swrModel_Animation* SWR_P32* swrModel_LoadAllAnimationsOfModel(swrModel_Header* model_header)
 {
     swrModel_HeaderEntry* curr = model_header->entries;
     // skip over nodes...
@@ -818,7 +818,7 @@ swrModel_Animation** swrModel_LoadAllAnimationsOfModel(swrModel_Header* model_he
     }
 
     uint32_t min_anim_ptr = 0xFFFFFFFF;
-    swrModel_Animation** anim_list_ptr = NULL;
+    swrModel_Animation* SWR_P32* anim_list_ptr = NULL;
     if (curr->value == TAG("Anim"))
     {
         // load animations into buffer
@@ -1060,7 +1060,7 @@ void swrModel_UpdateTextureFlipbookAnimation(swrModel_Animation* anim)
 {
     int index = anim->key_frame_index;
     swrModel_MaterialTexture* texture;
-    swrModel_MeshMaterial** material;
+    swrModel_MeshMaterial* SWR_P32* material;
 
     if (anim->animation_time <= anim->key_frame_times[index + 1])
         texture = anim->key_frame_textures[index];
@@ -1368,7 +1368,7 @@ void swrModel_AnimationSetLoopTransitionSpeed(swrModel_Animation* anim, float tr
 }
 
 // 0x0044B360
-void swrModel_AnimationsSetSettings(swrModel_Animation** anims, float animation_time, float loop_start_time, float loop_end_time, bool set_loop, float transition_speed, float loop_transition_speed)
+void swrModel_AnimationsSetSettings(swrModel_Animation* SWR_P32* anims, float animation_time, float loop_start_time, float loop_end_time, bool set_loop, float transition_speed, float loop_transition_speed)
 {
     if (anims == NULL)
         return;
@@ -1420,7 +1420,7 @@ Gfx* swrModel_MeshGetDisplayList(const swrModel_Mesh* mesh)
 {
     // if the mesh was already converted to rdModel3Mesh*, the original index buffer is stored inside the rdModel3Mesh*
     if (strncmp(mesh->converted_mesh->name, "aes", 3) == 0)
-        return *(Gfx**)&mesh->converted_mesh->name[10];
+        return *(Gfx* SWR_P32*)&mesh->converted_mesh->name[10];
 
     return mesh->vertex_display_list;
 }
@@ -1453,7 +1453,7 @@ void swrModel_LoadAllLightStreaks(swrModel_Header* header)
 }
 
 // 0x0046D610
-void swrModel_AnimationsResetToZero(swrModel_Animation** anims)
+void swrModel_AnimationsResetToZero(swrModel_Animation* SWR_P32* anims)
 {
     while (*anims)
     {
@@ -1466,7 +1466,7 @@ void swrModel_AnimationsResetToZero(swrModel_Animation** anims)
 }
 
 // 0x0046D5C0
-void swrModel_AnimationsResetToZero2(swrModel_Animation** anims, float animation_speed)
+void swrModel_AnimationsResetToZero2(swrModel_Animation* SWR_P32* anims, float animation_speed)
 {
     while (*anims)
     {
@@ -1480,7 +1480,7 @@ void swrModel_AnimationsResetToZero2(swrModel_Animation** anims, float animation
 }
 
 // 0x0046d650
-int swrModel_AnyFxAnimDone(swrModel_Animation** anims)
+int swrModel_AnyFxAnimDone(swrModel_Animation* SWR_P32* anims)
 {
     swrModel_Animation* anim = anims[0];
     if (anim == NULL) {
@@ -2056,7 +2056,7 @@ uint32_t* swrModel_MeshGetPrimitiveSizes(swrModel_Mesh* mesh)
 // Hands back a mesh's collision geometry: the shared vertex array and, for indexed primitives, the
 // index list (NULL for sequential primitives). `disable` != 0 returns nulls (collision turned off).
 // 0x004317e0
-void swrModel_MeshGetCollisionData(swrModel_Mesh* mesh, int disable, swrModel_CollisionVertex** vertices, uint16_t** optional_indices)
+void swrModel_MeshGetCollisionData(swrModel_Mesh* mesh, int disable, swrModel_CollisionVertex* SWR_P32* vertices, uint16_t** optional_indices)
 {
     if (disable == 0) {
         *vertices = mesh->collision_vertices;
@@ -2336,7 +2336,7 @@ void swrModel_InitializeTextureBuffer()
 }
 
 // 0x00447490
-void swrModel_LoadModelTexture(TEXID texture_index, swrMaterial** material_ptr, uint8_t** palette_data_ptr)
+void swrModel_LoadModelTexture(TEXID texture_index, swrMaterial* SWR_P32* material_ptr, uint8_t** palette_data_ptr)
 {
     int offsets[3];
     int i;
@@ -2348,7 +2348,7 @@ void swrModel_LoadModelTexture(TEXID texture_index, swrMaterial** material_ptr, 
     }
     // texture_buffer caches a pointer to the first loader's {material, palette} slot pair
     if (texture_buffer[texture_index] != NULL) {
-        *material_ptr = ((swrMaterial**)texture_buffer[texture_index])[0];
+        *material_ptr = ((swrMaterial* SWR_P32*)texture_buffer[texture_index])[0];
         *palette_data_ptr = ((uint8_t**)texture_buffer[texture_index])[1];
         return;
     }
@@ -2543,7 +2543,7 @@ void swrModel_LoadPuppet(MODELID model, INGAME_MODELID index, int kind, float a4
         return;
     swr_sceneElmos[index] = elmo;
     swrModel_LoadModelIntoScene(model, -1, index, true);
-    swrObjElmo_Init(elmo, (swrModel_Node**)swr_sceneModels[index], (void*)swr_sceneAnimations[index], kind);
+    swrObjElmo_Init(elmo, (swrModel_Node* SWR_P32*)swr_sceneModels[index], (void*)swr_sceneAnimations[index], kind);
     elmo->unkc_index = index;
     elmo->unkbc = a4;
     if (kind == swrObjElmo_KIND_PIT_DROID)
@@ -3325,7 +3325,7 @@ float swrModel_MeshIterateOverCollisionFaces(swrModel_Mesh* mesh)
     int primitive_type = swrModel_MeshGetPrimitiveType(mesh);
     int num_primitives = swrModel_MeshGetNumPrimitives(mesh);
 
-    swrModel_CollisionVertex* vertices;
+    swrModel_CollisionVertex* SWR_P32 vertices;
     uint16_t* indices;
     swrModel_MeshGetCollisionData(mesh, 0, &vertices, &indices);
     if (vertices == NULL)
@@ -3880,7 +3880,7 @@ void swrSprite_SetSunSpriteAlpha(int index, unsigned char alpha)
 // Composes the transforms of a NULL-terminated node chain. The pivot comes from the last 0xd065
 // node seen; before one is seen the original reads it from outMatrix (+0x4c), kept as-is.
 // 0x004819b0
-void swrModel_ComputeNodeChainMatrix(swrModel_Node** nodeList, rdMatrix44* outMatrix)
+void swrModel_ComputeNodeChainMatrix(swrModel_Node* SWR_P32* nodeList, rdMatrix44* outMatrix)
 {
     swrModel_NodeTransformedWithPivot* pivotNode = (swrModel_NodeTransformedWithPivot*)outMatrix;
     rdMatrix44 local;
@@ -4167,7 +4167,7 @@ void swrModel_FindClosestPointOnModel(swrModel_Node* node, swrModel_Node* target
     rdVector3 normal;
     float minDistSq;
 
-    swrModel_closestPointChainOut = (swrModel_Node**)nodeChainOut;
+    swrModel_closestPointChainOut = (swrModel_Node* SWR_P32*)nodeChainOut;
     swrModel_closestPointDepth = 0;
     if (maxNodeDepth > SWR_MODEL_CLOSEST_POINT_MAX_DEPTH)
         maxNodeDepth = SWR_MODEL_CLOSEST_POINT_MAX_DEPTH;
@@ -4192,7 +4192,7 @@ void swrModel_FindClosestPointOnModel(swrModel_Node* node, swrModel_Node* target
 }
 
 // 0x00482dd0
-void swrModel_TransformPointAndDir(rdVector3* outPoint, rdVector3* outDir, swrModel_Node** nodeChain, rdVector3* point, rdVector3* dir)
+void swrModel_TransformPointAndDir(rdVector3* outPoint, rdVector3* outDir, swrModel_Node* SWR_P32* nodeChain, rdVector3* point, rdVector3* dir)
 {
     rdMatrix44 m;
 
@@ -4242,7 +4242,7 @@ RETAIL_FP float swrMath_StepTowardClamped(float value, float current, float min,
 }
 
 // 0x0044b060
-void swrModel_CompensateRootMotion(swrModel_Node** nodes, swrModel_Animation** anims, rdVector3* prevPos, float maxStep)
+void swrModel_CompensateRootMotion(swrModel_Node* SWR_P32* nodes, swrModel_Animation* SWR_P32* anims, rdVector3* prevPos, float maxStep)
 {
     rdMatrix44 rootXf;
     rdMatrix44 childXf;
@@ -4268,7 +4268,7 @@ void swrModel_CompensateRootMotion(swrModel_Node** nodes, swrModel_Animation** a
 }
 
 // 0x0044b470
-float swrModel_GetAnimListTime(swrModel_Animation** anims)
+float swrModel_GetAnimListTime(swrModel_Animation* SWR_P32* anims)
 {
     if (anims == NULL || *anims == NULL)
         return 0.0f;
@@ -4276,7 +4276,7 @@ float swrModel_GetAnimListTime(swrModel_Animation** anims)
 }
 
 // 0x0044b4a0
-float swrModel_GetNodeYaw(swrModel_Node** nodes, swrModel_Animation** anims)
+float swrModel_GetNodeYaw(swrModel_Node* SWR_P32* nodes, swrModel_Animation* SWR_P32* anims)
 {
     rdMatrix44 xf;
 

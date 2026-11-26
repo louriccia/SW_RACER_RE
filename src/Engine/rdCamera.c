@@ -367,7 +367,7 @@ void rdCamera_SetAttenuation(rdCamera* camera, float minVal, float maxVal)
 {
     rdLight* light;
     uint32_t i;
-    rdLight** lights;
+    rdLight* SWR_P32* lights;
 
     camera->attenuationMin = minVal;
     i = 0;

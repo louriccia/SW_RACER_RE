@@ -196,7 +196,7 @@ void Window_DisplaySettingsBox(HWND hwnd, swrMainDisplaySettings* displaySetting
 {
     HINSTANCE hInstance;
 
-    hInstance = (HINSTANCE)GetWindowLongA(hwnd, GWL_HINSTANCE);
+    hInstance = (HINSTANCE)GetWindowLongPtrA(hwnd, GWLP_HINSTANCE);
     DialogBoxParamA(hInstance, MAKEINTRESOURCEA(WINDOW_DISPLAY_SETTINGS_DIALOG), hwnd, Window_DisplaySettingsCallback, (LPARAM)displaySettings);
 }
 
@@ -274,7 +274,7 @@ BOOL Window_DisplaySettingsInitDialog(HWND hDlg, WPARAM wParam, swrMainDisplaySe
     Window_ComboAddItem(combo, "Trilinear", 2);
 
     Window_DisplaySettingsPopulateModes(hDlg, displaySettings);
-    SetWindowLongA(hDlg, DWL_USER, (LONG)displaySettings);
+    SetWindowLongPtrA(hDlg, DWLP_USER, (LONG_PTR)displaySettings);
     CheckDlgButton(hDlg, WINDOW_DISPLAY_SETTINGS_FULLSCREEN, displaySettings->RegFullScreen);
     CheckDlgButton(hDlg, WINDOW_DISPLAY_SETTINGS_FIX_FLICKER, displaySettings->RegFixFlicker);
     CheckDlgButton(hDlg, WINDOW_DISPLAY_SETTINGS_DEV_MODE, displaySettings->RegDevMode);
@@ -296,7 +296,7 @@ void Window_DisplaySettingsCommand(HWND hDlg, int controlId, WPARAM wParam, int 
     OLECHAR guidWide[130];
     CHAR guidString[260];
 
-    settings = (swrMainDisplaySettings*)GetWindowLongA(hDlg, DWL_USER);
+    settings = (swrMainDisplaySettings*)GetWindowLongPtrA(hDlg, DWLP_USER);
     if (controlId > WINDOW_DISPLAY_SETTINGS_ACCEPT_ON_DBLCLK) {
         if (controlId == WINDOW_DISPLAY_SETTINGS_VIDEO_MODE) {
             if (notifyCode == CBN_SELCHANGE)
@@ -392,7 +392,7 @@ void Window_DisplaySettingsPopulateModes(HWND hDlg, swrMainDisplaySettings* disp
 // 0x00425070
 int Window_SmushPlayCallback(const SmushImage* image)
 {
-    LPDIRECTDRAWSURFACE4* surface;
+    LPDIRECTDRAWSURFACE4 SWR_P32* surface;
     DDSURFACEDESC2 desc;
     unsigned int width;
     unsigned int height;
@@ -552,7 +552,7 @@ int Window_PlayCinematic(char* znmFile)
     height = stdDisplay_g_backBuffer.rasterInfo.height;
     if (width >= SWR_SMUSH_VIDEO_WIDTH && height >= SWR_SMUSH_VIDEO_HEIGHT) {
         swrDisplay_directlyBlitVideoToScreen = 1;
-    } else if (IDirectDraw4_CreateSurface(std3D_pDirectDraw, &ddSurfaceDescForVideo, &ddSurfaceForVideo, NULL) != DD_OK) {
+    } else if (SWR_OUT_NATIVE(LPDIRECTDRAWSURFACE4, ddSurfaceForVideo, IDirectDraw4_CreateSurface(std3D_pDirectDraw, &ddSurfaceDescForVideo, swr_out_, NULL)) != DD_OK) {
         swrDisplay_directlyBlitVideoToScreen = 1;
     }
     // faithful: nothing here resets swrDisplay_directlyBlitVideoToScreen to 0

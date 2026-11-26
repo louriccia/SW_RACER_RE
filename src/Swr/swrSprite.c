@@ -1259,7 +1259,7 @@ int swrSprite_UpperPowerOfTwo(int x)
 void swrModel_CreateTextureMaterialFromPixels(int srcWidth, int srcHeight, int width, int height, unsigned int bufferKind, void** outMaterial, uint8_t* pixels)
 {
     tVBuffer buffer;
-    tVBuffer* pBuffer = &buffer;
+    tVBuffer* SWR_P32 pBuffer = &buffer;
 
     RdMaterial* material = rdMaterial_Load(".\\data\\default.mat");
     swrModel_RegisterRootMaterial(bufferKind, material);
@@ -1328,10 +1328,10 @@ void swrModel_ConvertIndexedTextureRows(int width, int height, int paddedWidth, 
 }
 
 // 0x00445EE0
-void swrModel_ConvertTextureDataToRdMaterial(int texture_type_a, int texture_type_b, int orig_width, int orig_height, int width, int height, swrMaterial** texture_data_ptr, uint8_t** palette_ptr, char flipSomething, char adjustWidthHeightFlag)
+void swrModel_ConvertTextureDataToRdMaterial(int texture_type_a, int texture_type_b, int orig_width, int orig_height, int width, int height, swrMaterial* SWR_P32* texture_data_ptr, uint8_t** palette_ptr, char flipSomething, char adjustWidthHeightFlag)
 {
     tVBuffer buffer;
-    tVBuffer* pBuffer = &buffer;
+    tVBuffer* SWR_P32 pBuffer = &buffer;
     uint16_t* palette = (uint16_t*)*palette_ptr;
     uint8_t* src = (uint8_t*)*texture_data_ptr;
     char mirrorS = 0;
@@ -1609,7 +1609,7 @@ void swrModel_ConvertTextureDataToRdMaterial(int texture_type_a, int texture_typ
 }
 
 // 0x00446C20
-void swrModel_DoConvertTextureDataToRdMaterial(swrMaterial** texture_data_ptr, uint8_t** palette_data_ptr)
+void swrModel_DoConvertTextureDataToRdMaterial(swrMaterial* SWR_P32* texture_data_ptr, uint8_t** palette_data_ptr)
 {
     swrModel_MaterialTexture* texture = (swrModel_MaterialTexture*)((char*)texture_data_ptr - offsetof(swrModel_MaterialTexture, texture_data));
     int origWidth;
@@ -1626,7 +1626,7 @@ void swrModel_DoConvertTextureDataToRdMaterial(swrMaterial** texture_data_ptr, u
         swrModel_ConvertTextureDataToRdMaterial(texture->type & 0xff, texture->type >> 8, origWidth, origHeight, width, height, texture_data_ptr, palette_data_ptr, 1, ((uint8_t*)&texture->specs[0]->flags)[3]);
     }
     // back-pointer to the texture header, overwriting the U scale float written above
-    *(swrModel_MaterialTexture**)((*texture_data_ptr)->filename + 10) = texture;
+    *(swrModel_MaterialTexture* SWR_P32*)((*texture_data_ptr)->filename + 10) = texture;
 }
 
 // 0x00446a20
@@ -1706,7 +1706,7 @@ void swrModel_ConvertTileToRdMaterial(void* tex, void* tile)
     int width = (mask + (short)page->width) & ~mask;
     int potWidth = swrSprite_UpperPowerOfTwo(width);
     int potHeight = swrSprite_UpperPowerOfTwo(height);
-    swrModel_ConvertTextureDataToRdMaterial(header->format, header->page_width_align, width, height, potWidth, potHeight, (swrMaterial**)&page->offset, &palette, 0, 0);
+    swrModel_ConvertTextureDataToRdMaterial(header->format, header->page_width_align, width, height, potWidth, potHeight, (swrMaterial* SWR_P32*)&page->offset, &palette, 0, 0);
 }
 
 // 0x00446ca0
@@ -1821,7 +1821,7 @@ void rdProcEntry_Add2DQuad5(int a1, int a2, int a3, int a4, int a5, int a6, int 
 }
 
 // 0x0044F160
-void swrSprite_Draw(int* arg0, swrSpriteTexture* a1, RdMaterial** a2, float a3, float a4, float a5, float a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, short a14, float a15, float a16, int a17)
+void swrSprite_Draw(int* arg0, swrSpriteTexture* a1, RdMaterial* SWR_P32* a2, float a3, float a4, float a5, float a6, int a7, int a8, int a9, int a10, int a11, int a12, int a13, short a14, float a15, float a16, int a17)
 {
     // a2 is the swrSpriteTexturePage: width/height shorts, then the page material
     swrSpriteTexturePage* page = (swrSpriteTexturePage*)a2;
@@ -2200,7 +2200,7 @@ void swrSprite_Draw1(swrSpriteTexture* tex, short x, short y, float scaleX, floa
         }
 
         if (page->offset != 0)
-            swrSprite_Draw(&drawState, tex, (RdMaterial**)page, left, top, right, bottom, x2, y2, uTexel, vTexel, texelStepX, texelStepY, hflip, vflip == 0, sinA, cosA, flags);
+            swrSprite_Draw(&drawState, tex, (RdMaterial* SWR_P32*)page, left, top, right, bottom, x2, y2, uTexel, vTexel, texelStepX, texelStepY, hflip, vflip == 0, sinA, cosA, flags);
 
         if (hflip)
             u1 -= pageWidth;

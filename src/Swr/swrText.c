@@ -35,7 +35,7 @@ int swrText_ParseRacerTab(char* filepath)
     char* p;
     char* end;
     char* line;
-    char** entry;
+    char* SWR_P32* entry;
 
     swrText_nbLinesRacerTab = 0;
     stream = (*stdPlatform_hostServices_ptr->fileOpen)(filepath, "rb");

@@ -1237,7 +1237,7 @@ static void rdModel_CreateRootModel(void)
 }
 
 // 0x0044db70
-void rdModel_BuildAndDrawScene(Gfx** displayListCursor, swrViewport* viewport)
+void rdModel_BuildAndDrawScene(Gfx* SWR_P32* displayListCursor, swrViewport* viewport)
 {
     int i;
 
@@ -1273,7 +1273,7 @@ void rdModel_BuildSceneNoDraw_Maybe(swrViewport* viewport)
 }
 
 // 0x0044e000
-void rdModel_SetupSceneFogAndLights(Gfx** displayListCursor)
+void rdModel_SetupSceneFogAndLights(Gfx* SWR_P32* displayListCursor)
 {
     Gfx* cursor;
 

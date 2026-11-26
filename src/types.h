@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include "ptr32.h"
 
 // Layout assertion usable from both the C reimpls and the C++ delta layer. Ghidra's C parser
 // skips it along with the rest of the preprocessor.
@@ -183,9 +184,9 @@ extern "C"
     typedef struct rdDDrawSurface
     {
 #ifdef __cplusplus
-        void* vtable; // 0x0
+        void * SWR_P32 vtable; // 0x0
 #else
-    IDirectDrawSurface4Vtbl* vtable; // 0x0
+    IDirectDrawSurface4Vtbl * SWR_P32 vtable; // 0x0
 #endif
         uint32_t direct3d_tex; // 0x4
         DDSURFACEDESC2 surface_desc; // 0x8
@@ -196,8 +197,8 @@ extern "C"
         uint32_t height;
         uint32_t texture_area;
         uint32_t gpu_accel_maybe;
-        struct rdDDrawSurface* tex_prev;
-        struct rdDDrawSurface* tex_next;
+        struct rdDDrawSurface * SWR_P32 tex_prev;
+        struct rdDDrawSurface * SWR_P32 tex_next;
     } rdDDrawSurface;
 
     typedef struct stdFileSearch
@@ -205,7 +206,7 @@ extern "C"
         int searchMode;
         int isNotFirst;
         char path[128];
-        intptr_t filesearchHandle;
+        SWR_INTPTR32 filesearchHandle;
     } stdFileSearch; // sizeof 0x8c = 140
 
     typedef struct stdFileSearchResult
@@ -246,7 +247,7 @@ extern "C"
         // int heightMinusOne;
 
         uint32_t bIdk;
-        struct tVBuffer* vbuffer;
+        struct tVBuffer * SWR_P32 vbuffer;
         float screen_height_half;
         float screen_width_half;
         int xStart; // 0x10
@@ -258,20 +259,20 @@ extern "C"
     typedef struct rdCamera
     {
         rdCameraProjectType projectType; // 0x0
-        rdCanvas* canvas; // 0x4
+        rdCanvas * SWR_P32 canvas; // 0x4
         rdMatrix34 view_matrix; // 0x8
         float fov; // 0x38
         float fov_y; // 0x3c
         float screenAspectRatio; // 0x40
         float orthoScale; // 0x44
-        rdClipFrustum* pClipFrustum; // 0x48
-        void (*fnProject)(rdVector3*, rdVector3*); // 0x4c
-        void (*fnProjectLst)(rdVector3*, rdVector3*, unsigned int); // 0x50
+        rdClipFrustum * SWR_P32 pClipFrustum; // 0x48
+        void (* SWR_P32 fnProject)(rdVector3*, rdVector3*); // 0x4c
+        void (* SWR_P32 fnProjectLst)(rdVector3*, rdVector3*, unsigned int); // 0x50
         float ambientLight;
         float depthRangeScale; // 0x58. 1 / (fov_y/zFar - fov_y/zNear); depth-range normalization scale
         rdVector4 ambientColor; // 0x5c. rdCamera_SetAmbientLight; rgb seeds rdLight_CalcVertexIntensities
         int numLights; // 0x6c
-        rdLight* lights[128]; // Jkdf 64, Indy 128. really 128 ?
+        rdLight * SWR_P32 lights[128]; // Jkdf 64, Indy 128. really 128 ?
         rdVector3 lightPositions[128];
         float attenuationMin;
         float attenuationMax;
@@ -280,33 +281,33 @@ extern "C"
     typedef struct HostServices
     {
         float some_float;
-        int (*messagePrint)(const char*, ...);
-        int (*statusPrint)(const char*, ...);
-        int (*warningPrint)(const char*, ...);
-        int (*errorPrint)(const char*, ...);
-        int (*debugPrint)(const char*, ...);
-        void (*assert)(const char*, const char*, int);
+        int (* SWR_P32 messagePrint)(const char*, ...);
+        int (* SWR_P32 statusPrint)(const char*, ...);
+        int (* SWR_P32 warningPrint)(const char*, ...);
+        int (* SWR_P32 errorPrint)(const char*, ...);
+        int (* SWR_P32 debugPrint)(const char*, ...);
+        void (* SWR_P32 assert)(const char*, const char*, int);
         uint32_t unk_0;
-        void* (*alloc)(unsigned int);
-        void (*free)(void*);
-        void* (*realloc)(void*, unsigned int);
-        uint32_t (*getTimerTick)();
-        stdFile_t (*fileOpen)(const char*, const char*);
-        int (*fileClose)(stdFile_t);
-        size_t (*fileRead)(stdFile_t, void*, size_t);
-        char* (*fileGets)(stdFile_t, char*, size_t);
-        size_t (*fileWrite)(stdFile_t, const void*, size_t);
-        int (*feof)(stdFile_t);
-        int (*ftell)(stdFile_t);
-        int (*fseek)(stdFile_t, int, int);
-        int (*fileSize)(const char*);
-        int (*filePrintf)(stdFile_t, const char*, ...);
-        wchar_t* (*fileGetws)(stdFile_t, wchar_t*, size_t);
-        void* (*allocHandle)(size_t);
-        void (*freeHandle)(void*);
-        void* (*reallocHandle)(void*, size_t);
-        uint32_t (*lockHandle)(uint32_t);
-        void (*unlockHandle)(uint32_t);
+        void* (* SWR_P32 alloc)(unsigned int);
+        void (* SWR_P32 free)(void*);
+        void* (* SWR_P32 realloc)(void*, unsigned int);
+        uint32_t (* SWR_P32 getTimerTick)();
+        stdFile_t (* SWR_P32 fileOpen)(const char*, const char*);
+        int (* SWR_P32 fileClose)(stdFile_t);
+        size_t (* SWR_P32 fileRead)(stdFile_t, void*, size_t);
+        char* (* SWR_P32 fileGets)(stdFile_t, char*, size_t);
+        size_t (* SWR_P32 fileWrite)(stdFile_t, const void*, size_t);
+        int (* SWR_P32 feof)(stdFile_t);
+        int (* SWR_P32 ftell)(stdFile_t);
+        int (* SWR_P32 fseek)(stdFile_t, int, int);
+        int (* SWR_P32 fileSize)(const char*);
+        int (* SWR_P32 filePrintf)(stdFile_t, const char*, ...);
+        wchar_t* (* SWR_P32 fileGetws)(stdFile_t, wchar_t*, size_t);
+        void* (* SWR_P32 allocHandle)(size_t);
+        void (* SWR_P32 freeHandle)(void*);
+        void* (* SWR_P32 reallocHandle)(void*, size_t);
+        uint32_t (* SWR_P32 lockHandle)(uint32_t);
+        void (* SWR_P32 unlockHandle)(uint32_t);
     } HostServices;
 
     typedef LRESULT (*Window_MSGHANDLER)(HWND, UINT, WPARAM, LPARAM, UINT*);
@@ -346,7 +347,7 @@ extern "C"
         uint32_t palette_offset; // 0x8 palette pointer
         unsigned short page_count; // 0xC page count
         unsigned short unk6; // 0xE always 32 [bits per pixel?]
-        swrSpriteTexturePage* page_table; // 0x10 pagetable pointer
+        swrSpriteTexturePage * SWR_P32 page_table; // 0x10 pagetable pointer
         // 0x14 bytes total, but will be followed by its page, palette and pixel data normally
     } swrSpriteTextureHeader; // sizeof(0x14)
 
@@ -388,12 +389,12 @@ extern "C"
         uint8_t g; // 0x19 G
         uint8_t b; // 0x1A B
         uint8_t a; // 0x1B A
-        swrSpriteTexture* texture; // 0x1C, written in sub_4282F0
+        swrSpriteTexture * SWR_P32 texture; // 0x1C, written in sub_4282F0
     } swrSprite; // sizeof(0x20)
 
     typedef struct swrSpriteTexItem
     {
-        swrSpriteTexture* texture;
+        swrSpriteTexture * SWR_P32 texture;
         int id; // 0x4
     } swrSpriteTexItem; // sizeof(0x8)
 
@@ -447,7 +448,7 @@ extern "C"
     // progress). See swrSpline_CursorInit / CursorSeek / CursorEvaluate.
     typedef struct swrSplineCursor
     {
-        struct swrSpline* spline; // 0x00
+        struct swrSpline * SWR_P32 spline; // 0x00
         float velocity; // 0x04 signed; sign selects step direction
         float segmentT; // 0x08 parameter along the current segment, clamped 0..1
         float tangentLength; // 0x0c length of the evaluated path tangent
@@ -475,8 +476,8 @@ extern "C"
         float lapComp;
         float lapCompPrev;
         float lapCompMax;
-        struct swrModel_Mesh* splineTrackMesh; // 0xec. baked track mesh under the spline cursor (swrRace_GetTrackMeshAtCursor); raycast target when FULL_RAYCAST is clear; copied to terrainModel on the cached-ground path
-        struct swrModel_Mesh* splineTrackMeshPrev; // 0xf0. previous frame's splineTrackMesh; a change (pod crossed into the next track chunk) zeroes unk1f24
+        struct swrModel_Mesh * SWR_P32 splineTrackMesh; // 0xec. baked track mesh under the spline cursor (swrRace_GetTrackMeshAtCursor); raycast target when FULL_RAYCAST is clear; copied to terrainModel on the cached-ground path
+        struct swrModel_Mesh * SWR_P32 splineTrackMeshPrev; // 0xf0. previous frame's splineTrackMesh; a change (pod crossed into the next track chunk) zeroes unk1f24
         int splineProjOut1; // 0xf4. out-slot of the 1st swrSpline_ProjectPointStub call in swrRace_UpdateRaceProgress; the stub always writes 0 (projection compiled out of retail), so 0xf4..0x100 are always zero
         int splineProjResult1; // 0xf8. its return value (always 0 in retail)
         int splineProjOut2; // 0xfc. out-slot of the 2nd call (always 0)
@@ -498,8 +499,8 @@ extern "C"
         float gapToLocalPlayer2; // 0x134. signed gap to local player 2 (splitscreen only)
         float aiPaceOffsetTarget; // 0x138. AI station-keeping target: desired progress offset (laps)
                                   // behind the pacer, derived from aiRankTarget (written by swrRace_AI)
-        struct swrModel_Node* collisionModel; // 0x13c. track collision model (Init param); sole target of RaycastModel / CollideBlockMove / CollideTrack
-        struct swrModel_Node* terrainModel;
+        struct swrModel_Node * SWR_P32 collisionModel; // 0x13c. track collision model (Init param); sole target of RaycastModel / CollideBlockMove / CollideTrack
+        struct swrModel_Node * SWR_P32 terrainModel;
         rdVector3 bumpDirection;
         float speedLoss;
         rdVector3 wallPushback;
@@ -553,7 +554,7 @@ extern "C"
         float surfaceGripFactor; // 0x248
         float slide2; // 0x24c
         float unk11_1; // 0x250. vertical Z offset applied per-frame to the engine/cockpit part transforms (swrRace_ApplyPartSinkOffset), binder endpoints and cMan camera targets; no non-zero writer exists in the retail binary (vestigial sink mechanism)
-        struct swrModel_Node* guideArrowNode; // 0x254. HUD spline guide arrow node (written by swrObjJdge_UpdatePlayerHUD while FLAG0_GUIDE_ARROW; drawn by swrObjcMan_UpdateSplineGuideMarker)
+        struct swrModel_Node * SWR_P32 guideArrowNode; // 0x254. HUD spline guide arrow node (written by swrObjJdge_UpdatePlayerHUD while FLAG0_GUIDE_ARROW; drawn by swrObjcMan_UpdateSplineGuideMarker)
         rdVector3 guideArrowTarget; // 0x258. spline point 0.5 ahead that the guide arrow points at
         float wallHitCooldown; // 0x264. set 0.1 on a hard wall impact (ApplyWallCollision, clearing FLAG0_THROTTLE_SETTLED); counts down in F0; expiry re-sets the flag
         float unk12_2; // 0x268. Sebulba flame-attack timer: 15 on spawn, pinned >= 5 while the flame Smok lives, ticks down otherwise; reader unknown
@@ -578,8 +579,8 @@ extern "C"
         float vehicleBumpTimer; // 0x308. set rand[2,8) on the 'Hitt'/'VhLt' vehicle-bump event; counts down in UpdatePhysicsContact
         float respawnInvincibilityTimer; // 0x30c
         float deathExplodeTimer; // 0x310. set rand[2,3) in swrRace_Explode; HandleDeathSnap / UpdatePhysicsContact count it down to the 'Snap' event / respawn
-        struct swrObjSmok* engineDamageSmoke[2]; // 0x314. persistent R/L engine damage smoke handles (Spawn type 6 + SetOwnerHandle in UpdateEngineDamageFX)
-        struct swrObjSmok* flameSmokeHandle; // 0x31c. Sebulba flame-attack Smok (type 8), auto-nulled via SetOwnerHandle; killed on death/reset
+        struct swrObjSmok * SWR_P32 engineDamageSmoke[2]; // 0x314. persistent R/L engine damage smoke handles (Spawn type 6 + SetOwnerHandle in UpdateEngineDamageFX)
+        struct swrObjSmok * SWR_P32 flameSmokeHandle; // 0x31c. Sebulba flame-attack Smok (type 8), auto-nulled via SetOwnerHandle; killed on death/reset
         int unk320;
         int fireballEngineSlot; // 0x324. engine index whose fireball FX is burning (-1 = none); anchors the fireball node at that engine matrix
         int unk328;
@@ -589,9 +590,9 @@ extern "C"
         float spinoutEngineAngle; // 0x338. accumulated engine spin during the death spinout (AnimateSpinoutEngines)
         float spinoutCockpitAngle; // 0x33c. same for the cockpit
         float spinoutSpinRamp; // 0x340. ramp toward 1.0 scaling both spinout spin rates
-        struct swrModel_Node** partNodes; // 0x344. pod part-node array (podModel param of Init): [1..4] engines, [5] cockpit, [0x3d..0x40] shadows, [0x41/0x42] scrape sparks, [0x43/0x44] exhausts; NULL = far-LOD pod
-        struct swrModel_Node* lodBodyNode; // 0x348. single-node far-LOD pod body (transform = farLodPodXf), used when partNodes == NULL
-        struct swrModel_Node* lodSelectorNode; // 0x34c. LOD selector node; F3 selects child (lodDistance < 101 ? 0 : 1)
+        struct swrModel_Node * SWR_P32 * SWR_P32 partNodes; // 0x344. pod part-node array (podModel param of Init): [1..4] engines, [5] cockpit, [0x3d..0x40] shadows, [0x41/0x42] scrape sparks, [0x43/0x44] exhausts; NULL = far-LOD pod
+        struct swrModel_Node * SWR_P32 lodBodyNode; // 0x348. single-node far-LOD pod body (transform = farLodPodXf), used when partNodes == NULL
+        struct swrModel_Node * SWR_P32 lodSelectorNode; // 0x34c. LOD selector node; F3 selects child (lodDistance < 101 ? 0 : 1)
         // 0x350..0x1610 is one rdMatrix44[75] per-part transform array, index-aligned with
         // partNodes (Init resets all 75 in a single loop); the named engineXf*/cockpitXf/
         // shadowXf*/scrapeSparkXf*/engineExhaustXf*/farLodPodXf members are its elements.
@@ -622,7 +623,7 @@ extern "C"
         char unk1510[192]; // 0x1510. partXf[71..73], never referenced
         rdMatrix44 farLodPodXf; // 0x15d0. transform of the single-node far-LOD pod (0.004-scaled pod transform; set on lodBodyNode in F3)
         rdVector3 partOffset[75]; // 0x1610. index-aligned with partNodes: per-part positional offset / animation accumulators (.y = smoothed value of swrRace_SmoothEngineExhaustSize; [33].y = steering-part spin angle)
-        struct swrModel_Node* reflectionNode; // 0x1994. pod's planar ground-reflection node (drawn by swrRace_UpdateReflectionNode on ON_MIRR surfaces)
+        struct swrModel_Node * SWR_P32 reflectionNode; // 0x1994. pod's planar ground-reflection node (drawn by swrRace_UpdateReflectionNode on ON_MIRR surfaces)
         int lodDistance;
         float wobblePhase[4]; // 0x199c. per-part wobble sine phases, random-seeded in Init, advanced by dt (AnimateEngineWobble)
         float wobbleAmplitude; // 0x19ac. engine-wobble amplitude: forced 1.0 on HIT_BOTTOM, decays to a 0.4 floor
@@ -639,7 +640,7 @@ extern "C"
         float footprintX; // 0x1e64. pod footprint half-extent X from the shadow node AABB (default 2.0, Neva Kee 3.0); also the engine-proximity push radius
         float footprintY; // 0x1e68. half-extent Y (default 2.0, Neva Kee 5.0)
         int orthoRenormCounter; // 0x1e6c. every 8 frames UpdateTurn2 re-normalizes the transform basis vectors
-        struct swrScore* score_ptr;
+        struct swrScore * SWR_P32 score_ptr;
         char unk1e74[64];
         int remoteId; // 0x1eb4. network id of the owning remote player (-1 = unassigned; set by the 'RmHi' event, REMO pods only)
         int remoteControls[3]; // 0x1eb8. remote-pod controls from the 'RmCn' event (two payload words + subEvent[4])
@@ -675,8 +676,8 @@ extern "C"
         char g;
         char b;
         char a;
-        void* meshMaterial; // annodue modelMeshMaterial
-        struct swrModel_Node* model;
+        void * SWR_P32 meshMaterial; // annodue modelMeshMaterial
+        struct swrModel_Node * SWR_P32 model;
     } swrObjToss; // sizeof(0x7c)
 
     typedef struct swrObjTrig
@@ -689,13 +690,13 @@ extern "C"
         rdVector3 velocity; // 0x18. player velocity captured on a crash-hit trigger
         rdVector3 trigger_center;
         rdVector3 unk30;
-        struct swrModel_Node* unk3c_node;
-        struct swrModel_Animation* unk40_animation;
-        struct swrModel_Animation* unk44_animation;
-        struct swrModel_Node* unk48_node;
-        struct swrModel_TriggerDescription* trigger_description;
-        rdMatrix44* test_obj_transform_ptr;
-        struct swrModel_Material* model_material;
+        struct swrModel_Node * SWR_P32 unk3c_node;
+        struct swrModel_Animation * SWR_P32 unk40_animation;
+        struct swrModel_Animation * SWR_P32 unk44_animation;
+        struct swrModel_Node * SWR_P32 unk48_node;
+        struct swrModel_TriggerDescription * SWR_P32 trigger_description;
+        rdMatrix44 * SWR_P32 test_obj_transform_ptr;
+        struct swrModel_Material * SWR_P32 model_material;
     } swrObjTrig; // sizeof(0x58)
 
     typedef union Winnings
@@ -729,11 +730,11 @@ extern "C"
         int flag;
         int unk18;
         int unk1c;
-        struct swrModel_Node* hangar18_part_model;
-        struct swrModel_Node* loc_wattoo_part_model;
-        struct swrModel_Node* loc_cantina_part_model;
-        struct swrModel_Node* loc_junkyard_part_model;
-        struct swrModel_Node* holo_proj02_part_model;
+        struct swrModel_Node * SWR_P32 hangar18_part_model;
+        struct swrModel_Node * SWR_P32 loc_wattoo_part_model;
+        struct swrModel_Node * SWR_P32 loc_cantina_part_model;
+        struct swrModel_Node * SWR_P32 loc_junkyard_part_model;
+        struct swrModel_Node * SWR_P32 holo_proj02_part_model;
         HangCameraState cameraState;
         HangRoom room;
         HangRoom roomPrev;
@@ -775,12 +776,12 @@ extern "C"
         Winnings winnings;
         char unkaa[2];
         char unkac[8];
-        swrSpriteTexture* award_first_rgb; // 0xb4
-        swrSpriteTexture* award_second_rgb;
-        swrSpriteTexture* award_third_rgb;
-        swrSpriteTexture* award_wdw_blue_rgb;
-        swrSpriteTexture* award_wdw_select_blue_rgb;
-        swrSpriteTexture* sprite_whitesquare_rgb;
+        swrSpriteTexture * SWR_P32 award_first_rgb; // 0xb4
+        swrSpriteTexture * SWR_P32 award_second_rgb;
+        swrSpriteTexture * SWR_P32 award_third_rgb;
+        swrSpriteTexture * SWR_P32 award_wdw_blue_rgb;
+        swrSpriteTexture * SWR_P32 award_wdw_select_blue_rgb;
+        swrSpriteTexture * SWR_P32 sprite_whitesquare_rgb;
         char podiumCharacters[3];
         char unkcf;
     } swrObjHang; // sizeof(0xd0)
@@ -839,9 +840,9 @@ extern "C"
         int flag; // low nibble (& 0xf) = swrObjJdge_F0 state-machine selector; 0x10 = multiplayer host;
                   // 0x40 = no local player (spectate); 0x80 = post-race camera sweep active
         float raceTimer_ms;
-        struct swrModel_Node* splineMarkers[6];
-        struct swrModel_Node* unk28_model;
-        struct swrSpline* unk2c_spline;
+        struct swrModel_Node * SWR_P32 splineMarkers[6];
+        struct swrModel_Node * SWR_P32 unk28_model;
+        struct swrSpline * SWR_P32 unk2c_spline;
         int unk30;
         swrSplineCursor cursor; // 0x34 embedded spline walker (camera/AI path follow)
         rdMatrix44 camBaseMat; // 0x64. judge camera base transform (reset to identity at 'Load' via swrCam_CamState_InitMainMat4)
@@ -850,11 +851,11 @@ extern "C"
         swrObjJdge_HUDMODE hud_mode; // 0x124. in-race position-HUD layout (annodue: _hud_mode)
         int event;
         char unk128[4];
-        void* camSweepState; // 0x130. camera-sweep gate; while non-null F2 walks camSweepCursor and F0 gates the finish -> results transition on it
+        void * SWR_P32 camSweepState; // 0x130. camera-sweep gate; while non-null F2 walks camSweepCursor and F0 gates the finish -> results transition on it
         swrSplineCursor camSweepCursor; // 0x134. cinematic camera path walker. swrObjJdge_F2 (+0x32) evaluates it into camSweepTransform while camSweepState != NULL; seeded by swrObjJdge_SetupTrackEnvironment, and left with a NULL spline on a track that has no camera path
         rdMatrix44 camSweepTransform; // 0x164. swrSpline_EvaluateToMatrix output for the sweep; reset to identity at 'Load'/'RSet'
-        void* cam_spline;
-        struct swrModel_Animation* camSweepAnim; // 0x1a8 start-node animation the sweep is timed against (swrObjJdge_SetupTrackEnvironment)
+        void * SWR_P32 cam_spline;
+        struct swrModel_Animation * SWR_P32 camSweepAnim; // 0x1a8 start-node animation the sweep is timed against (swrObjJdge_SetupTrackEnvironment)
         int planetId;
         int unk1b0_modelId;
         int unk1b4_splineId;
@@ -928,8 +929,8 @@ extern "C"
         float unk1c_ms;
         rdVector3 unk20;
         int unk2c;
-        struct swrModel_Node** unk30_nodes;
-        void* unk34;
+        struct swrModel_Node * SWR_P32 * SWR_P32 unk30_nodes;
+        void * SWR_P32 unk34;
         rdVector3 unk38;
         rdVector3 position; // 0x44
         rdVector3 moveTarget; // 0x50
@@ -1001,8 +1002,8 @@ extern "C"
         float alphaWindowTail; // 0xd4
         float alphaWindowFront; // 0xd8
         float particleSpin[5]; // 0xdc. accumulated spin angle per particle
-        void* ownerHandle; // 0xf0. owner's backref slot, NULLed by swrObjSmok_Free
-        struct swrModel_Node* particleNodes[5]; // 0xf4. borrowed from fireballChildNodesPtr[id * 5]
+        void * SWR_P32 ownerHandle; // 0xf0. owner's backref slot, NULLed by swrObjSmok_Free
+        struct swrModel_Node * SWR_P32 particleNodes[5]; // 0xf4. borrowed from fireballChildNodesPtr[id * 5]
     } swrObjSmok; // sizeof(0x108)
 
     // Surface lighting copied from a swrModel_Behavior (swrObjcMan_LoadLightingFromBehavior)
@@ -1032,7 +1033,7 @@ extern "C"
         int mode_respawn;
         swrSplineCursor splineCamCursor; // 0x84 copy of the pod's spline cursor for the spline camera
         rdMatrix44 unkb4_mat; // 0xb4 splineCamCursor's evaluated frame
-        swrRace* unkf4_objTest;
+        swrRace * SWR_P32 unkf4_objTest;
         int unkf8;
         rdVector3 unkfc;
         rdMatrix44 focusTransform_mat;
@@ -1054,7 +1055,7 @@ extern "C"
         rdMatrix44 unk1e4_mat; // 0x1e4 deathCamCursor's evaluated frame
         rdMatrix44 stagingTransform; // 0x224
         rdMatrix44 stagingTransformFocus; // 0x264
-        struct swrModel_Behavior* surfaceBehavior; // 0x2a4 mesh behavior of the surface under the camera
+        struct swrModel_Behavior * SWR_P32 surfaceBehavior; // 0x2a4 mesh behavior of the surface under the camera
         unsigned int fog_flag; // 0x2a8 swrObjcMan_VIEWFLAGS
         unsigned int visual_flag; // 0x2ac viewport node flags 3/4 value (swrViewport_SetNodeFlags)
         float fov; // 0x2b0 vertical FOV in degrees, restaged by each camera mode
@@ -1100,12 +1101,12 @@ extern "C"
         int flags; // 0x4.
         int count; // 0x8
         int size; // 0xca
-        swrObj* head; // 0x10
-        void (*f0)(swrObj* obj); // 0x14
-        void (*f1)(swrObj* obj); // 0x18
-        void (*f2)(swrObj* obj); // 0x1c
-        void (*f3)(swrObj* obj); // 0x20
-        int (*f4)(swrObj* obj, int* subEvent); // 0x24 int[2] subEvent; returns 2 to stop CallF4 iteration
+        swrObj * SWR_P32 head; // 0x10
+        void (* SWR_P32 f0)(swrObj* obj); // 0x14
+        void (* SWR_P32 f1)(swrObj* obj); // 0x18
+        void (* SWR_P32 f2)(swrObj* obj); // 0x1c
+        void (* SWR_P32 f3)(swrObj* obj); // 0x20
+        int (* SWR_P32 f4)(swrObj* obj, int* subEvent); // 0x24 int[2] subEvent; returns 2 to stop CallF4 iteration
     } swrEventManager; // sizeof(0x28)
 
     typedef struct swrObj_Message // Unused but documentation purpose
@@ -1130,11 +1131,11 @@ extern "C"
             } cmanShak;
             struct swrObj_CmanMessageDeth
             {
-                swrRace* objTest;
+                swrRace * SWR_P32 objTest;
             } cmanDeth;
             struct swrObj_CmanMessageCBut
             {
-                swrRace* objTest;
+                swrRace * SWR_P32 objTest;
             } cmanCBut;
             struct swrObj_CmanMessageSwee
             {
@@ -1150,7 +1151,7 @@ extern "C"
             };
             struct swrObj_ScenMessageBegn
             {
-                void* obj_unk;
+                void * SWR_P32 obj_unk;
                 int unk_count;
                 int unk_index;
                 MODELID modelId;
@@ -1160,7 +1161,7 @@ extern "C"
                 float unk_ms;
                 int unk_index2;
                 char unused[8];
-                void* unk_ptr;
+                void * SWR_P32 unk_ptr;
                 int bUnk;
                 int unk_e;
             };
@@ -1178,10 +1179,10 @@ extern "C"
         // 'Locl' racers by the roster builders; NULL for AI/remote. Both a "this is a local human" flag and the
         // handle used to fetch the player's persisted input config: swrRace_UpdatePlayerControl reads the
         // control-type byte at profile+0x23 through it. swrRace_UpdateCatchup / swrRace_CalcTargetTurnRate NULL-check it.
-        void* localPlayerProfile;
+        void * SWR_P32 localPlayerProfile;
         int sfxChannel; // 0x10. low byte = per-racer SFX channel index (swrSound_SetSfxFlag / swrSound_TestSfxFlag)
         int unk14;
-        int* pilotId; // 0x18. points at the racer's selected pilot/vehicle index (0..22, -1 = none); selects the pilot voice bank (swrSound_ResolveSfxId bounds-checks 0..0x16) and gates pilot specials (2 = Sebulba flame attack, 0xe = Neva Kee fused engines)
+        int * SWR_P32 pilotId; // 0x18. points at the racer's selected pilot/vehicle index (0..22, -1 = none); selects the pilot voice bank (swrSound_ResolveSfxId bounds-checks 0..0x16) and gates pilot specials (2 = Sebulba flame attack, 0xe = Neva Kee fused engines)
         PodHandlingData podStats;
         short unk58;
         short unk5a;
@@ -1197,7 +1198,7 @@ extern "C"
                             // int by swrObjJdge_F2 and loaded via fild in swrObjJdge_GetRacerProgress)
         int unk7c;
         float lastRaceDamage;
-        swrRace* obj_test_ptr;
+        swrRace * SWR_P32 obj_test_ptr;
     } swrScore; // sizeof(0x88)
 
     typedef struct swrCamera_unk // viewport/camera state; unkCameraArray[32] @ 0x004b91c4, stride 0x7c
@@ -1205,21 +1206,21 @@ extern "C"
         unsigned int flags; // 0x0. bit 0x2 = active/render this frame; every writer ORs/ANDs the full dword
         short behaviorType; // 0x4. 0 = inactive; 2/3/4 = extract transform + apply offset
         short sourceType; // 0x6. 0 = copy rdMatrix44, 1 = rdMatrix_SetTransform44, else FUN_00428c40
-        void* matrixSource; // 0x8. source matrix / swrTranslationRotation
+        void * SWR_P32 matrixSource; // 0x8. source matrix / swrTranslationRotation
         short offsetMode; // 0xc. offset source kind (0 or 1)
         short unk0e; // 0xe
-        void* offsetSource; // 0x10. second source (offset / parent)
+        void * SWR_P32 offsetSource; // 0x10. second source (offset / parent)
         rdMatrix44 transform; // 0x14. computed view matrix (written by swrViewport_UpdateCameras)
         rdVector3 posOffset; // 0x54. local offset rotated into matrix space
         rdVector3 rotationYPR; // 0x60. yaw/pitch/roll applied via rdMatrix_SetRotation44
         rdVector3 localOffset; // 0x6c. offset added to translation
-        struct swrModel_Node* blendNode; // 0x78. node flagged (flag id 2) while this camera is a blend endpoint (swrCam_CamState_ApplyToViewport)
+        struct swrModel_Node * SWR_P32 blendNode; // 0x78. node flagged (flag id 2) while this camera is a blend endpoint (swrCam_CamState_ApplyToViewport)
     } swrCamera_unk; // sizeof(0x7c). At 0x004b91c4
 
     typedef struct swr_unk1 // == RdModel3
     {
         char unk[120];
-        struct swr_unk3* unk2_swrunk3;
+        struct swr_unk3 * SWR_P32 unk2_swrunk3;
         char unk3[20];
     } swr_unk1; // sizeof(0x90). Match RdModel3 0x0050c6b0. See FUN_00408e40
 
@@ -1248,11 +1249,11 @@ extern "C"
         int volume; // 0x18 computed gain, fed to swrSound_SetGain
         short pan; // 0x1c -999 = 3D positional (use pos), otherwise a pan value
         short unk51; // 0x1e
-        IA3dSource* source; // 0x20
+        IA3dSource * SWR_P32 source; // 0x20
         int unk24; // 0x24
         int dedicatedSource; // 0x28 set when the acquired source != the bank entry's shared one
         rdVector3 pos; // 0x2c
-        rdVector3* trackedPos; // 0x38 live position to follow each frame, or NULL for static
+        rdVector3 * SWR_P32 trackedPos; // 0x38 live position to follow each frame, or NULL for static
         float maxDist; // 0x3c
         float minDist; // 0x40
     } swrSound; // sizeof(0x44)
@@ -1270,17 +1271,17 @@ extern "C"
         uint32_t bits; // 0x30 bits per sample (8 / 16)
         uint32_t channels; // 0x34 0 = mono, otherwise multi-channel
         uint32_t durationMs; // 0x38 derived from dataSize and sampleRate
-        void* dataOffset; // 0x3c wav data, filled by swrSound_ParseWave
+        void * SWR_P32 dataOffset; // 0x3c wav data, filled by swrSound_ParseWave
         uint32_t unk40; // 0x40
         uint32_t unk44; // 0x44 initialized to 1
-        IA3dSource* source; // 0x48
+        IA3dSource * SWR_P32 source; // 0x48
     } swrSoundDescriptor; // sizeof(0x4c)
 
     // swrSound_defaultBankFiles entry: the built-in sound list swrSound_LoadDefaultBank
     // registers when data/sounds.map is missing. NULL filename terminates.
     typedef struct swrSoundDefaultBankEntry
     {
-        char* filename; // 0x00
+        char * SWR_P32 filename; // 0x00
         int unk4; // 0x04 1 on the later voice/music entries; no reader found
     } swrSoundDefaultBankEntry; // sizeof(0x8)
 
@@ -1324,19 +1325,19 @@ extern "C"
     typedef struct swrUI_ScreenTextValue // second text column drawn by swrUI_ScreenTextProc: overlays swrUI_unk from +0x4f4
     {
         int x_offset; // 0x00 offset from the label's left edge; -1 = just right of the element
-        char* text; // 0x04 freed on swrUI_MSG_DESTROY
+        char * SWR_P32 text; // 0x04 freed on swrUI_MSG_DESTROY
         unsigned int align_flags; // 0x08 swrUI_TEXT_ALIGN
         int font; // 0x0c
     } swrUI_ScreenTextValue;
 
     typedef struct swrUI_unk
     {
-        struct swrUI_unk* prev2;
-        struct swrUI_unk* next2;
-        struct swrUI_unk* prev;
-        struct swrUI_unk* next;
-        swrUI_unk_F1 fun;
-        swrUI_unk_F2 fun2;
+        struct swrUI_unk * SWR_P32 prev2;
+        struct swrUI_unk * SWR_P32 next2;
+        struct swrUI_unk * SWR_P32 prev;
+        struct swrUI_unk * SWR_P32 next;
+        swrUI_unk_F1 SWR_P32 fun;
+        swrUI_unk_F2 SWR_P32 fun2;
         int widget_class; // 0x18 widget class id (swrUI_New* sets it; (flags & 0xc) == list item, 6 == number field)
         int id;
         swrUI_FLAG flags; // 0x20 element flags (visible 0x40 / focused 0x20 / hover 0x10 / disabled 0x100 / animating 1)
@@ -1348,7 +1349,7 @@ extern "C"
         int offset_y;
         int size_unk1;
         int size_unk2;
-        char* unk01_10;
+        char * SWR_P32 unk01_10;
         int transition_home_x; // 0x48 resting position saved by swrUI_StartPageTransition
         int transition_home_y; // 0x4c
         int transition_delay; // 0x50 vertical-drop stagger (0, 250, 500, ...)
@@ -1376,13 +1377,13 @@ extern "C"
         char g5;
         char b5;
         char a5;
-        char* str_allocated; // 0x4d4
+        char * SWR_P32 str_allocated; // 0x4d4
         unsigned int text_flags; // 0x4d8 swrUI_TEXT_ALIGN flags for str_allocated (swrUI_MSG_SET_TEXT param2)
         int font_index; // 0x4dc font-table index (set via swrUI_ReplaceIndex)
         swrSprite_BBox bbox;
         unsigned int frame_style; // 0x4f0 swrUI_FRAME_STYLE bits (swrUI_BuildHighlightSprites)
         int unk4f4; // 0x4f4 class payload (swrUI_SetValue2_Maybe); screen text: start of an inline swrUI_ScreenTextValue
-        char* value_text; // 0x4f8 secondary value-text (swrUI_SetValueText / swrUI_GetValueText)
+        char * SWR_P32 value_text; // 0x4f8 secondary value-text (swrUI_SetValueText / swrUI_GetValueText)
         int value; // 0x4fc element value (swrUI_SetValue)
         int unk500;
         int first_visible; // 0x504 list first-visible index
@@ -1391,7 +1392,7 @@ extern "C"
         int content_top; // 0x510
         int content_right; // 0x514
         int content_bottom; // 0x518
-        char* selected_text; // 0x51c list: copy of the selected item's text (swrUI_RefreshListSelection)
+        char * SWR_P32 selected_text; // 0x51c list: copy of the selected item's text (swrUI_RefreshListSelection)
         int selected_index; // 0x520 list: index of the selected item among the children
         int row_spacing; // 0x524 list row spacing in pixels (5 from swrUI_NewList)
         int sort_key; // 0x528 list-item order for swrUI_SortListItems; race-result rows: 0-based position, 666 = retired
@@ -1455,7 +1456,7 @@ extern "C"
         int node_flags1_any_match_for_rendering; // 0xFFFF.... (depends on the camera position, enables nearby mesh segments)
         int unk160;
         int unk164;
-        struct swrModel_Node* model_root_node;
+        struct swrModel_Node * SWR_P32 model_root_node;
     } swrViewport; // sizeof(0x16c)
 
     // Per-viewport fog state saved by swrObjcMan_UpdateFogAndViewport in split screen and
@@ -1472,8 +1473,8 @@ extern "C"
 
     typedef union swrModel_HeaderEntry
     {
-        struct swrModel_Node* node;
-        struct swrModel_Animation* animation;
+        struct swrModel_Node * SWR_P32 node;
+        struct swrModel_Animation * SWR_P32 animation;
         uint32_t value;
     } swrModel_HeaderEntry;
 
@@ -1494,8 +1495,8 @@ extern "C"
 
         union
         {
-            struct swrModel_Node** nodes; // if type != NODE_MESH_GROUP
-            struct swrModel_Mesh** meshes; // if type == NODE_MESH_GROUP
+            struct swrModel_Node * SWR_P32 * SWR_P32 nodes; // if type != NODE_MESH_GROUP
+            struct swrModel_Mesh * SWR_P32 * SWR_P32 meshes; // if type == NODE_MESH_GROUP
         } children;
     } swrModel_Node;
 
@@ -1550,32 +1551,32 @@ extern "C"
     {
         swrModel_Node node; // children.meshes holds the meshes
         float aabb[6];
-        rdMatrix44* cached_model_matrix; // points into rdMatrix44_ringBuffer
-        rdMatrix44* cached_mvp_matrix; // points into rdMatrix44_ringBuffer
+        rdMatrix44 * SWR_P32 cached_model_matrix; // points into rdMatrix44_ringBuffer
+        rdMatrix44 * SWR_P32 cached_mvp_matrix; // points into rdMatrix44_ringBuffer
     } swrModel_NodeMeshGroup;
 
     typedef struct swrModel_Mesh
     {
-        struct swrModel_MeshMaterial* mesh_material;
-        struct swrModel_Behavior* behavior;
+        struct swrModel_MeshMaterial * SWR_P32 mesh_material;
+        struct swrModel_Behavior * SWR_P32 behavior;
         float aabb[6];
         uint16_t num_primitives;
         uint16_t primitive_type;
-        uint32_t* primitive_sizes;
+        uint32_t * SWR_P32 primitive_sizes;
         union
         {
-            uint16_t* primitive_indices; // optionally set if collision_vertices != nullptr
-            swrModel_Node* referenced_node; // set for bone animations
+            uint16_t * SWR_P32 primitive_indices; // optionally set if collision_vertices != nullptr
+            swrModel_Node * SWR_P32 referenced_node; // set for bone animations
         };
-        struct swrModel_CollisionVertex* collision_vertices;
+        struct swrModel_CollisionVertex * SWR_P32 collision_vertices;
         union
         {
             // this is a N64 display list containing draw commands for the GSP in F3DEX_GBI_2 format.
-            struct Gfx* vertex_display_list;
+            struct Gfx * SWR_P32 vertex_display_list;
             // when the game renders the mesh the first time, it stores a converted rdModel3Mesh* here.
-            struct rdModel3Mesh* converted_mesh;
+            struct rdModel3Mesh * SWR_P32 converted_mesh;
         };
-        union Vtx* vertices;
+        union Vtx * SWR_P32 vertices;
         uint16_t num_collision_vertices;
         uint16_t num_vertices;
         uint16_t splineSampleIndex; // for track collision meshes: the first baked spline sample index (node * 10 + sub, 0 = unset) that hit this mesh (swrSpline_BakeSampleTrackMesh); swrRace_UpdateSplineBinding re-seeks the cursor to it
@@ -1596,7 +1597,7 @@ extern "C"
                 uint16_t n_packed; // num vertices, weird format: |0000|  n:8  |0000|, and big endian. to extract n: (SWAP16(n_packed) >> 4) & 0xFF
                 uint8_t unused : 1;
                 uint8_t v0_plus_n : 7; // vertex base offset (v0) + num vertices (n)
-                union Vtx* vertex_offset;
+                union Vtx * SWR_P32 vertex_offset;
             } gSPVertex; // if type == 1
             struct
             {
@@ -1643,8 +1644,8 @@ extern "C"
         // - 0x1 or 0x10: vertex format is Vtx_tn (vertices with normals) instead of Vtx_t (vertices with baked lighting).
         uint32_t type;
         int16_t texture_offset[2];
-        struct swrModel_MaterialTexture* material_texture;
-        struct swrModel_Material* material;
+        struct swrModel_MaterialTexture * SWR_P32 material_texture;
+        struct swrModel_Material * SWR_P32 material;
     } swrModel_MeshMaterial;
 
     typedef struct swrModel_MaterialTexture
@@ -1660,16 +1661,16 @@ extern "C"
         uint16_t unk3;
         uint16_t unk4;
         uint16_t unk5;
-        struct swrModel_MaterialTextureChild* specs[5];
+        struct swrModel_MaterialTextureChild * SWR_P32 specs[5];
         uint32_t unk6;
         uint32_t unk7;
         union
         {
             TEXID texture_index; // the file contains texture_index | 0xA000000
-            uint8_t* texture_data; // ... the game will then replace it by a pointer to loaded texture data
-            struct RdMaterial* loaded_material; // ... and then create a RdMaterial/swrMaterial that holds the loaded texture data.
+            uint8_t * SWR_P32 texture_data; // ... the game will then replace it by a pointer to loaded texture data
+            struct RdMaterial * SWR_P32 loaded_material; // ... and then create a RdMaterial/swrMaterial that holds the loaded texture data.
         };
-        uint8_t* palette_data;
+        uint8_t * SWR_P32 palette_data;
     } swrModel_MaterialTexture;
 
     typedef struct swrModel_MaterialTextureChild
@@ -1719,7 +1720,7 @@ extern "C"
         uint16_t unk19;
         uint32_t unk20;
         uint32_t unk21;
-        struct swrModel_TriggerDescription* triggers;
+        struct swrModel_TriggerDescription * SWR_P32 triggers;
     } swrModel_Behavior;
 
     typedef struct swrModel_TriggerDescription
@@ -1728,10 +1729,10 @@ extern "C"
         rdVector3 direction;
         float size_xy;
         float size_z;
-        swrModel_Node* affected_node;
+        swrModel_Node * SWR_P32 affected_node;
         uint16_t type; // what the trigger does; values are swrModel_TriggerType
         uint16_t flags; // swrModel_TRIGGERFLAG
-        struct swrModel_TriggerDescription* next;
+        struct swrModel_TriggerDescription * SWR_P32 next;
     } swrModel_TriggerDescription;
 
 #pragma pack(pop)
@@ -1790,21 +1791,21 @@ extern "C"
         float animation_speed;
         float animation_time;
         int key_frame_index;
-        float* key_frame_times;
+        float * SWR_P32 key_frame_times;
         union
         {
-            float* key_frame_values;
-            rdVector4* key_frame_axis_angle_rotations; // type 0x8
-            rdVector3* key_frame_translations; // type 0x9
-            float* key_frame_uv_x_offsets; // type 0xB
-            float* key_frame_uv_y_offsets; // type 0xC
-            struct swrModel_MaterialTexture** key_frame_textures; // type 0x2 (texture flipbook)
+            float * SWR_P32 key_frame_values;
+            rdVector4 * SWR_P32 key_frame_axis_angle_rotations; // type 0x8
+            rdVector3 * SWR_P32 key_frame_translations; // type 0x9
+            float * SWR_P32 key_frame_uv_x_offsets; // type 0xB
+            float * SWR_P32 key_frame_uv_y_offsets; // type 0xC
+            struct swrModel_MaterialTexture * SWR_P32 * SWR_P32 key_frame_textures; // type 0x2 (texture flipbook)
         };
         union
         {
-            swrModel_NodeTransformed* node_ptr; // if type == 0x8 or type == 0x9 or type == 0xA
-            swrModel_MeshMaterial* material_ptr; // if type == 0xB or type == 0xC
-            swrModel_MeshMaterial** flipbook_materials; // type 0x2: NULL-terminated list retextured each frame
+            swrModel_NodeTransformed * SWR_P32 node_ptr; // if type == 0x8 or type == 0x9 or type == 0xA
+            swrModel_MeshMaterial * SWR_P32 material_ptr; // if type == 0xB or type == 0xC
+            swrModel_MeshMaterial * SWR_P32 * SWR_P32 flipbook_materials; // type 0x2: NULL-terminated list retextured each frame
         };
         uint32_t unk11;
     } swrModel_Animation;
@@ -1813,7 +1814,7 @@ extern "C"
     {
         ColorInfo texFormat;
         int bColorKey;
-        LPDDCOLORKEY pColorKey;
+        LPDDCOLORKEY SWR_P32 pColorKey;
         DDPIXELFORMAT pixelFormat;
     } stdTextureFormat; // sizeof(0x60)
 
@@ -1825,8 +1826,8 @@ extern "C"
     typedef struct swrSoundUnk
     {
         int prime_nbUnks2;
-        struct swrSoundUnk2* unks2; // sizeof(prime * 16)
-        void* f;
+        struct swrSoundUnk2 * SWR_P32 unks2; // sizeof(prime * 16)
+        void * SWR_P32 f;
     } swrSoundUnk; // sizeof(0xc)
 
     typedef struct swrSoundUnk2
@@ -1837,7 +1838,7 @@ extern "C"
     typedef struct swrUI_Unk3 // == rdThing. Size OK
     {
         int unk0;
-        swr_unk1* unk1;
+        swr_unk1 * SWR_P32 unk1;
         int unk2;
         int unk3;
         int unk4_canvas;
@@ -1864,7 +1865,7 @@ extern "C"
         int height;
         unsigned int nbTextures;
         int unk8c;
-        void* textures_alloc;
+        void * SWR_P32 textures_alloc;
     } swrMaterial; // sizeof(0x94)
 
     typedef struct rdMaterialHeader
@@ -1881,12 +1882,12 @@ extern "C"
     typedef struct tSystemTexture // Jones
     {
         DDSURFACEDESC2 ddsd;
-        LPDIRECT3DTEXTURE2 pD3DSrcTexture;
-        LPDIRECT3DTEXTURE2 pD3DCachedTex;
+        LPDIRECT3DTEXTURE2 SWR_P32 pD3DSrcTexture;
+        LPDIRECT3DTEXTURE2 SWR_P32 pD3DCachedTex;
         int textureSize;
         int frameNum;
-        struct tSystemTexture* pPrevCachedTexture;
-        struct tSystemTexture* pNextCachedTexture;
+        struct tSystemTexture * SWR_P32 pPrevCachedTexture;
+        struct tSystemTexture * SWR_P32 pNextCachedTexture;
     } tSystemTexture;
 
     typedef struct RdMaterial // == swrMaterial
@@ -1899,7 +1900,7 @@ extern "C"
         int height;
         int curCelNum;
         int numCels;
-        tSystemTexture* aTextures;
+        tSystemTexture * SWR_P32 aTextures;
     } RdMaterial; // sizeof(0x94) OK
 
     typedef struct rdColor24
@@ -1918,7 +1919,7 @@ extern "C"
         uint32_t width_minus_1;
         uint32_t height_minus_1;
         uint32_t num_mipmaps;
-        struct tVBuffer* texture_struct[4];
+        struct tVBuffer * SWR_P32 texture_struct[4];
         rdDDrawSurface alphaMats[4];
         rdDDrawSurface opaqueMats[4];
     } rdTexture;
@@ -1955,7 +1956,7 @@ extern "C"
     {
         rdTexinfoHeader header;
         uint32_t texext_unk00;
-        rdTexture* texture_ptr;
+        rdTexture * SWR_P32 texture_ptr;
     } rdTexinfo;
 
     typedef int32_t rdGeoMode_t;
@@ -1970,9 +1971,9 @@ extern "C"
         rdLightMode_t lightingMode;
         rdTexMode_t textureMode;
         uint32_t numVertices;
-        int* vertexPosIdx;
-        int* vertexUVIdx;
-        RdMaterial* material;
+        int * SWR_P32 vertexPosIdx;
+        int * SWR_P32 vertexUVIdx;
+        RdMaterial * SWR_P32 material;
         uint32_t wallCel;
         rdVector2 clipIdk;
         float extraLight;
@@ -1985,14 +1986,14 @@ extern "C"
         uint32_t flags;
         rdVector3 tint;
         rdColor24 colors[256];
-        void* lightlevel;
-        void* lightlevelAlloc;
-        void* transparency;
-        void* transparencyAlloc;
-        void* dword340;
-        void* dword344;
-        void* rgb16Alloc;
-        void* dword34C;
+        void * SWR_P32 lightlevel;
+        void * SWR_P32 lightlevelAlloc;
+        void * SWR_P32 transparency;
+        void * SWR_P32 transparencyAlloc;
+        void * SWR_P32 dword340;
+        void * SWR_P32 dword344;
+        void * SWR_P32 rgb16Alloc;
+        void * SWR_P32 dword34C;
     } rdColormap;
 
     // from jkdf2 rdCache
@@ -2006,15 +2007,15 @@ extern "C"
         uint32_t anonymous_4;
         uint32_t anonymous_5;
         uint32_t numVertices;
-        rdVector3* vertices;
-        rdVector2* vertexUVs;
-        float* vertexIntensities; // weird here. sizeof 0x10 ? rdCache_GetProcEntry
-        RdMaterial* material;
+        rdVector3 * SWR_P32 vertices;
+        rdVector2 * SWR_P32 vertexUVs;
+        float * SWR_P32 vertexIntensities; // weird here. sizeof 0x10 ? rdCache_GetProcEntry
+        RdMaterial * SWR_P32 material;
         uint32_t wallCel;
         float ambientLight;
         float light_level_static;
         float extralight;
-        rdColormap* colormap;
+        rdColormap * SWR_P32 colormap;
         uint32_t light_flags;
         int32_t x_min;
         uint32_t x_max;
@@ -2080,10 +2081,10 @@ extern "C"
 
     typedef struct tagMSG
     {
-        HWND hwnd;
+        HWND SWR_P32 hwnd;
         unsigned int message;
-        WPARAM wParam;
-        LPARAM lParam;
+        SWR_WPARAM32 wParam;
+        SWR_LPARAM32 lParam;
         DWORD time;
         POINT pt;
     } tagMSG;
@@ -2092,7 +2093,7 @@ extern "C"
     // Indy stdDisplay_VBufferFill
     typedef struct tVSurface
     {
-        LPDIRECTDRAWSURFACE4 pDDSurf;
+        LPDIRECTDRAWSURFACE4 SWR_P32 pDDSurf;
         DDSURFACEDESC2 ddSurfDesc;
     } tVSurface; // sizeof(0x80) OK
 
@@ -2103,7 +2104,7 @@ extern "C"
         int lockSurfRefCount;
         int bVideoMemory;
         tRasterInfo rasterInfo;
-        BYTE* pPixels;
+        BYTE * SWR_P32 pPixels;
         int dword5C;
         tVSurface pVSurface;
     } tVBuffer; // sizeof(0xe0) OK
@@ -2213,40 +2214,40 @@ extern "C"
     {
         StdDisplayDevice displayDevice;
         int numModes;
-        StdVideoMode* aModes;
+        StdVideoMode * SWR_P32 aModes;
         int numDevices;
-        Device3D* aDevices;
+        Device3D * SWR_P32 aDevices;
     } StdDisplayInfo;
 
     // StdDisplayEnvironment* std3D_BuildDisplayEnvironment()
     typedef struct StdDisplayEnvironment
     {
         int numInfos;
-        StdDisplayInfo* aDisplayInfos;
+        StdDisplayInfo * SWR_P32 aDisplayInfos;
     } StdDisplayEnvironment;
 
     typedef struct tLinkListNode
     {
-        struct tLinkListNode* prev;
-        struct tLinkListNode* next;
-        const char* name;
-        void* data;
+        struct tLinkListNode * SWR_P32 prev;
+        struct tLinkListNode * SWR_P32 next;
+        const char * SWR_P32 name;
+        void * SWR_P32 data;
     } tLinkListNode;
 
     typedef unsigned int (*tHashFunc)(char*, int);
     typedef struct tHashTable
     {
         int numNodes;
-        tLinkListNode* paNodes;
-        tHashFunc hashFunc;
+        tLinkListNode * SWR_P32 paNodes;
+        tHashFunc SWR_P32 hashFunc;
     } tHashTable;
 
     // daAlloc arena allocator (stdMemory.c). daAlloc_struct is daArena[DAALLOC_ARENA_COUNT];
     // each in-use slot owns one malloc'd DAALLOC_PAGE_SIZE page carved into daBlocks.
     typedef struct daArena
     {
-        void* page;// malloc'd page base, or NULL when the slot is free
-        struct daBlock* bestFree;// cached largest free block in this page
+        void * SWR_P32 page;// malloc'd page base, or NULL when the slot is free
+        struct daBlock * SWR_P32 bestFree;// cached largest free block in this page
         uint32_t bestFreeSize;// usable bytes of bestFree (block size minus the 8-byte header)
         int32_t inUse;// 1 = slot active
     } daArena;
@@ -2257,7 +2258,7 @@ extern "C"
     {
         uint16_t size;// total block size in bytes incl. this header; DABLOCK_ALLOCATED bit = in use
         uint16_t prevSize;// byte size of the physically-preceding block (for backward coalescing)
-        daArena* owner;// owning arena, or NULL for a daSmallAlloc standalone block
+        daArena * SWR_P32 owner;// owning arena, or NULL for a daSmallAlloc standalone block
     } daBlock;
 
     // rdCache_GetProcEntry
@@ -2267,10 +2268,10 @@ extern "C"
         RdLightMode lightingMode;
         int numVertices;
         int unk1;
-        rdVector3* aVertices;
-        rdVector2* aUVCoords;
-        rdVector4* aVertColors;
-        RdMaterial* pMaterial;
+        rdVector3 * SWR_P32 aVertices;
+        rdVector2 * SWR_P32 aUVCoords;
+        rdVector4 * SWR_P32 aVertColors;
+        RdMaterial * SWR_P32 pMaterial;
         int matCelNum;
         rdVector4 extraLight;
         float distance;
@@ -2309,7 +2310,7 @@ extern "C"
         int seekOffset;
         int field_40;
         int infoLoaded;
-        void* dsoundBuffer2; // stdSound_buffer_t*
+        void * SWR_P32 dsoundBuffer2; // stdSound_buffer_t*
     } sithSound;
 
     typedef struct Box3f
@@ -2335,11 +2336,11 @@ extern "C"
     typedef struct SithSurfaceAdjoin
     {
         SithSurfaceAdjoinFlag flags;
-        SithSector* pAdjoinSector;
-        SithSurface* pAdjoinSurface;
-        struct SithSurfaceAdjoin* pMirrorAdjoin;
-        struct SithSurfaceAdjoin* pNextAdjoin;
-        struct SithSurfaceAdjoin* pNextVisibleAdjoin;
+        SithSector * SWR_P32 pAdjoinSector;
+        SithSurface * SWR_P32 pAdjoinSurface;
+        struct SithSurfaceAdjoin * SWR_P32 pMirrorAdjoin;
+        struct SithSurfaceAdjoin * SWR_P32 pNextAdjoin;
+        struct SithSurfaceAdjoin * SWR_P32 pNextVisibleAdjoin;
         float distance;
     } SithSurfaceAdjoin;
 
@@ -2351,9 +2352,9 @@ extern "C"
         RdGeometryMode geometryMode;
         RdLightMode lightingMode;
         unsigned int numVertices;
-        int* aVertIdxs;
-        int* aTexIdxs;
-        RdMaterial* pMaterial;
+        int * SWR_P32 aVertIdxs;
+        int * SWR_P32 aTexIdxs;
+        RdMaterial * SWR_P32 pMaterial;
         int matCelNum;
         rdVector2 texVertOffset;
         rdVector4 extraLight;
@@ -2363,11 +2364,11 @@ extern "C"
     typedef struct SithSurface
     {
         int renderTick;
-        SithSector* pSector;
-        SithSurfaceAdjoin* pAdjoin;
+        SithSector * SWR_P32 pSector;
+        SithSurfaceAdjoin * SWR_P32 pAdjoin;
         SithSurfaceFlag flags;
         RdFace face;
-        rdVector4* aIntensities;
+        rdVector4 * SWR_P32 aIntensities;
         int msLastTouched;
     } SithSurface;
 
@@ -2381,29 +2382,29 @@ extern "C"
         rdVector4 extraLight;
         rdVector3 tint;
         int numVertices;
-        int* aVertIdxs;
+        int * SWR_P32 aVertIdxs;
         int numSurfaces;
-        SithSurface* pFirstSurface;
-        SithSurfaceAdjoin* pFirstAdjoin;
-        SithThing* pFirstThingInSector;
+        SithSurface * SWR_P32 pFirstSurface;
+        SithSurfaceAdjoin * SWR_P32 pFirstAdjoin;
+        SithThing * SWR_P32 pFirstThingInSector;
         rdVector3 center;
         rdVector3 thrust;
-        sithSound* hAmbientSound;
+        sithSound * SWR_P32 hAmbientSound;
         float ambientSoundVolume;
         Box3f collideBox;
         Box3f boundBox;
         float radius;
         int renderTick;
         int bBuildingSector;
-        rdClipFrustum* pClipFrustum; // jkdf stops here
+        rdClipFrustum * SWR_P32 pClipFrustum; // jkdf stops here
         int pvsIdx;
         SithSectorLight light;
     } SithSector;
 
     typedef union SithAttach
     {
-        SithThing* pThingAttached;
-        SithSurface* pSurfaceAttached;
+        SithThing * SWR_P32 pThingAttached;
+        SithSurface * SWR_P32 pSurfaceAttached;
     } SithAttach;
 
     typedef struct SithThingLight
@@ -2416,19 +2417,19 @@ extern "C"
 
     typedef struct SithSoundClassEntry
     {
-        sithSound* hSnd;
+        sithSound * SWR_P32 hSnd;
         SoundPlayFlag playflags;
         float maxVolume;
         float minRadius;
         float maxRadius;
         int numEntries;
-        struct SithSoundClassEntry* pNextMode;
+        struct SithSoundClassEntry * SWR_P32 pNextMode;
     } SithSoundClassEntry;
 
     typedef struct SithSoundClass
     {
         char aName[64];
-        SithSoundClassEntry* aEntries[141];
+        SithSoundClassEntry * SWR_P32 aEntries[141];
     } SithSoundClass;
 
     // forward declaration for RdKeyFrame
@@ -2437,7 +2438,7 @@ extern "C"
     // Indy
     typedef struct SithPuppetClassSubmode
     {
-        RdKeyframe* pKeyframe;
+        RdKeyframe * SWR_P32 pKeyframe;
         RdKeyframeFlag flags;
         int lo;
         int hi;
@@ -2453,10 +2454,10 @@ extern "C"
 
     typedef struct SithPuppetTrack
     {
-        SithPuppetClassSubmode* pSubmode;
+        SithPuppetClassSubmode * SWR_P32 pSubmode;
         int trackNum;
         SithPuppetSubMode submode;
-        struct SithPuppetTrack* pNextTrack;
+        struct SithPuppetTrack * SWR_P32 pNextTrack;
     } SithPuppetTrack;
 
     typedef struct SithPuppetState
@@ -2465,18 +2466,18 @@ extern "C"
         SithPuppetMoveMode moveMode;
         int majorMode;
         SithPuppetSubMode submode;
-        SithPuppetTrack* pFirstTrack;
+        SithPuppetTrack * SWR_P32 pFirstTrack;
         unsigned int msecLastFidgetStillMoveTime;
     } SithPuppetState;
 
     typedef union RdThingData
     {
-        struct RdModel3* pModel3;
-        struct RdPolyline* pPolyline;
-        struct rdSprite3* pSprite3;
-        struct RdParticle* pParticle;
-        rdCamera* pCamera;
-        rdLight* pLight;
+        struct RdModel3 * SWR_P32 pModel3;
+        struct RdPolyline * SWR_P32 pPolyline;
+        struct rdSprite3 * SWR_P32 pSprite3;
+        struct RdParticle * SWR_P32 pParticle;
+        rdCamera * SWR_P32 pCamera;
+        rdLight * SWR_P32 pLight;
     } RdThingData;
 
     // Indy
@@ -2487,23 +2488,23 @@ extern "C"
         RdThingData data;
         RdGeometryMode desiredGeoMode; // 0x8
         RdLightMode desiredLightMode; // 0xc
-        struct RdPuppet* pPuppet;
+        struct RdPuppet * SWR_P32 pPuppet;
         int bSkipBuildingJoints;
         int rdFrameNum;
-        rdMatrix34* paJointMatrices;
-        rdVector3* apTweakedAngles;
-        int* paJointAmputationFlags;
+        rdMatrix34 * SWR_P32 paJointMatrices;
+        rdVector3 * SWR_P32 apTweakedAngles;
+        int * SWR_P32 paJointAmputationFlags;
         int matCelNum; // 0x28
         int geosetNum; // 0x2c
         RdGeometryMode geoMode; // 0x30
         RdLightMode lightMode; // 0x34
         int frustumCullStatus;
-        SithThing* pThing; // 0x3c
+        SithThing * SWR_P32 pThing; // 0x3c
     } RdThing;
 
     typedef struct SithSpriteInfo
     {
-        SithThing* pMeshAttachedThing;
+        SithThing * SWR_P32 pMeshAttachedThing;
         int meshNumToAttachedThing;
         float width;
         float height;
@@ -2532,7 +2533,7 @@ extern "C"
         int unknown26;
         int unknown27;
         int unknown28;
-        SithSector* pUnknownSector;
+        SithSector * SWR_P32 pUnknownSector;
         int unknown30;
         int unknown31;
         int unknown32;
@@ -2557,7 +2558,7 @@ extern "C"
     {
         SithParticleFlag flags;
         int numParticles;
-        RdMaterial* pMaterial;
+        RdMaterial * SWR_P32 pMaterial;
         float size;
         float growthSpeed;
         float minRadius;
@@ -2594,7 +2595,7 @@ extern "C"
         SithAIEventType triggerEvents;
         float fltArg[24];
         int intArg[24];
-        SithAIInstinctFunc pfInstinct;
+        SithAIInstinctFunc SWR_P32 pfInstinct;
     } SithAIInstinct;
 
     typedef struct SithAIClass
@@ -2628,8 +2629,8 @@ extern "C"
 
     typedef struct SithAIControlBlock
     {
-        SithThing* pOwner;
-        SithAIClass* pClass;
+        SithThing * SWR_P32 pOwner;
+        SithAIClass * SWR_P32 pClass;
         SithAIMode mode;
         SithAISubMode submode;
         SithAIInstinctState aInstinctStates[16];
@@ -2641,9 +2642,9 @@ extern "C"
         rdVector3 moveDirection;
         float moveDistance;
         float moveSpeed;
-        SithThing* pFleeFromThing;
+        SithThing * SWR_P32 pFleeFromThing;
         rdVector3 vecUnknown4;
-        SithThing* pTargetThing;
+        SithThing * SWR_P32 pTargetThing;
         rdVector3 targetPos;
         int unknown124;
         rdVector3 toTarget;
@@ -2652,7 +2653,7 @@ extern "C"
         rdVector3 vecUnknown122;
         unsigned int msecAttackStart;
         rdVector3 weaponFirePos;
-        SithThing* goalThing;
+        SithThing * SWR_P32 goalThing;
         rdVector3 vecUnknown6;
         int unknown141;
         rdVector3 vecUnknown0;
@@ -2676,7 +2677,7 @@ extern "C"
         int unknown168;
         unsigned int msecFireWaitTime;
         unsigned int msecPauseMoveUntil;
-        rdVector3* aFrames;
+        rdVector3 * SWR_P32 aFrames;
         int numFrames;
         int sizeFrames;
         int allowedSurfaceTypes;
@@ -2687,8 +2688,8 @@ extern "C"
 
     typedef struct SithAIControlInfo
     {
-        SithAIClass* pClass;
-        SithAIControlBlock* pLocal;
+        SithAIClass * SWR_P32 pClass;
+        SithAIControlBlock * SWR_P32 pLocal;
     } SithAIControlInfo;
 
     typedef union SithControlInfo
@@ -2706,7 +2707,7 @@ extern "C"
     {
         int sizeFrames;
         int numFrames;
-        SithPathFrame* aFrames;
+        SithPathFrame * SWR_P32 aFrames;
         SithPathMoveMode mode;
         rdVector3 vecDeltaPos;
         float moveTimeRemaining;
@@ -2752,10 +2753,10 @@ extern "C"
 
     typedef union SithCogValue
     {
-        void* pointerValue;
+        void * SWR_P32 pointerValue;
         float floatValue;
         int intValue;
-        char* pString;
+        char * SWR_P32 pString;
         rdVector3 vecValue;
     } SithCogValue;
 
@@ -2770,13 +2771,13 @@ extern "C"
         int id;
         SithCogSymbolValue val;
         int label;
-        char* pName;
+        char * SWR_P32 pName;
     } SithCogSymbol;
 
     typedef struct SithCogSymbolTable
     {
-        SithCogSymbol* aSymbols;
-        tHashTable* pHashtbl;
+        SithCogSymbol * SWR_P32 aSymbols;
+        tHashTable * SWR_P32 pHashtbl;
         int numUsedSymbols;
         int tableSize;
         int firstId;
@@ -2797,7 +2798,7 @@ extern "C"
         int linkId;
         int mask;
         int symbolId;
-        char* pDescription;
+        char * SWR_P32 pDescription;
         char aValue[64];
     } SithCogSymbolRef;
 
@@ -2805,9 +2806,9 @@ extern "C"
     {
         SithCogFlag flags;
         char aName[64];
-        int* pCode;
+        int * SWR_P32 pCode;
         unsigned int codeSize;
-        SithCogSymbolTable* pSymbolTable;
+        SithCogSymbolTable * SWR_P32 pSymbolTable;
         int numHandlers;
         SithCogScriptMsgHandler aHandlers[32];
         SithCogSymbolRef aSymRefs[256];
@@ -2825,7 +2826,7 @@ extern "C"
     // Does swe1r really use COG ? would be crazy
     typedef struct SithCog
     {
-        SithCogScript* pScript;
+        SithCogScript * SWR_P32 pScript;
         SithCogFlag flags;
         int idx;
         SithCogStatus status;
@@ -2844,12 +2845,12 @@ extern "C"
         int returnValue;
         SithCogCallstackElement callstack[4];
         int callDepth;
-        SithCogSymbolTable* pSymbolTable;
+        SithCogSymbolTable * SWR_P32 pSymbolTable;
         SithCogSymbolValue stack[256];
         int stackSize;
         char aName[64];
         char aSymRefValues[64][256];
-        SithCogSymbolValue* aHeap;
+        SithCogSymbolValue * SWR_P32 aHeap;
         int heapSize;
     } SithCog;
 
@@ -2857,9 +2858,9 @@ extern "C"
     {
         int entryNum;
         int meshNum;
-        struct RdModel3* pSrcModel;
+        struct RdModel3 * SWR_P32 pSrcModel;
         int meshNumSrc;
-        struct SithThingSwapEntry* pNextEntry;
+        struct SithThingSwapEntry * SWR_P32 pNextEntry;
     } SithThingSwapEntry;
 
     // Since its so indy related, lets just void* here and find on our own.
@@ -2870,7 +2871,7 @@ extern "C"
         // SithJeepUserBlock* pJeep;
         // SithQuetzUserBlock* pQuetz;
         // SithFairyDustUserBlock* pFairydust;
-        void* unk;
+        void * SWR_P32 unk;
     } SithUserBlockUnion;
 
     typedef struct SithThing
@@ -2889,16 +2890,16 @@ extern "C"
         unsigned int msecPulseInterval;
         SithCollide collide;
         SithAttach attach;
-        SithSector* pInSector;
-        SithThing* pNextThingInSector;
-        SithThing* pPrevThingInSector;
-        SithThing* pAttachedThing;
-        SithThing* pNextAttachedThing;
-        SithThing* pPrevAttachedThing;
+        SithSector * SWR_P32 pInSector;
+        SithThing * SWR_P32 pNextThingInSector;
+        SithThing * SWR_P32 pPrevThingInSector;
+        SithThing * SWR_P32 pAttachedThing;
+        SithThing * SWR_P32 pNextAttachedThing;
+        SithThing * SWR_P32 pPrevAttachedThing;
         int signature;
-        const SithThing* pTemplate;
-        SithThing* pCreateThingTemplate;
-        SithThing* pParent;
+        const SithThing * SWR_P32 pTemplate;
+        SithThing * SWR_P32 pCreateThingTemplate;
+        SithThing * SWR_P32 pParent;
         int parentSignature;
         rdMatrix34 orient;
         rdVector3 pos;
@@ -2907,9 +2908,9 @@ extern "C"
         rdVector3 transformedPos;
         SithThingLight light;
         int renderFrame;
-        SithSoundClass* pSoundClass;
-        SithPuppetClass* pPuppetClass;
-        SithPuppetState* pPuppetState;
+        SithSoundClass * SWR_P32 pSoundClass;
+        SithPuppetClass * SWR_P32 pPuppetClass;
+        SithPuppetState * SWR_P32 pPuppetState;
         SithThingInfo thingInfo;
         int aiState;
         int aiArmedModeState;
@@ -2919,14 +2920,14 @@ extern "C"
         rdVector3 vecUnknown1;
         SithControlInfo controlInfo;
         char aName[64];
-        SithCog* pCog;
-        SithCog* pCaptureCog;
+        SithCog * SWR_P32 pCog;
+        SithCog * SWR_P32 pCaptureCog;
         int gap295;
         int unknownFlags;
         float alpha;
         float userval;
         int numSwapEntries;
-        SithThingSwapEntry* pSwapList;
+        SithThingSwapEntry * SWR_P32 pSwapList;
         int perfLevel;
         SithUserBlockUnion userblock;
     } SithThing;
@@ -2938,13 +2939,13 @@ extern "C"
         int num;
         RdGeometryMode geoMode;
         RdLightMode lightMode;
-        rdVector3* apVertices;
-        rdVector2* apTexVertices;
-        rdVector4* aVertColors;
-        rdVector4* aLightIntensities;
+        rdVector3 * SWR_P32 apVertices;
+        rdVector2 * SWR_P32 apTexVertices;
+        rdVector4 * SWR_P32 aVertColors;
+        rdVector4 * SWR_P32 aLightIntensities;
         rdVector4 meshColor;
-        RdFace* aFaces;
-        rdVector3* aVertNormals;
+        RdFace * SWR_P32 aFaces;
+        rdVector3 * SWR_P32 aVertNormals;
         int numVertices;
         int numTexVertices;
         int numFaces;
@@ -2962,7 +2963,7 @@ extern "C"
     typedef struct rdModel3GeoSet
     {
         int numMeshes;
-        rdModel3Mesh* aMeshes;
+        rdModel3Mesh * SWR_P32 aMeshes;
     } rdModel3GeoSet;
 
     // Indy
@@ -2972,10 +2973,10 @@ extern "C"
         int num;
         int type;
         int meshIdx;
-        struct rdModel3HNode* pParent;
+        struct rdModel3HNode * SWR_P32 pParent;
         int numChildren;
-        struct rdModel3HNode* pChild;
-        struct rdModel3HNode* pSibling;
+        struct rdModel3HNode * SWR_P32 pChild;
+        struct rdModel3HNode * SWR_P32 pSibling;
         rdVector3 pivot;
         rdVector3 pos;
         rdVector3 pyr;
@@ -2991,11 +2992,11 @@ extern "C"
         int num;
         rdModel3GeoSet aGeos[4];
         int numGeos;
-        RdMaterial** apMaterials;
+        RdMaterial * SWR_P32 * SWR_P32 apMaterials;
         int numMaterials;
         int curGeoNum;
         int numHNodes;
-        rdModel3HNode* aHierarchyNodes;
+        rdModel3HNode * SWR_P32 aHierarchyNodes;
         float radius;
         float size;
         rdVector3 insertOffset;
@@ -3012,8 +3013,8 @@ extern "C"
         RdLightMode lightMode;
         RdFace edgeFace; // 0x54
         RdFace tipFace; // 0x9c
-        rdVector2* apEdgeUVs; // 0xe4
-        rdVector2* apTipUVs; // 0xe8
+        rdVector2 * SWR_P32 apEdgeUVs; // 0xe4
+        rdVector2 * SWR_P32 apTipUVs; // 0xe8
     } RdPolyline;
 
     // Indy
@@ -3029,7 +3030,7 @@ extern "C"
         float widthHalf;
         float heightHalf;
         RdFace face;
-        rdVector2* aTexVerts;
+        rdVector2 * SWR_P32 aTexVerts;
         rdVector3 offset;
         float rollAngle;
     } rdSprite3;
@@ -3040,12 +3041,12 @@ extern "C"
         char aName[64];
         int lightningMode;
         int numVertices;
-        rdVector3* aVerticies;
-        int* aVertMatCelNums;
-        rdVector4* aExtraLights;
+        rdVector3 * SWR_P32 aVerticies;
+        int * SWR_P32 aVertMatCelNums;
+        rdVector4 * SWR_P32 aExtraLights;
         float size;
         float sizeHalf;
-        RdMaterial* pMaterial;
+        RdMaterial * SWR_P32 pMaterial;
         float radius;
         rdVector3 insertOffset;
     } RdParticle;
@@ -3071,7 +3072,7 @@ extern "C"
         char aMeshName[64]; // 32 in jkdf
         int nodeNum;
         int numEntries;
-        RdKeyframeNodeEntry* aEntries;
+        RdKeyframeNodeEntry * SWR_P32 aEntries;
     } RdKeyframeNode;
 
     typedef struct RdKeyframe
@@ -3084,7 +3085,7 @@ extern "C"
         float fps;
         int numFrames;
         int numJoints; // 0x58
-        RdKeyframeNode* aNodes; // 0x5c
+        RdKeyframeNode * SWR_P32 aNodes; // 0x5c
         int numMarkers;
         RdKeyframeMarker aMarkers[16]; // 8 in jkdf, ordered float[8] and markerType[8]
     } RdKeyframe;
@@ -3106,8 +3107,8 @@ extern "C"
         char unk120[0x5cc0];
         float curFrame; // 0x5de0
         float prevFrame;
-        RdKeyframe* pKFTrack;
-        RdPuppetTrackCallback pfCallback;
+        RdKeyframe * SWR_P32 pKFTrack;
+        RdPuppetTrackCallback SWR_P32 pfCallback;
         unsigned int guid;
     } RdPuppetTrack; // 0x5df4 bytes
 
@@ -3115,19 +3116,19 @@ extern "C"
     typedef struct RdPuppet
     {
         int unknown;
-        RdThing* pThing;
+        RdThing * SWR_P32 pThing;
         RdPuppetTrack aTracks[8]; // RDPUPPET_MAX_TRACKS, confirmed by rdPuppet_BuildJointMatrices
     } RdPuppet;
 
     typedef struct rdPrimit3
     {
-        size_t numVertices;
-        int* aVertIdxs;
-        int* aTexVertIdxs;
-        rdVector3* aVertices;
-        rdVector2* aTexVertices;
-        rdVector4* aVertLights;
-        rdVector4* aVertIntensities;
+        SWR_SIZE32 numVertices;
+        int * SWR_P32 aVertIdxs;
+        int * SWR_P32 aTexVertIdxs;
+        rdVector3 * SWR_P32 aVertices;
+        rdVector2 * SWR_P32 aTexVertices;
+        rdVector4 * SWR_P32 aVertLights;
+        rdVector4 * SWR_P32 aVertIntensities;
         int unknown2;
     } rdPrimit3;
 
@@ -3135,13 +3136,13 @@ extern "C"
     typedef struct rdMeshinfo
     {
         uint32_t numVertices;
-        int* vertexPosIdx;
-        int* vertexUVIdx;
-        rdVector3* verticesProjected;
-        rdVector2* vertexUVs;
-        float* paDynamicLight;
-        float* intensities;
-        rdVector3* verticesOrig;
+        int * SWR_P32 vertexPosIdx;
+        int * SWR_P32 vertexUVIdx;
+        rdVector3 * SWR_P32 verticesProjected;
+        rdVector2 * SWR_P32 vertexUVs;
+        float * SWR_P32 paDynamicLight;
+        float * SWR_P32 intensities;
+        rdVector3 * SWR_P32 verticesOrig;
     } rdMeshinfo;
 
     // size doesn't check out
@@ -3215,8 +3216,8 @@ extern "C"
 
     typedef struct StdConffileArg
     {
-        char* argName;
-        char* argValue;
+        char * SWR_P32 argName;
+        char * SWR_P32 argValue;
     } StdConffileArg;
 
     typedef struct StdConffileEntry
@@ -3253,14 +3254,14 @@ extern "C"
     {
         wchar_t name[128];
         GUID guid;
-        void* lpConnection;
+        void * SWR_P32 lpConnection;
         int lpConnectionSize;
     } StdCommConnection; // sizeof(0x118)
 
     typedef struct swrMaterialSlot
     {
-        void* data;
-        struct swrMaterialSlot* next;
+        void * SWR_P32 data;
+        struct swrMaterialSlot * SWR_P32 next;
     } swrMaterialSlot; // sizeof(0x8)
 
     typedef struct swrMainDisplaySettings
@@ -3280,7 +3281,7 @@ extern "C"
 
     typedef struct WindowsInputItem
     {
-        WPARAM virtualKeyCode;
+        SWR_WPARAM32 virtualKeyCode;
         unsigned short keystrokeMessageFlags;
         uint8_t keydown;
         uint8_t unused;
@@ -3289,7 +3290,7 @@ extern "C"
     // WindowsInputItem as published by swrControl_SnapshotKeyboard
     typedef struct stdControlInputItem
     {
-        WPARAM virtualKeyCode;
+        SWR_WPARAM32 virtualKeyCode;
         unsigned short keystrokeMessageFlags; // 0x4. lParam HIWORD | stdControlInputItem_FLAG_KEYDOWN
         char unk6[2];
     } stdControlInputItem; // sizeof(0x8)
@@ -3297,13 +3298,13 @@ extern "C"
     typedef struct keyMapping
     {
         int id; // control code; -1 terminates a table
-        char* name;
+        char * SWR_P32 name;
     } keyMapping; // sizeof(0x8)
 
     typedef struct keyMappingEx
     {
         int id;
-        char* name;
+        char * SWR_P32 name;
         int otherId;
     } keyMappingEx; // sizeof(0xc). renamed from keyMapping2: clashed with the keyMapping2 global
 
@@ -3325,8 +3326,8 @@ extern "C"
         MODELID pod_alt_modelID;
         MODELID pod_lod_modelID; // 0xc low-detail pod for AI racers (swrObjJdge_SpawnRacers)
         MODELID unk10_modelID; // 0x10 loaded by an unreachable SpawnRacers LOD class
-        char* name;
-        char* lastname;
+        char * SWR_P32 name;
+        char * SWR_P32 lastname;
         char unk1c[4];
         float float20;
         char unk24[4];
@@ -3387,14 +3388,14 @@ extern "C"
     {
         int unk00; // 0x00 nonzero: swrText_SetupGlyph ignores the glyphs' unk01 byte
         int pageCount; // 0x04 number of glyph-page materials
-        swrMaterial* pages[17]; // 0x08 glyph-page materials (pageCount used; converted in place by swrText_InitFonts)
+        swrMaterial * SWR_P32 pages[17]; // 0x08 glyph-page materials (pageCount used; converted in place by swrText_InitFonts)
         uint16_t lineHeight; // 0x4c y advance of a "~n" newline in swrText_DrawString
         char unk4e[10]; // 0x4e
         char unk58[2]; // 0x58
         uint8_t firstChar; // 0x5a first character code present in the glyph table
         uint8_t lastChar; // 0x5b last character code present in the glyph table
-        swrTextGlyph* glyphs; // 0x5c main glyph table, indexed by (code - firstChar)
-        swrTextGlyph* extGlyphs; // 0x60 extended (accented) glyph table
+        swrTextGlyph * SWR_P32 glyphs; // 0x5c main glyph table, indexed by (code - firstChar)
+        swrTextGlyph * SWR_P32 extGlyphs; // 0x60 extended (accented) glyph table
         char unk64[4]; // 0x64
     } swrFont; // sizeof(0x68)
 
@@ -3404,14 +3405,14 @@ extern "C"
     typedef struct swrScene_PaletteScroll
     {
         int unk00; // 0x00
-        uint16_t* destPalette; // 0x04 NULL disables the copy (swrScene_ClearPaletteScrollTarget)
-        uint16_t* srcPalette; // 0x08
+        uint16_t * SWR_P32 destPalette; // 0x04 NULL disables the copy (swrScene_ClearPaletteScrollTarget)
+        uint16_t * SWR_P32 srcPalette; // 0x08
         short paletteSize; // 0x0c phase modulus
         float period; // 0x10 seconds per step
         float timer; // 0x14 counts down by the frame delta, refilled by period
         short count; // 0x18 entries in destIndex / phase
-        uint8_t* destIndex; // 0x1c destPalette slot per entry
-        uint8_t* phase; // 0x20 srcPalette index per entry
+        uint8_t * SWR_P32 destIndex; // 0x1c destPalette slot per entry
+        uint8_t * SWR_P32 phase; // 0x20 srcPalette index per entry
     } swrScene_PaletteScroll; // sizeof(0x24)
 
     typedef struct TrackInfo
@@ -3454,7 +3455,7 @@ extern "C"
 
     typedef struct SmushImageInfo
     {
-        uint8_t* data; // format rgb565
+        uint8_t * SWR_P32 data; // format rgb565
         uint32_t width;
         uint32_t height;
         uint32_t unk1; // always 2, maybe bytes
@@ -3487,7 +3488,7 @@ extern "C"
         uint16_t unk1;
         uint32_t num_control_points;
         uint32_t num_segments;
-        swrSplineControlPoint* control_points;
+        swrSplineControlPoint * SWR_P32 control_points;
     } swrSpline;
 
     // Per force-feedback effect tuning (swrControl_forceEffectSettings, indexed by swrForceEffect).
@@ -3512,12 +3513,12 @@ extern "C"
     typedef struct cifr_Effect
     {
         int numInterfaces; // 0x0
-        IDirectInputEffect** interfaces; // 0x4. NULL until created
+        IDirectInputEffect * SWR_P32 * SWR_P32 interfaces; // 0x4. NULL until created
         DIEFFECT_DX5 params; // 0x8. dwSize 0x34
         LONG directions[0x20]; // 0x3c
         DWORD axes[0x20]; // 0xbc
         DIENVELOPE envelope; // 0x13c
-        int* typeSpecificBuffer; // 0x150. owned copy of the type-specific params (cifr_SetTypeSpecificParams)
+        int * SWR_P32 typeSpecificBuffer; // 0x150. owned copy of the type-specific params (cifr_SetTypeSpecificParams)
         int effectId; // 0x154. swrForceEffect currently created in this slot, -1 = none
         char name[0x18]; // 0x158. .fcr effect name of effectId
         unsigned int lastEffectId; // 0x170. highest swrForceEffect this slot serves
@@ -3526,7 +3527,7 @@ extern "C"
     typedef struct cifr_EffectSet
     {
         char unk0[0x40];
-        HIFORCEPROJECT project; // 0x40. loaded .fcr project (cifr_LoadProjectFile)
+        HIFORCEPROJECT SWR_P32 project; // 0x40. loaded .fcr project (cifr_LoadProjectFile)
         int unk44;
         cifr_Effect slots[6]; // 0x48
     } cifr_EffectSet; // sizeof(0x900)
@@ -3536,7 +3537,7 @@ extern "C"
     {
         unsigned int intervalMs; // 0x0
         unsigned int remainingMs; // 0x4. counts down; reloaded from intervalMs when it fires
-        struct swrUI_unk* target; // 0x8. receives swrUI_MSG_TIMER
+        struct swrUI_unk * SWR_P32 target; // 0x8. receives swrUI_MSG_TIMER
         int id; // 0xc. message param; swrUI_RemoveTimer matches on it
     } swrUITimer; // sizeof(0x10)
 
@@ -3548,7 +3549,7 @@ extern "C"
         uint8_t type; // 0x3
         uint32_t price; // 0x4. base price at full health (scaled by health / 255 in swrRace_ComputeUpgradePrices)
         MODELID model; // 0x8
-        const char* name; // 0xc
+        const char * SWR_P32 name; // 0xc
     } swrUpgradeInfo; // sizeof(0x10)
 
     typedef struct swrUIUpgradeInfo

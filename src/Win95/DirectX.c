@@ -42,7 +42,7 @@ void DirectDraw_InitProgressBar(void)
     ddSurfaceDescForProgressBar.dwWidth = 8;
     ddSurfaceDescForProgressBar.dwHeight = 8;
     ddSurfaceDescForProgressBar.ddsCaps.dwCaps = DDSCAPS_SYSTEMMEMORY;
-    if (IDirectDraw4_CreateSurface(std3D_pDirectDraw, &ddSurfaceDescForProgressBar, &ddSurfaceForProgressBar, NULL) != DD_OK) {
+    if (SWR_OUT_NATIVE(LPDIRECTDRAWSURFACE4, ddSurfaceForProgressBar, IDirectDraw4_CreateSurface(std3D_pDirectDraw, &ddSurfaceDescForProgressBar, swr_out_, NULL)) != DD_OK) {
         iDirectDraw4_error = 1;
         return;
     }
@@ -154,7 +154,7 @@ BOOL DirectPlay_Startup(void)
 void DirectPlay_Destroy(void)
 {
     int iVar1;
-    void** ppvVar2;
+    void* SWR_P32* ppvVar2;
     unsigned int uVar3;
     StdCommConnection* pSVar4;
 
@@ -415,7 +415,7 @@ int Direct3d_CreateAndAttachViewport(void)
     int iVar1;
     D3DVIEWPORT2 viewport_data;
 
-    hres = (*std3D_pDirect3D->lpVtbl->CreateViewport)(std3D_pDirect3D, &std3D_lpD3DViewPort, NULL);
+    hres = SWR_OUT_NATIVE(LPDIRECT3DVIEWPORT3, std3D_lpD3DViewPort, (*std3D_pDirect3D->lpVtbl->CreateViewport)(std3D_pDirect3D, swr_out_, NULL));
     if (hres != 0)
     {
         return false;

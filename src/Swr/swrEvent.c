@@ -28,7 +28,7 @@ void swrEvent_ClearObjs(int event)
 // 0x00450850
 void swrEvent_Initialize(int event)
 {
-    for (swrEventManager** it = eventManagerMain; *it != NULL; it++)
+    for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
         if (manager->event == event)
@@ -48,7 +48,7 @@ void swrEvent_Initialize(int event)
 // 0x004508b0
 void swrEvent_CallAllF0(void)
 {
-    for (swrEventManager** it = eventManagerMain; *it != NULL; it++)
+    for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
         if (manager->f0 != NULL && (manager->flags & swrEvent_f0SkipMask) == 0)
@@ -68,7 +68,7 @@ void swrEvent_CallAllF0(void)
 // 0x00450930
 void swrEvent_CallAllF1(void)
 {
-    for (swrEventManager** it = eventManagerMain; *it != NULL; it++)
+    for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
         if (manager->f1 != NULL && (manager->flags & swrEvent_f0SkipMask) == 0)
@@ -88,7 +88,7 @@ void swrEvent_CallAllF1(void)
 // 0x004509b0
 void swrEvent_CallAllF2(void)
 {
-    for (swrEventManager** it = eventManagerMain; *it != NULL; it++)
+    for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
         if (manager->f2 != NULL && (manager->flags & swrEvent_f0SkipMask) == 0)
@@ -108,7 +108,7 @@ void swrEvent_CallAllF2(void)
 // 0x00450a30
 void swrEvent_CallAllF3(void)
 {
-    for (swrEventManager** it = eventManagerMain; *it != NULL; it++)
+    for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
         if (manager->f3 != NULL)
@@ -128,7 +128,7 @@ void swrEvent_CallAllF3(void)
 // 0x00450aa0
 void* swrEvent_FindObjectById(int event, int id)
 {
-    for (swrEventManager** it = eventManagerMain; *it != NULL; it++)
+    for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
         if (manager->event == event)
@@ -148,7 +148,7 @@ void* swrEvent_FindObjectById(int event, int id)
 // 0x00450b00
 int swrEvent_GetEventCount(int event)
 {
-    for (swrEventManager** it = eventManagerMain; *it != NULL; it++)
+    for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
         if (manager->event == event)
@@ -161,7 +161,7 @@ int swrEvent_GetEventCount(int event)
 void* swrEvent_GetItem(int event, int index)
 {
     swrEvent_lastManager = NULL;
-    swrEventManager** it = eventManagerMain;
+    swrEventManager* SWR_P32* it = eventManagerMain;
     swrEventManager* manager = *it;
     if (manager == NULL)
         return NULL;
@@ -191,7 +191,7 @@ void swrEvent_DispatchSubEvents(void* obj, int* subEvents)
     if (obj == NULL)
         return;
 
-    swrEventManager** it = eventManagerMain;
+    swrEventManager* SWR_P32* it = eventManagerMain;
     swrEventManager* manager = *it;
     if (manager == NULL)
         return;
@@ -210,7 +210,7 @@ void swrEvent_DispatchSubEvents(void* obj, int* subEvents)
 // 0x00450c50
 void swrEvent_CallF4(int event, void* forward_param)
 {
-    for (swrEventManager** it = eventManagerMain; *it != NULL; it++)
+    for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
         if (manager->event != event && event != 0x416c6c21 /* 'All!' */)
@@ -235,7 +235,7 @@ void swrEvent_CallF4(int event, void* forward_param)
 // 0x00450ce0
 void* swrEvent_SetObjs(int event, int count, void* objs)
 {
-    for (swrEventManager** it = eventManagerMain; *it != NULL; it++)
+    for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
         if (manager->event == event)
@@ -251,7 +251,7 @@ void* swrEvent_SetObjs(int event, int count, void* objs)
 // 0x00450d20
 void* swrEvent_AllocObj(int event)
 {
-    swrEventManager** it = eventManagerMain;
+    swrEventManager* SWR_P32* it = eventManagerMain;
     swrEventManager* manager = *it;
     if (manager == NULL)
         return NULL;
@@ -285,7 +285,7 @@ void* swrEvent_AllocObj(int event)
 void swrEvent_FreeObjs(int event)
 {
     int subEvent = 0x46726565; // 'Free'
-    for (swrEventManager** it = eventManagerMain; *it != NULL; it++)
+    for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
         if (manager->event == event)
@@ -331,7 +331,7 @@ void swrEvent_Broadcast(int event, int* subEvents)
 RETAIL_FP int swrEvent_FindNearestObjects(int event, rdVector3* pos, float maxDistSq, void* excludeObj, int maxResults, float* outDistances, rdVector3* outDeltas, void** outObjects)
 {
     int found = 0;
-    for (swrEventManager** it = eventManagerMain; *it != NULL; it++) {
+    for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++) {
         swrEventManager* manager = *it;
         if ((manager->event != event && event != 0x416c6c21) || (manager->flags & 1) == 0)
             continue;

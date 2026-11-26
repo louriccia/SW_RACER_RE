@@ -56,7 +56,7 @@ void cifr_ReinitEffects(cifr_EffectSet* effects)
 }
 
 // 0x00403f30
-int cifr_LoadProjectFile(cifr_EffectSet* effects, char* projectFile, int* slotLastIds, char** names)
+int cifr_LoadProjectFile(cifr_EffectSet* effects, char* projectFile, int* slotLastIds, char* SWR_P32* names)
 {
     int i;
     int effectId;
@@ -145,7 +145,7 @@ int cifr_CreateEffect(cifr_Effect* effect, char* name, HIFORCEPROJECT project)
     if (effect->interfaces != NULL) {
         cifr_ReleaseEffect(effect, project);
     }
-    effect->interfaces = cifr_IFCreateEffects(project, name, &effect->numInterfaces);
+    effect->interfaces = (IDirectInputEffect* SWR_P32*)cifr_IFCreateEffects(project, name, &effect->numInterfaces);
     if (effect->interfaces == NULL) {
         return 0;
     }
@@ -163,7 +163,7 @@ int cifr_CreateEffect(cifr_Effect* effect, char* name, HIFORCEPROJECT project)
             result = iface->lpVtbl->GetParameters(iface, (LPDIEFFECT)&effect->params, DIEP_ALLPARAMS_DX5);
         }
         if (result != 0) {
-            cifr_IFReleaseEffects(project, effect->interfaces);
+            cifr_IFReleaseEffects(project, (IDirectInputEffect**)effect->interfaces);
             effect->interfaces = NULL;
             return 0;
         }
@@ -182,7 +182,7 @@ int cifr_ReleaseEffect(cifr_Effect* effect, HIFORCEPROJECT project)
     if (effect->interfaces == NULL) {
         return 0;
     }
-    result = cifr_IFReleaseEffects(project, effect->interfaces);
+    result = cifr_IFReleaseEffects(project, (IDirectInputEffect**)effect->interfaces);
     effect->interfaces = NULL;
     return result;
 }

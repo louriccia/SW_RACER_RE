@@ -285,7 +285,7 @@ swrModel_Node* swrModel_NodeGetChild(swrModel_Node* node, int child_index);
 int swrModel_MeshGetNumPrimitives(const swrModel_Mesh*);
 int swrModel_MeshGetPrimitiveType(const swrModel_Mesh*);
 uint32_t* swrModel_MeshGetPrimitiveSizes(swrModel_Mesh* mesh);
-void swrModel_MeshGetCollisionData(swrModel_Mesh* mesh, int disable, swrModel_CollisionVertex** vertices, uint16_t** optional_indices);
+void swrModel_MeshGetCollisionData(swrModel_Mesh* mesh, int disable, swrModel_CollisionVertex* SWR_P32* vertices, uint16_t** optional_indices);
 void swrModel_MeshGetAABB(swrModel_Mesh* mesh, float* aabb);
 swrModel_Mesh* swrModel_NodeGetMesh(swrModel_NodeMeshGroup* node, int a2);
 
@@ -354,7 +354,7 @@ void swrModel_ConvertTileToRdMaterial(void* tex, void* tile);
 
 void swrModel_LoadTextureDataAndPalette(int* texture_offsets, uint8_t** texture_data_ptr, uint8_t** palette_ptr);
 void swrModel_InitializeTextureBuffer();
-void swrModel_LoadModelTexture(TEXID texture_index, swrMaterial** material_ptr, uint8_t** palette_data_ptr);
+void swrModel_LoadModelTexture(TEXID texture_index, swrMaterial* SWR_P32* material_ptr, uint8_t** palette_data_ptr);
 
 int swrModel_MeshMaterialAlreadyByteSwapped(swrModel_MeshMaterial* mesh_material);
 int swrModel_MeshTextureAlreadyByteSwapped(swrModel_MaterialTexture* texture);
@@ -363,22 +363,22 @@ void swrModel_ByteSwapNode(swrModel_Node* node);
 void swrModel_ByteSwapAnimation(swrModel_Animation* animation);
 void swrModel_ByteSwapModelData(swrModel_Header* header);
 swrModel_Header* swrModel_LoadFromId(MODELID id);
-swrModel_Animation** swrModel_LoadAllAnimationsOfModel(swrModel_Header* model_header); // returns pointer to first animation in model header
+swrModel_Animation* SWR_P32* swrModel_LoadAllAnimationsOfModel(swrModel_Header* model_header); // returns pointer to first animation in model header
 
 // Merges a second model's 'AltN' node pointers into the primary (walks Data/Anim/AltN chunks, byte-swaps).
 void swrModel_FixupAltNodePointers(int* model, int* altModel);
 // Sets the playback speed on every animation in a NULL-terminated list.
-void swrModel_SetAnimListSpeed(swrModel_Animation** anims, float speed);
+void swrModel_SetAnimListSpeed(swrModel_Animation* SWR_P32* anims, float speed);
 
-void swrModel_AnimationsSetSettings(swrModel_Animation** anims, float animation_time, float loop_start_time, float loop_end_time, bool set_loop, float transition_speed, float loop_transition_speed);
+void swrModel_AnimationsSetSettings(swrModel_Animation* SWR_P32* anims, float animation_time, float loop_start_time, float loop_end_time, bool set_loop, float transition_speed, float loop_transition_speed);
 
 // Returns a node's animation speed field, defaulting when the node is null (best guess).
-void swrModel_CompensateRootMotion(swrModel_Node** nodes, swrModel_Animation** anims, rdVector3* prevPos, float maxStep);
+void swrModel_CompensateRootMotion(swrModel_Node* SWR_P32* nodes, swrModel_Animation* SWR_P32* anims, rdVector3* prevPos, float maxStep);
 
-float swrModel_GetAnimListTime(swrModel_Animation** anims);
+float swrModel_GetAnimListTime(swrModel_Animation* SWR_P32* anims);
 
 // Bone-animated mesh parts: render matrix cached into rdModel3HNode::boneMatrix.
-float swrModel_GetNodeYaw(swrModel_Node** nodes, swrModel_Animation** anims);
+float swrModel_GetNodeYaw(swrModel_Node* SWR_P32* nodes, swrModel_Animation* SWR_P32* anims);
 void swrModel_CachePrecomputedMatrices(void);
 void swrModel_ComputeNodeRenderMatrix(rdModel3HNode* node, int vertexBaseOffset);
 void swrModel_CopyNodeRenderMatrix(swrModel_NodeMeshGroup* srcNode, rdModel3HNode* dstNode, int vertexBaseOffset);
@@ -393,12 +393,12 @@ void swrModel_ReloadAnimations();
 
 void swrModel_LoadAllLightStreaks(swrModel_Header* header);
 
-void swrModel_AnimationsResetToZero2(swrModel_Animation** anims, float animation_speed);
-void swrModel_AnimationsResetToZero(swrModel_Animation** anims);
+void swrModel_AnimationsResetToZero2(swrModel_Animation* SWR_P32* anims, float animation_speed);
+void swrModel_AnimationsResetToZero(swrModel_Animation* SWR_P32* anims);
 
 // Returns nonzero if any animation in the array has finished (a free slot exists); 0 if
 // all are still playing or the array is empty. Used to gate engine-fireball spawning.
-int swrModel_AnyFxAnimDone(swrModel_Animation** anims);
+int swrModel_AnyFxAnimDone(swrModel_Animation* SWR_P32* anims);
 
 // Returns zero as an always-not-done FX animation state (best guess).
 int swrModel_FxAnimGetState_Maybe(void);
@@ -453,7 +453,7 @@ void swrModel_NodeTreeClosestPoint(swrModel_Node* targetNode, swrModel_Node* nod
 void swrModel_FindClosestPointOnModel(swrModel_Node* node, swrModel_Node* targetNode, rdVector3* queryPoint, int maxNodeDepth, void* nodeChainOut, rdVector3* outPoint, rdVector3* outNormal);
 
 // Transforms a point and a direction through the matrix of a NULL-terminated node chain.
-void swrModel_TransformPointAndDir(rdVector3* outPoint, rdVector3* outDir, swrModel_Node** nodeChain, rdVector3* point, rdVector3* dir);
+void swrModel_TransformPointAndDir(rdVector3* outPoint, rdVector3* outDir, swrModel_Node* SWR_P32* nodeChain, rdVector3* point, rdVector3* dir);
 
 // Steps the 0..2 frame counter and flips the display-list double-buffer parity; once per frame.
 void swrViewport_AdvanceFrameParity(void);
@@ -467,7 +467,7 @@ void swrModel_SwapSceneModels(int index, int index2);
 void swrModel_ComputeNodeWorldMatrix(swrModel_Node* target, float* outMatrix, swrModel_Node* node, rdMatrix44* parentMatrix);
 
 // Walks a node-pointer list, multiplying billboard-node transforms into the output matrix.
-void swrModel_ComputeNodeChainMatrix(swrModel_Node** nodeList, rdMatrix44* outMatrix);
+void swrModel_ComputeNodeChainMatrix(swrModel_Node* SWR_P32* nodeList, rdMatrix44* outMatrix);
 
 // Returns the distance from a point to the nearest point in a global set, or a default when empty (best guess).
 float swrViewport_DistanceToNearestCamera(rdVector3* point);

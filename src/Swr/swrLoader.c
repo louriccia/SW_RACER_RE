@@ -54,7 +54,7 @@ void swrLoader_DecompressLZSS(char* compressed, char* decompressed)
 }
 
 // 0x0042d600
-FILE** swrLoader_TypeToFile(swrLoader_TYPE type)
+FILE* SWR_P32* swrLoader_TypeToFile(swrLoader_TYPE type)
 {
     switch (type)
     {
@@ -74,7 +74,7 @@ FILE** swrLoader_TypeToFile(swrLoader_TYPE type)
 // 0x0042d640
 size_t swrLoader_ReadAt(swrLoader_TYPE type, long _Offset, void* _DstBuf, size_t _ElementSize)
 {
-    FILE** f;
+    FILE* SWR_P32* f;
     f = swrLoader_TypeToFile(type);
     fseek(*f, _Offset, 0);
     return fread(_DstBuf, _ElementSize, 1, *f);
@@ -83,7 +83,7 @@ size_t swrLoader_ReadAt(swrLoader_TYPE type, long _Offset, void* _DstBuf, size_t
 // 0x0042d680
 void swrLoader_OpenBlock(swrLoader_TYPE type)
 {
-    FILE** file;
+    FILE* SWR_P32* file;
     FILE* opened_file;
     char* filename;
 
@@ -125,7 +125,7 @@ void swrLoader_OpenBlock(swrLoader_TYPE type)
 // 0x0042d6f0
 void swrLoader_CloseBlock(swrLoader_TYPE type)
 {
-    FILE** f;
+    FILE* SWR_P32* f;
     f = swrLoader_TypeToFile(type);
     fclose(*f);
     *f = NULL;

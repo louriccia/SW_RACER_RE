@@ -15,6 +15,31 @@ project_root = script_dir.parent.absolute()
 
 data_syms_file = os.path.join(project_root, "data_symbols.syms")
 
+# Pointers stored in game memory are 4 bytes on every build (SWR_P32, src/ptr32.h): every pointer
+# level of a global's type, and globals whose type is a pointer typedef.
+def _pointer_typedefs():
+    names = {"HWND", "HANDLE", "HINSTANCE", "HDC", "HMODULE", "HKEY", "LPVOID", "PVOID", "FARPROC"}
+    for header in ("types.h", "types_directx.h"):
+        text = open(os.path.join(project_root, "src", header), encoding="ascii", errors="replace").read()
+        names |= set(re.findall(r"typedef[^;{}]*\(\s*\*\s*(\w+)\s*\)\s*\(", text))
+        names |= set(re.findall(r"typedef\s+[^;{}()]*\*\s*(\w+)\s*;", text))
+    return names
+
+
+POINTER_TYPEDEFS = None
+
+
+def ptr32_type(t):
+    global POINTER_TYPEDEFS
+    if POINTER_TYPEDEFS is None:
+        POINTER_TYPEDEFS = _pointer_typedefs()
+    t = re.sub(r"\*", "* SWR_P32 ", t).strip()
+    m = re.match(r"^((?:const\s+|struct\s+|volatile\s+)*)(\w+)(.*)$", t)
+    if m and (m.group(2) in POINTER_TYPEDEFS or re.match(r"^LP[A-Z0-9_]+$", m.group(2))):
+        t = m.group(1) + m.group(2) + " SWR_P32" + m.group(3)
+    return t
+
+
 data = {"globals": []}
 with open(data_syms_file, "r", encoding="ascii") as global_symbols:
     for i, line in enumerate(global_symbols.readlines()):
@@ -57,6 +82,8 @@ with open(data_syms_file, "r", encoding="ascii") as global_symbols:
             global_var["function_specifier"] = type[split_index+3:]
 
         global_var["new_type"] = global_var["new_type"].strip()
+        if "function_specifier" not in global_var:
+            global_var["new_type"] = ptr32_type(global_var["new_type"])
         global_var["new_name"] = global_var["new_name"].strip()
         data["globals"].append(global_var)
 

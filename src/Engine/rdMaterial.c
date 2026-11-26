@@ -41,7 +41,7 @@ int rdMaterial_LoadEntry(char* mat_fpath, swrMaterial* material)
     ColorInfo convertFormat;
     int hasColorKey;
     LPDDCOLORKEY colorKey;
-    tVBuffer** mipBuffers;
+    tVBuffer* SWR_P32* mipBuffers;
     tVBuffer* buffer;
     unsigned int i;
     int mip;
@@ -87,7 +87,7 @@ int rdMaterial_LoadEntry(char* mat_fpath, swrMaterial* material)
 
         mipBuffers = NULL;
         if (textureHeader.num_mipmaps != 0) {
-            mipBuffers = (tVBuffer**)(*rdroid_hostServices_ptr->alloc)(textureHeader.num_mipmaps * sizeof(tVBuffer*));
+            mipBuffers = (tVBuffer* SWR_P32*)(*rdroid_hostServices_ptr->alloc)(textureHeader.num_mipmaps * sizeof(tVBuffer*));
             if (mipBuffers == NULL)
                 goto error;
             memset(mipBuffers, 0, textureHeader.num_mipmaps * sizeof(tVBuffer*));

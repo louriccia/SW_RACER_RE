@@ -690,7 +690,7 @@ void swrObjElmo_F3(swrObjElmo* elmo);
 int swrObjElmo_F4(swrObjElmo* elmo, int* subEvents);
 
 // Initializes a fresh Elmo object, setting node pointers, zeroing vectors, and seeding random phase.
-void swrObjElmo_Init(swrObjElmo* elmo, swrModel_Node** nodes, void* anims, swrObjElmo_KIND kind);
+void swrObjElmo_Init(swrObjElmo* elmo, swrModel_Node* SWR_P32* nodes, void* anims, swrObjElmo_KIND kind);
 
 // swrObjElmo behavior/animation (pit-droid / hangar character AI):
 // Sets the current animation state (maps a state command to an anim id, plays sounds).
@@ -749,7 +749,7 @@ void swrObjSmok_F3(swrObjSmok* smok);
 
 int swrObjSmok_F4(swrObjSmok* smok, int* subEvents);
 
-void swrObjSmok_SetFireballChildNodesPtr(swrModel_Node** nodes);
+void swrObjSmok_SetFireballChildNodesPtr(swrModel_Node* SWR_P32* nodes);
 
 // swrObjSmok particle create/setter API. Spawn applies the preset for the given
 // swrObjSmok_TYPE; the setters are NULL-tolerant, so an expired handle is safe to pass.
@@ -770,7 +770,7 @@ void swrRace_PoddAnimateVariousThings(swrRace* player);
 // taunt/results cutscenes. Positions the pod's engine/cockpit/cable nodes and curves the cables.
 // useRacerScale multiplies the scale by the pilot's swrRacer_PodData size; floorZ is the height
 // the shadow quads are flattened onto; exhaustLeft/Right feed swrRace_UpdateEngineExhaust.
-void swrRace_AnimateDisplayPod(swrModel_Node** nodes, rdMatrix44* transform, int useRacerScale, float scaleX, float scaleY, float scaleZ, float floorZ, int animated, float exhaustLeft, float exhaustRight);
+void swrRace_AnimateDisplayPod(swrModel_Node* SWR_P32* nodes, rdMatrix44* transform, int useRacerScale, float scaleX, float scaleY, float scaleZ, float floorZ, int animated, float exhaustLeft, float exhaustRight);
 
 void swrRace_PoddAnimateSteeringParts(swrRace* a1);
 
@@ -804,7 +804,7 @@ void swrObjToss_F2(swrObjToss* toss);
 void swrObjToss_F3(swrObjToss* toss);
 int swrObjToss_F4(swrObjToss* toss, int* subEvents);
 int swrRace_SpawnDustKickObject(rdMatrix44* in, uint8_t r, uint8_t g, uint8_t b, int a, float life_time, int unk64);
-void swrObjToss_SetDustKickChildNodesPtr(swrModel_Node** nodes);
+void swrObjToss_SetDustKickChildNodesPtr(swrModel_Node* SWR_P32* nodes);
 void swrObjTrig_EnableFXAnimation(int index);
 void swrObjTrig_StopFXAnimation(int index);
 

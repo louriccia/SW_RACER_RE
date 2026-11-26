@@ -65,7 +65,7 @@ void std3D_SetWireframeRenderState(void);
 void std3D_DrawLineStrip(LPD3DTLVERTEX pVertices, unsigned int numVertices);
 void std3D_DrawPointList(LPVOID lpvVertices, unsigned int dwVertexCount);
 void std3D_SetRenderState(Std3DRenderState rdflags);
-void std3D_AllocSystemTexture(tSystemTexture* pTexture, tVBuffer** apVBuffers, unsigned int numMipLevels, StdColorFormatType formatType);
+void std3D_AllocSystemTexture(tSystemTexture* pTexture, tVBuffer* SWR_P32* apVBuffers, unsigned int numMipLevels, StdColorFormatType formatType);
 void std3D_GetValidDimensions(unsigned int width, unsigned int height, unsigned int* pOutWidth, unsigned int* pOutHeight);
 void std3D_ClearTexture(tSystemTexture* pTex);
 void std3D_AddToTextureCache(tSystemTexture* pCacheTexture, StdColorFormatType format);

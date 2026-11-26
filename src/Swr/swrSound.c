@@ -450,7 +450,7 @@ int swrSound_Init(void)
         return 0;
 
     a3d_CoInitialize();
-    hr = a3d_CoCreateInstance(NULL, &IA3d4_ptr, NULL, 0x80);
+    hr = SWR_OUT_NATIVE(IA3d4*, IA3d4_ptr, a3d_CoCreateInstance(NULL, swr_out_, NULL, 0x80));
     if (hr < 0 || IA3d4_ptr == NULL)
     {
         Sound_A3Dinitted = 0;
@@ -1202,7 +1202,7 @@ void swrSound_SetDefaultConfig(void)
 void swrSound_FreeBank(void)
 {
     char* bank = (char*)swrSound_bank;
-    swrSoundDescriptor* entry = *(swrSoundDescriptor**)(bank + 0x28);
+    swrSoundDescriptor* entry = *(swrSoundDescriptor* SWR_P32*)(bank + 0x28);
 
     if (entry == NULL)
         return;
@@ -1431,7 +1431,7 @@ int swrSound_UnloadSound(swrSoundDescriptor* entry)
 void swrSound_UnloadAll(void)
 {
     char* bank = (char*)swrSound_bank;
-    swrSoundDescriptor* entry = *(swrSoundDescriptor**)(bank + 0x28);
+    swrSoundDescriptor* entry = *(swrSoundDescriptor* SWR_P32*)(bank + 0x28);
 
     if (entry != NULL) {
         for (unsigned int i = 0; i < *(uint32_t*)(bank + 0x20); i++, entry++) {
@@ -1584,7 +1584,7 @@ void swrSound_UpdateEngineAudio(int planetId, int trackNumber, float lapProgress
         else if (planetId == 4)
             cue = swrSfxCuesBaroondaTrack3;
         else
-            cue = *(swrSfxCue**)&lapProgress; // faithful: reuses the progress argument's bits as the list pointer
+            cue = *(swrSfxCue* SWR_P32*)&lapProgress; // faithful: reuses the progress argument's bits as the list pointer
     } else {
         cue = swrSfxPreloadSets[planetId * 3 + trackNumber];
     }

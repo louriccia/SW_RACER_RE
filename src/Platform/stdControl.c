@@ -10,9 +10,9 @@
 #include <math.h>
 #include <string.h>
 
-static LPDIRECTINPUTDEVICEA* stdControl_DeviceSlot(LPDIRECTINPUTDEVICEA* first, unsigned int index)
+static LPDIRECTINPUTDEVICEA SWR_P32* stdControl_DeviceSlot(LPDIRECTINPUTDEVICEA SWR_P32* first, unsigned int index)
 {
-    return (LPDIRECTINPUTDEVICEA*)((char*)first + index * STDCONTROL_JOYSTICK_RECORD_SIZE);
+    return (LPDIRECTINPUTDEVICEA SWR_P32*)((char*)first + index * STDCONTROL_JOYSTICK_RECORD_SIZE);
 }
 
 static DIDEVICEINSTANCEA* stdControl_DeviceInstance(void* records, unsigned int index)
@@ -42,7 +42,7 @@ int stdControl_Startup(void)
     memset(&DirectInputMouses, 0, STDCONTROL_MAX_MOUSE_DEVICES * STDCONTROL_JOYSTICK_RECORD_SIZE);
     stdControl_numJoystickDevices = 0;
     DirectInputNbMouses = 0;
-    if (DirectX_DirectInputCreateA(Window_GetHINSTANCE(), STDCONTROL_DIRECTINPUT_VERSION, &iDirectInputA_ptr, NULL) != DI_OK)
+    if (SWR_OUT_NATIVE(LPDIRECTINPUTA, iDirectInputA_ptr, DirectX_DirectInputCreateA(Window_GetHINSTANCE(), STDCONTROL_DIRECTINPUT_VERSION, swr_out_, NULL)) != DI_OK)
         return 1;
     if (iDirectInputA_ptr->lpVtbl->EnumDevices(iDirectInputA_ptr, 0, DirectInput_EnumDevice_Callback, NULL, DIEDFL_ATTACHEDONLY) != DI_OK)
         return 1;
@@ -58,7 +58,7 @@ int stdControl_Startup(void)
 void stdControl_Shutdown(void)
 {
     unsigned int i;
-    LPDIRECTINPUTDEVICEA* device;
+    LPDIRECTINPUTDEVICEA SWR_P32* device;
 
     if (stdControl_g_bStartup == 0) {
         return;
@@ -282,7 +282,7 @@ void stdControl_SetAxisDeadzone(float deadzone, int joystick, int axis)
         range.diph.dwObj = DIJOFS_RZ;
     }
     range.diph.dwHow = DIPH_BYOFFSET;
-    device = *(LPDIRECTINPUTDEVICEA*)((char*)&stdControlJoystickDevice + joystick * STDCONTROL_JOYSTICK_RECORD_SIZE);
+    device = *(LPDIRECTINPUTDEVICEA SWR_P32*)((char*)&stdControlJoystickDevice + joystick * STDCONTROL_JOYSTICK_RECORD_SIZE);
     if (device->lpVtbl->GetProperty(device, DIPROP_RANGE, &range.diph) >= 0) {
         stdControl_RegisterAxis(joystick * STDCONTROL_AXES_PER_JOYSTICK + axis, range.lMin, range.lMax, deadzone);
     }
@@ -385,12 +385,12 @@ int stdControl_SetActivation(int bActive)
 }
 
 // Creates one keyboard/mouse device from its enumerated record; on any failure the slot is released and cleared.
-static void stdControl_InitBufferedDevice(DIDEVICEINSTANCEA* instance, LPDIRECTINPUTDEVICEA* device, LPCDIDATAFORMAT format)
+static void stdControl_InitBufferedDevice(DIDEVICEINSTANCEA* instance, LPDIRECTINPUTDEVICEA SWR_P32* device, LPCDIDATAFORMAT format)
 {
     LPDIDEVCAPS caps = (LPDIDEVCAPS)(device + 1);
     DIPROPDWORD bufferSize;
 
-    if (iDirectInputA_ptr->lpVtbl->CreateDevice(iDirectInputA_ptr, &instance->guidInstance, device, NULL) >= 0) {
+    if (SWR_OUT_NATIVE(LPDIRECTINPUTDEVICEA, *device, iDirectInputA_ptr->lpVtbl->CreateDevice(iDirectInputA_ptr, &instance->guidInstance, swr_out_, NULL)) >= 0) {
         caps->dwSize = sizeof(DIDEVCAPS);
         if ((*device)->lpVtbl->GetCapabilities(*device, caps) >= 0 && (*device)->lpVtbl->SetDataFormat(*device, format) >= 0 && (*device)->lpVtbl->SetCooperativeLevel(*device, Window_GetHWND(), DISCL_NONEXCLUSIVE | DISCL_FOREGROUND) >= 0) {
             bufferSize.diph.dwSize = sizeof(DIPROPDWORD);
@@ -412,7 +412,7 @@ void stdControl_InitJoysticks(void)
 {
     static const DWORD axisOffsets[STDCONTROL_AXES_PER_JOYSTICK] = { DIJOFS_X, DIJOFS_Y, DIJOFS_Z, DIJOFS_RX, DIJOFS_RY, DIJOFS_RZ };
     LPDIRECTINPUTDEVICEA created = NULL;
-    LPDIRECTINPUTDEVICEA* device;
+    LPDIRECTINPUTDEVICEA SWR_P32* device;
     LPDIDEVCAPS caps;
     DIPROPRANGE range;
     DIPROPDWORD autoCenter;

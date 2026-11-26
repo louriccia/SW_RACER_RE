@@ -1316,7 +1316,7 @@ void swrRace_SelectVehicle(swrObjHang* hang)
         rdVector_Copy3((rdVector3*)&m.vD, &swrObjHang_cameraPlacements[0x24].position2);
         swrRace_vehicleSelectPodScale = swrRace_vehicleSelectPodScale * 0.5f;
         rdVector_Scale3Add3_both((rdVector3*)&m.vD, 0.5f, &swrObjHang_cameraPlacements[0x24].position2, 0.5f, &swrObjHang_cameraPlacements[0x24].position1);
-        swrRace_AnimateDisplayPod((swrModel_Node**)swr_sceneModels[SWR_SCENE_SLOT_POD_MODELS], &m, 1, swrRace_vehicleSelectPodScale, swrRace_vehicleSelectPodScale, swrRace_vehicleSelectPodScale, -1157.0f, 0, 1.0f, 1.0f);
+        swrRace_AnimateDisplayPod((swrModel_Node* SWR_P32*)swr_sceneModels[SWR_SCENE_SLOT_POD_MODELS], &m, 1, swrRace_vehicleSelectPodScale, swrRace_vehicleSelectPodScale, swrRace_vehicleSelectPodScale, -1157.0f, 0, 1.0f, 1.0f);
         if (swr_sceneModels[SWR_SCENE_SLOT_POD_MODELS]->entries[0x3b].node != NULL)
             swrModel_NodeModifyFlags(swr_sceneModels[SWR_SCENE_SLOT_POD_MODELS]->entries[0x3b].node, 2, 3, 0x10, 2);
     }
@@ -3400,8 +3400,8 @@ void swrRace_UpdatePitDroidModels(void)
             swrModel_NodeSetColorsOnAllMaterials(&node->node, 0, 0, 200, 200, 0xff, 0xff);
             droid = (swrObjElmo*)swrEvent_GetItem('Elmo', SWR_SCENE_SLOT_PIT_DROIDS + i);
             // the spark shows only during the welding animation; the ambient light flickers with it
-            animTime = swrModel_GetAnimListTime((swrModel_Animation**)droid->unk34);
-            if ((float)swrObjElmo_animFramesPitDroid[SWR_ELMO_PIT_DROID_ANIM_WELD].start * 0.0666f <= animTime && swrModel_GetAnimListTime((swrModel_Animation**)droid->unk34) <= (float)swrObjElmo_animFramesPitDroid[SWR_ELMO_PIT_DROID_ANIM_WELD].end * 0.0666f) {
+            animTime = swrModel_GetAnimListTime((swrModel_Animation* SWR_P32*)droid->unk34);
+            if ((float)swrObjElmo_animFramesPitDroid[SWR_ELMO_PIT_DROID_ANIM_WELD].start * 0.0666f <= animTime && swrModel_GetAnimListTime((swrModel_Animation* SWR_P32*)droid->unk34) <= (float)swrObjElmo_animFramesPitDroid[SWR_ELMO_PIT_DROID_ANIM_WELD].end * 0.0666f) {
                 ambient.x = 80.0f;
                 ambient.y = 75.0f;
                 ambient.z = (long double)swrUtils_Rand() * SWR_CTL_RAND_NORM * 120.0 - 30.0 - -50.0f;
@@ -6471,7 +6471,7 @@ void swrRace_TakeDamage(int player, int engineIndex, float amount)
 }
 
 // 0x00475ad0
-void swrRace_Init(swrRace* player, swrSpline* spline, swrModel_Node** partNodes, swrModel_Node* collisionModel, int lightIndex, float* spawnTransform, int gridPos, int racerCount, int localPlayerCount, int duplicatePods)
+void swrRace_Init(swrRace* player, swrSpline* spline, swrModel_Node* SWR_P32* partNodes, swrModel_Node* collisionModel, int lightIndex, float* spawnTransform, int gridPos, int racerCount, int localPlayerCount, int duplicatePods)
 {
     float ray[7];
     rdVector3 hitPoint;
@@ -7789,7 +7789,7 @@ static void updateExhaustGlow(swrRace* player, swrModel_NodeTransformed* node, i
 
 // player == NULL drives a display pod (hangar/shop) from partNodes, whose slot 0x3c holds the pilot id.
 // 0x0046f2c0
-void swrRace_UpdateEngineExhaust(swrRace* player, swrModel_Node** partNodes, float sizeLeft, float sizeRight)
+void swrRace_UpdateEngineExhaust(swrRace* player, swrModel_Node* SWR_P32* partNodes, float sizeLeft, float sizeRight)
 {
     int pilot;
     int boosting;
@@ -9959,7 +9959,7 @@ void swrRace_ResolvePodCollision(swrRace* player)
 void swrRace_ApplyPartSinkOffset(swrRace* player)
 {
     float sink = player->unk11_1;
-    swrModel_Node** nodes = player->partNodes;
+    swrModel_Node* SWR_P32* nodes = player->partNodes;
     if (nodes == NULL)
         return;
     if (nodes[1] != NULL)
@@ -10291,7 +10291,7 @@ void swrRace_UpdateSpinoutNodes(swrRace* player)
 {
     if (!(player->flags0 & swrObjTest_FLAG0_LOCAL) && !(player->flags1 & swrObjTest_FLAG1_FORCE_GROUND))
         return;
-    swrModel_Node** nodes = player->partNodes;
+    swrModel_Node* SWR_P32* nodes = player->partNodes;
     // hide the parts left behind by a one-sided spinout
     if (player->flags1 & swrObjTest_FLAG1_EXPLODING_LEFT) {
         if (nodes[1] != NULL)
@@ -10459,7 +10459,7 @@ RETAIL_FP void swrRace_ApplyEngineProximityPush(swrRace* player, float* otherPos
 // 0x0046ee20
 void swrRace_UpdateScrapeSparks(swrRace* player)
 {
-    swrModel_Node** nodes = player->partNodes;
+    swrModel_Node* SWR_P32* nodes = player->partNodes;
 
     if (nodes == NULL)
         return;

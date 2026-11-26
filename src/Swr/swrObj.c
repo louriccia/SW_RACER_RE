@@ -2754,7 +2754,7 @@ void swrObjHang_UpdateTauntScene(swrObjHang* hang)
             swrObjHang_displayPodPos.y = 400.0f;
         rdMatrix_SetRotation44(&podTransform, 0.0f, 0.0f, 0.0f);
         rdVector_Set3((rdVector3*)&podTransform.vD, pos->x, pos->y, pos->z);
-        swrRace_AnimateDisplayPod((swrModel_Node**)swr_sceneModels[SWR_SCENE_SLOT_POD_MODELS + i], &podTransform, 0, 70.0f, 70.0f, 70.0f, -157.0f, 1, 1.0f, 1.0f);
+        swrRace_AnimateDisplayPod((swrModel_Node* SWR_P32*)swr_sceneModels[SWR_SCENE_SLOT_POD_MODELS + i], &podTransform, 0, 70.0f, 70.0f, 70.0f, -157.0f, 1, 1.0f, 1.0f);
     }
 
     if (swrControl_menuAcceptPressedEdge != 0 || swrControl_cancelPressedEdge != 0) {
@@ -2954,7 +2954,7 @@ void swrObjHang_UpdateResultsIntro(void)
     swrModel_Header* pod = swr_sceneModels[SWR_SCENE_SLOT_POD_MODELS];
     if (pod != NULL) {
         rdMatrix_SetTransform44(&podTransform, &swrObjHang_resultsPodPose);
-        swrRace_AnimateDisplayPod((swrModel_Node**)pod, &podTransform, 0, 70.0f, 70.0f, 70.0f, -157.0f, 1, 0.0f, 0.0f);
+        swrRace_AnimateDisplayPod((swrModel_Node* SWR_P32*)pod, &podTransform, 0, 70.0f, 70.0f, 70.0f, -157.0f, 1, 0.0f, 0.0f);
         if (pod->entries[0x3b].node != NULL)
             swrModel_NodeModifyFlags(pod->entries[0x3b].node, 2, 3, 0x10, 2);
     }
@@ -3487,7 +3487,7 @@ static void displayPodShadow(swrModel_Node* shadow, rdMatrix44* m, float scaleX,
 }
 
 // Stretch one cockpit->engine cable between the two anchors (X mirrored for the left side).
-static void displayPodCable(swrModel_Node** nodes, int cable, int engine, int mirror, const swrRacerVisualData* visual, float scaleX, float scaleZ, int animated)
+static void displayPodCable(swrModel_Node* SWR_P32* nodes, int cable, int engine, int mirror, const swrRacerVisualData* visual, float scaleX, float scaleZ, int animated)
 {
     rdMatrix44 cockpitMat;
     rdMatrix44 engineMat;
@@ -3537,7 +3537,7 @@ static void displayPodCable(swrModel_Node** nodes, int cable, int engine, int mi
 }
 
 // 0x004337e0
-void swrRace_AnimateDisplayPod(swrModel_Node** nodes, rdMatrix44* transform, int useRacerScale, float scaleX, float scaleY, float scaleZ, float floorZ, int animated, float exhaustLeft, float exhaustRight)
+void swrRace_AnimateDisplayPod(swrModel_Node* SWR_P32* nodes, rdMatrix44* transform, int useRacerScale, float scaleX, float scaleY, float scaleZ, float floorZ, int animated, float exhaustLeft, float exhaustRight)
 {
     float sinPhase[8];
     float cosPhase[8];
@@ -5316,7 +5316,7 @@ void swrObjJdge_Clear(swrObjJdge* jdge, int event)
 void swrObjJdge_ScrollCredits(swrObjJdge* jdge, int restartScroll)
 {
     char text[256];
-    char** page;
+    char* SWR_P32* page;
     int lineCount;
     float scroll;
     int y;
@@ -5993,7 +5993,7 @@ void swrObjJdge_F0(swrObjJdge* jdge)
 // 0x0045e970
 void swrObjJdge_UpdateSplineGuideNodes(int nodeOwner, swrScore* score)
 {
-    swrModel_Node** markers = ((swrObjJdge*)nodeOwner)->splineMarkers;
+    swrModel_Node* SWR_P32* markers = ((swrObjJdge*)nodeOwner)->splineMarkers;
     rdMatrix44 mats[7]; // the EXE evaluates 7 points but only places 6 markers
     float offset = -0.01f;
     int i;
@@ -7620,7 +7620,7 @@ void swrModel_LoadBeamAndSparkModels(void)
 void swrObjJdge_LoadTrackModels(swrObjJdge* judge)
 {
     swrModel_Header* header;
-    swrModel_Animation** anims;
+    swrModel_Animation* SWR_P32* anims;
     int i;
     int viewFlags6;
     int stackField;
@@ -7721,7 +7721,7 @@ void swrModel_NodeLinkSharedChild(void* record, int value)
 
     if (node != NULL) {
         node->num_children++;
-        node->children.nodes = (swrModel_Node**)value;
+        node->children.nodes = (swrModel_Node* SWR_P32*)value;
     }
 }
 
@@ -7869,7 +7869,7 @@ void swrObjJdge_InitAISettingsForTrack(swrObjJdge* judge)
     }
 }
 
-static void swrObjJdge_PlaceGridMarkers(swrModel_Node** markers, int count, swrTranslationRotation* place, float stepX, float stepY)
+static void swrObjJdge_PlaceGridMarkers(swrModel_Node* SWR_P32* markers, int count, swrTranslationRotation* place, float stepX, float stepY)
 {
     int i;
 
@@ -7986,7 +7986,7 @@ void swrObjJdge_SpawnRacer(swrObjJdge* judge, swrScore* score, int gridPos, void
     }
 
     swrObjJdge_GetSpawnTransform(judge, &spawn, player->score_ptr->unk14);
-    swrRace_Init(player, judge->unk2c_spline, (swrModel_Node**)podModel, (swrModel_Node*)judge->unk30, player->obj.id, (float*)&spawn, gridPos, judge->num_players, swrObjJdge_NumLocalPlayers(), duplicatePods);
+    swrRace_Init(player, judge->unk2c_spline, (swrModel_Node* SWR_P32*)podModel, (swrModel_Node*)judge->unk30, player->obj.id, (float*)&spawn, gridPos, judge->num_players, swrObjJdge_NumLocalPlayers(), duplicatePods);
     player->reflectionNode = reflection;
     player->lodBodyNode = (swrModel_Node*)lodBody;
     player->lodSelectorNode = (swrModel_Node*)lodSelector;
@@ -8239,7 +8239,7 @@ void swrObjJdge_ApplySkyboxVisibility(int unused, unsigned char mode)
 // 0x00466ec0
 void swrObjElmo_SetAnimState(swrObjElmo* elmo, int animCmd)
 {
-    swrModel_Animation** anims;
+    swrModel_Animation* SWR_P32* anims;
     float speed = elmo->animSpeed;
     float animTime = 0.1f;
     float loopStart = 0.1f;
@@ -8267,7 +8267,7 @@ void swrObjElmo_SetAnimState(swrObjElmo* elmo, int animCmd)
     if (speed < 0.0f)
         speed = -speed;
     swrObjElmo_CheckReachedTarget(elmo);
-    anims = (swrModel_Animation**)elmo->unk34;
+    anims = (swrModel_Animation* SWR_P32*)elmo->unk34;
     for (int i = 0; anims[i] != NULL; i++)
         anims[i]->flags |= ANIMATION_ENABLED;
 
@@ -8646,17 +8646,17 @@ void swrObjElmo_PlayRandomVoiceSfx(int sfx1, int sfx2, int sfx3, int sfx4, int s
 // 0x00467cd0
 void swrObjElmo_F0(swrObjElmo* elmo)
 {
-    swrModel_Animation** anims;
+    swrModel_Animation* SWR_P32* anims;
     float loopStart = 0.0f;
     float loopEnd = 0.0f;
     float angle;
     rdVector3 delta;
 
     elmo->unk18_ms = swrRace_fdeltaTimeSecs + elmo->unk18_ms;
-    swrModel_CompensateRootMotion((swrModel_Node**)elmo->unk30_nodes, (swrModel_Animation**)elmo->unk34, &elmo->unk38, 30.0f);
+    swrModel_CompensateRootMotion((swrModel_Node* SWR_P32*)elmo->unk30_nodes, (swrModel_Animation* SWR_P32*)elmo->unk34, &elmo->unk38, 30.0f);
     swrRace_GetEngineNodeOffsetPos((void**)elmo->unk30_nodes, &elmo->position);
     swrObjElmo_GetAnimTiming(elmo, &loopStart, &loopEnd);
-    anims = (swrModel_Animation**)elmo->unk34;
+    anims = (swrModel_Animation* SWR_P32*)elmo->unk34;
 
     switch (elmo->animCmd) {
     case 0:
@@ -8723,7 +8723,7 @@ void swrObjElmo_F0(swrObjElmo* elmo)
         swrModel_SetAnimListSpeed(anims, swrObjHang_ambientAnimSpeed);
         elmo->unka8_ms = swrRace_fdeltaTimeSecs + elmo->unka8_ms;
         if (elmo->unka8_ms >= elmo->unkac_ms) {
-            swrModel_SetAnimListSpeed((swrModel_Animation**)elmo->unk34, 1.0f);
+            swrModel_SetAnimListSpeed((swrModel_Animation* SWR_P32*)elmo->unk34, 1.0f);
             if (swrObjElmo_TryTransition(elmo) != 0)
                 return;
             swrObjElmo_SetAnimState(elmo, 0x12);
@@ -8848,7 +8848,7 @@ void swrObjElmo_F0(swrObjElmo* elmo)
     if (elmo->animCmd == 0x1b)
         return;
     if (elmo->kind == swrObjElmo_KIND_PILOT)
-        angle = elmo->yaw - swrModel_GetNodeYaw((swrModel_Node**)elmo->unk30_nodes, (swrModel_Animation**)elmo->unk34);
+        angle = elmo->yaw - swrModel_GetNodeYaw((swrModel_Node* SWR_P32*)elmo->unk30_nodes, (swrModel_Animation* SWR_P32*)elmo->unk34);
     else
         angle = elmo->yaw;
     swrRace_SetEngineNodeRotScale((void**)elmo->unk30_nodes, elmo->scale, angle);
@@ -8905,13 +8905,13 @@ int swrObjElmo_F4(swrObjElmo* elmo, int* subEvents)
 }
 
 // 0x004686b0
-void swrObjElmo_Init(swrObjElmo* elmo, swrModel_Node** nodes, void* anims, swrObjElmo_KIND kind)
+void swrObjElmo_Init(swrObjElmo* elmo, swrModel_Node* SWR_P32* nodes, void* anims, swrObjElmo_KIND kind)
 {
     if (elmo == NULL)
         return;
 
     elmo->obj.flags &= ~swrObj_FLAG_FREED;
-    elmo->unk30_nodes = (struct swrModel_Node**)nodes;
+    elmo->unk30_nodes = (struct swrModel_Node* SWR_P32*)nodes;
     elmo->unk34 = anims;
     rdVector_Set3(&elmo->position, 0.0f, 0.0f, 0.0f);
     rdVector_Set3(&elmo->moveTarget, 0.0f, 0.0f, 0.0f);
@@ -9015,7 +9015,7 @@ void swrObjElmo_SetTransformAndAnimById(int elmoId, int animCmd, rdVector3* posi
     }
     swrRace_SetEngineNodeTranslation((void**)elmo->unk30_nodes, &elmo->position);
     swrRace_SetEngineNodeRotScale((void**)elmo->unk30_nodes, elmo->scale, elmo->yaw);
-    swrModel_SetAnimListSpeed((swrModel_Animation**)elmo->unk34, elmo->animSpeed);
+    swrModel_SetAnimListSpeed((swrModel_Animation* SWR_P32*)elmo->unk34, elmo->animSpeed);
     swrObjElmo_SetAnimState(elmo, animCmd);
 }
 
@@ -9670,7 +9670,7 @@ int swrObjSmok_F4(swrObjSmok* smok, int* subEvents)
 }
 
 // 0x0046A5E0
-void swrObjSmok_SetFireballChildNodesPtr(swrModel_Node** nodes)
+void swrObjSmok_SetFireballChildNodesPtr(swrModel_Node* SWR_P32* nodes)
 {
     fireballChildNodesPtr = nodes;
 }
@@ -10953,11 +10953,11 @@ int swrObjTest_F4(swrRace* player, int* subEvent, int ghost)
     case 'Qery':
         for (query = subEvent + 1; query[0] != 'Qery'; query += 2) {
             if (query[0] == '1st?' && (short)player->score_ptr->results_P1_Position == 1)
-                *(swrRace**)query[1] = player;
+                *(swrRace* SWR_P32*)query[1] = player;
             if (query[0] == '2nd?' && (short)player->score_ptr->results_P1_Position == 2)
-                *(swrRace**)query[1] = player;
+                *(swrRace* SWR_P32*)query[1] = player;
             if (query[0] == '3rd?' && (short)player->score_ptr->results_P1_Position == 3)
-                *(swrRace**)query[1] = player;
+                *(swrRace* SWR_P32*)query[1] = player;
             if (query[0] == 'CamP')
                 swrRace_GetSplineLookahead((rdVector3*)query[1], player);
         }
@@ -11497,7 +11497,7 @@ int swrRace_SpawnDustKickObject(rdMatrix44* in, uint8_t r, uint8_t g, uint8_t b,
 }
 
 // 0x0047BCD0
-void swrObjToss_SetDustKickChildNodesPtr(swrModel_Node** nodes)
+void swrObjToss_SetDustKickChildNodesPtr(swrModel_Node* SWR_P32* nodes)
 {
     dustWhirlChildNodesPtr = nodes;
 }
@@ -11506,8 +11506,8 @@ void swrObjToss_SetDustKickChildNodesPtr(swrModel_Node** nodes)
 void swrObjTrig_EnableFXAnimation(int index)
 {
     swrModel_Animation* anim;
-    swrModel_Animation** anim_ref;
-    swrModel_Animation** tmp;
+    swrModel_Animation* SWR_P32* anim_ref;
+    swrModel_Animation* SWR_P32* tmp;
 
     anim_ref = swrObjTrig_AnimationArray[index];
     anim = *anim_ref;
@@ -11524,8 +11524,8 @@ void swrObjTrig_EnableFXAnimation(int index)
 void swrObjTrig_StopFXAnimation(int index)
 {
     swrModel_Animation* anim;
-    swrModel_Animation** anim_ref;
-    swrModel_Animation** tmp;
+    swrModel_Animation* SWR_P32* anim_ref;
+    swrModel_Animation* SWR_P32* tmp;
 
     anim_ref = swrObjTrig_AnimationArray[index];
     anim = *anim_ref;
@@ -11542,7 +11542,7 @@ void swrObjTrig_StopFXAnimation(int index)
 swrModel_Animation* swrObjTrig_AnimationActive(int index)
 {
     swrModel_Animation* anim;
-    swrModel_Animation** anim_ref;
+    swrModel_Animation* SWR_P32* anim_ref;
 
     anim_ref = swrObjTrig_AnimationArray[index];
     anim = *anim_ref;
@@ -13057,7 +13057,7 @@ void swrObjHang_UpdatePitDroidAnims(swrObjHang* hang)
 // 0x0043e6f0
 void swrObjHang_ComputeModelViewBounds(void)
 {
-    swrModel_Node** pod = (swrModel_Node**)swr_sceneModels[SWR_SCENE_SLOT_POD_MODELS];
+    swrModel_Node* SWR_P32* pod = (swrModel_Node* SWR_P32*)swr_sceneModels[SWR_SCENE_SLOT_POD_MODELS];
 
     if (swrModel_NodeComputeFirstMeshAABB(pod[0x40], swrObjHang_displayPodBoundsCockpit, 0) == 0) {
         rdVector_Set3((rdVector3*)&swrObjHang_displayPodBoundsCockpit[0], 0.0f, 0.0f, 0.0f);
@@ -13767,7 +13767,7 @@ void swrObjHang_UpdateLookAtVehicle(swrObjHang* hang)
     swrTranslationRotation propPose;
     swrModel_Header* pod;
     swrModel_Node* node;
-    swrModel_Node** nodeChain;
+    swrModel_Node* SWR_P32* nodeChain;
     swrObjElmo* elmo;
 
     exhaustRight = 0.1f;
@@ -13813,7 +13813,7 @@ void swrObjHang_UpdateLookAtVehicle(swrObjHang* hang)
                 exhaustRight = swrObjHang_workingDroidAnimSpeed;
             }
         }
-        swrRace_AnimateDisplayPod((swrModel_Node**)swr_sceneModels[SWR_SCENE_SLOT_POD_MODELS + i], &podTransform, 0, 70.0f, 70.0f, 70.0f, -157.0f, 1, exhaustLeft, exhaustRight);
+        swrRace_AnimateDisplayPod((swrModel_Node* SWR_P32*)swr_sceneModels[SWR_SCENE_SLOT_POD_MODELS + i], &podTransform, 0, 70.0f, 70.0f, 70.0f, -157.0f, 1, exhaustLeft, exhaustRight);
     }
 
     for (i = 0; i < SWR_LOOK_AT_PROP_COUNT; i++) {

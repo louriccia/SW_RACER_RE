@@ -171,15 +171,15 @@ void rdProcEntry_Add2DQuad(short x0, short y0, short x1, short y1, float tex_u0,
 
 int swrSprite_UpperPowerOfTwo(int x);
 
-void swrModel_ConvertTextureDataToRdMaterial(int texture_type_a, int texture_type_b, int orig_width, int orig_height, int width, int height, swrMaterial** texture_data_ptr, uint8_t** palette_ptr, char flipSomething, char adjustWidthHeightFlag);
-void swrModel_DoConvertTextureDataToRdMaterial(swrMaterial** texture_data_ptr, uint8_t** palette_data_ptr);
+void swrModel_ConvertTextureDataToRdMaterial(int texture_type_a, int texture_type_b, int orig_width, int orig_height, int width, int height, swrMaterial* SWR_P32* texture_data_ptr, uint8_t** palette_ptr, char flipSomething, char adjustWidthHeightFlag);
+void swrModel_DoConvertTextureDataToRdMaterial(swrMaterial* SWR_P32* texture_data_ptr, uint8_t** palette_data_ptr);
 
 swrSpriteTexture* swrSprite_LoadTexture(int index);
 swrSpriteTexture* swrSprite_LoadTextureById(swrSprite_NAME index);
 
 void swrSprite_SetViewport(int minX, int maxX, int minY, int maxY);
 void rdProcEntry_Add2DQuad5(int, int, int, int, int, int, int, int, int, float, float);
-void swrSprite_Draw(int* arg0, swrSpriteTexture*, RdMaterial**, float, float, float, float, int, int, int, int, int, int, int, short, float, float, int);
+void swrSprite_Draw(int* arg0, swrSpriteTexture*, RdMaterial* SWR_P32*, float, float, float, float, int, int, int, int, int, int, int, short, float, float, int);
 void swrSprite_ResetCurrentMaterial();
 void swrSprite_InitDrawing();
 

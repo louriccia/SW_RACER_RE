@@ -88,10 +88,10 @@ int std3D_Open(unsigned int deviceNum)
     for (int i = 0; i < 256; i++)
         palette[i] = (PALETTEENTRY){ 0xFE, 0xFE, 0xFE, 0x80 };
 
-    if (IDirectDraw4_CreatePalette(std3D_pDirectDraw, DDPCAPS_ALLOW256 | DDPCAPS_INITIALIZE | DDPCAPS_8BIT, palette, &std3D_pDDPalette, 0) != S_OK)
+    if (SWR_OUT_NATIVE(LPDIRECTDRAWPALETTE, std3D_pDDPalette, IDirectDraw4_CreatePalette(std3D_pDirectDraw, DDPCAPS_ALLOW256 | DDPCAPS_INITIALIZE | DDPCAPS_8BIT, palette, swr_out_, 0)) != S_OK)
         return 0;
 
-    if (IDirect3D3_CreateDevice(std3D_pDirect3D, &std3D_pCurDevice->duid, stdDisplay_g_backBuffer.pVSurface.pDDSurf, &std3D_pD3Device, 0) != S_OK)
+    if (SWR_OUT_NATIVE(LPDIRECT3DDEVICE3, std3D_pD3Device, IDirect3D3_CreateDevice(std3D_pDirect3D, &std3D_pCurDevice->duid, stdDisplay_g_backBuffer.pVSurface.pDDSurf, swr_out_, 0)) != S_OK)
         return 0;
 
     d3dDeviceDesc.dwSize = sizeof(D3DDEVICEDESC);
@@ -388,7 +388,7 @@ void std3D_SetRenderState(Std3DRenderState rdflags)
 }
 
 // 0x0048a5e0
-void std3D_AllocSystemTexture(tSystemTexture* pTexture, tVBuffer** apVBuffers, unsigned int numMipLevels, StdColorFormatType formatType)
+void std3D_AllocSystemTexture(tSystemTexture* pTexture, tVBuffer* SWR_P32* apVBuffers, unsigned int numMipLevels, StdColorFormatType formatType)
 {
     *pTexture = (tSystemTexture){ 0 };
     if (std3D_numTextureFormats == 0)

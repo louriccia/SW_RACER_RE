@@ -32,7 +32,7 @@ void rdModel3_SetRootMaterials(RdModel3* rootModel)
 RdMaterial* rdMaterial_GetOrCreateDefaultMaterial(void* curr_asset_buffer_offset)
 {
     tVBuffer buffer;
-    tVBuffer* pBuffer;
+    tVBuffer* SWR_P32 pBuffer;
     uint8_t* pixels;
 
     if (defaultMaterial == NULL) {

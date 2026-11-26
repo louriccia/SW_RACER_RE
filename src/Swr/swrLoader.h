@@ -11,7 +11,7 @@
 #define swrLoader_CloseBlock_ADDR (0x0042d6f0)
 
 void swrLoader_DecompressLZSS(char* compressed, char* decompressed);
-FILE** swrLoader_TypeToFile(swrLoader_TYPE type);
+FILE* SWR_P32* swrLoader_TypeToFile(swrLoader_TYPE type);
 size_t swrLoader_ReadAt(swrLoader_TYPE type, long _Offset, void* _DstBuf, size_t _ElementSize);
 void swrLoader_OpenBlock(swrLoader_TYPE type);
 void swrLoader_CloseBlock(swrLoader_TYPE type);
