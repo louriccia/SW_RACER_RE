@@ -101,6 +101,11 @@ static void reset_lap_tracking(swrScore *scores); // 100-lap support, defined be
 
 // Breadcrumb the race so a crash report names the track. The judge's model/spline ids are only
 // valid once the track has loaded; before that they hold the previous track's.
+static void latch_countdown(const swrObjJdge *judge) {
+    g_countdown_ms = judge->countdownTimer_ms;
+    g_countdown_valid = true;
+}
+
 static void crash_stage_track_loading() {
     crash_logger_stage("race: init track");
 }
@@ -138,11 +143,24 @@ static void on_loaded_crash_stage(void *) {
     crash_stage_track_loaded(loaded_judge());
 }
 
+// Fast restart: the recorded trigger nodes/descriptions point into the old track's data.
+static void on_unload_fast_restart(void *) {
+    forget_trigger_state();
+}
+
+// Fast restart: fresh scene-animation state and countdown ('Begn' latched it before the load).
+static void on_loaded_fast_restart(void *) {
+    capture_scene_animation_state();
+    latch_countdown(loaded_judge());
+}
+
 void swrObjJdge_RegisterTrackListeners() {
     track_on_before_load("crash_logger", on_before_load_crash_stage, nullptr);
     track_on_before_load("track_registry", on_before_load_track_registry, nullptr);
     track_on_unload("cable_bends", on_unload_cable_bends, nullptr);
+    track_on_unload("fast_restart", on_unload_fast_restart, nullptr);
     track_on_loaded("crash_logger", on_loaded_crash_stage, nullptr);
+    track_on_loaded("fast_restart", on_loaded_fast_restart, nullptr);
 }
 #endif
 
@@ -164,10 +182,11 @@ unsigned int swrObjJdge_InitTrack_delta(swrObjJdge *judge, swrScore *scores) {
     crash_stage_track_loaded(judge);
 #endif
     reset_lap_tracking(scores);
+#ifndef SWR_REFINED
     capture_scene_animation_state();// record fresh animation state for a later fast restart
     forget_trigger_state();// recorded nodes/descs point into the previous track's asset buffer
-    g_countdown_ms = judge->countdownTimer_ms;// fresh countdown duration ('Begn' latched it above)
-    g_countdown_valid = true;
+    latch_countdown(judge);
+#endif
     const int num_removed_nodes = fixup_invalid_node_ptrs(swrViewport_array[0].model_root_node);
     if (num_removed_nodes != 0)
     {
