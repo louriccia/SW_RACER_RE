@@ -10,6 +10,9 @@ extern "C" {
 
 #include "../config.h"
 #include "../patch.h"
+#ifdef SWR_REFINED
+#include <refined/swrAssetBuffer/asset_buffer.h>
+#endif
 
 extern "C" FILE *hook_log;
 
@@ -58,6 +61,14 @@ void swrAssetBuffer_PatchSize() {
     const uint32_t wanted = read_asset_buffer_size();
     if (wanted == retail)
         return;
+#ifdef SWR_REFINED
+    // The refined swrScene_InitWorld takes the size as a setting.
+    refined_asset_buffer_set_size(wanted);
+    fprintf(hook_log, "[swrAssetBuffer_PatchSize] asset buffer 0x%x -> 0x%x bytes.\n", retail,
+            (unsigned) refined_asset_buffer_size());
+    fflush(hook_log);
+    return;
+#endif
     if (!retail_code_present()) {
         fprintf(hook_log, "[swrAssetBuffer_PatchSize] no retail code to patch; asset buffer stays at retail size.\n");
         fflush(hook_log);

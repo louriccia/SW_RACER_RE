@@ -922,7 +922,9 @@ static void reset_lap_tracking(swrScore *scores) {
 void swrObjJdge_F2_delta(swrObjJdge *jdge) {
     hook_call_original(swrObjJdge_F2, jdge);
 
-    if (!g_lapScores)
+    // Only meaningful on top of the de-indexed F2; on the stock one the slot writes below would
+    // overwrite real lap times.
+    if (!g_lapScores || !mod_enabled(mod_lap_time_overflow))
         return;
 
     int numRacers = *(int *) ((char *) jdge + JDGE_NUM_RACERS);
@@ -979,7 +981,7 @@ void swrObjJdge_F2_delta(swrObjJdge *jdge) {
 // stacks one row per lap off the top of the screen), so show a compact best/worst/average/total
 // summary in the same left-label / time-column style.
 void swrRace_InRaceEndStatistics_delta(void *jdge, void *score) {
-    if (!g_lapScores) {
+    if (!g_lapScores || !mod_enabled(mod_lap_time_overflow)) {
         hook_call_original(swrRace_InRaceEndStatistics, (swrObjJdge *) jdge, (swrScore *) score);
         return;
     }

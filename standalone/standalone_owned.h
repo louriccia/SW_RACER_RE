@@ -20,6 +20,10 @@ extern const int standalone_owned_guarded; // diagnostic build: each block ends 
 extern const int standalone_owned_global_count;
 extern const int standalone_owned_canary_size;
 
+// Points an indirect global (standalone/owned_indirect.txt) at other storage, e.g. a larger table;
+// returns the previous storage, or NULL if `name` is not indirect.
+void* standalone_global_rebind(const char* name, void* storage);
+
 // Reports blocks whose canary changed (code ran past the block) and blocks whose old image copy was
 // written (code reached them through a retail address).
 void standalone_owned_report_stale(FILE* log);

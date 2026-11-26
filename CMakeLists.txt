@@ -123,6 +123,7 @@ add_subdirectory(dinput_hook)
 option(SWR_STANDALONE "Build swe1r_standalone.exe" OFF)
 option(SWR_STANDALONE_DATA_RELOC "Standalone keeps retail data in its own image instead of at 0x4ac000" ON)
 # swe1r: OpenAL Soft (OpenAL32.dll, loaded at runtime) instead of A3D.
+option(SWR_STANDALONE_REFINED "swe1r runs the refinement layer (refined/) in place of the faithful functions it covers" ON)
 option(SWR_STANDALONE_OPENAL "swe1r plays audio through OpenAL instead of A3D, and movies with its own SANM player" ON)
 option(SWR_STANDALONE_OWNED_GUARDED "Diagnostic: every owned global ends at a guard page (finds reads/writes past it)" OFF)
 if (SWR_STANDALONE)
@@ -147,9 +148,10 @@ if (SWR_STANDALONE)
         COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/standalone/tools/gen_owned_globals.py owned
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/globals.h ${OWNED_DIR}/global_sizes.txt
                 ${CMAKE_CURRENT_SOURCE_DIR}/standalone/owned_extents.txt
-                ${OWNED_DIR}/globals_owned.h ${OWNED_DIR}/globals_owned.c $<$<BOOL:${SWR_STANDALONE_OWNED_GUARDED}>:guarded>
+                ${OWNED_DIR}/globals_owned.h ${OWNED_DIR}/globals_owned.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/standalone/owned_indirect.txt $<$<BOOL:${SWR_STANDALONE_OWNED_GUARDED}>:guarded>
         DEPENDS swr_global_sizes ${CMAKE_CURRENT_SOURCE_DIR}/standalone/tools/gen_owned_globals.py
-                ${CMAKE_CURRENT_SOURCE_DIR}/standalone/owned_extents.txt
+                ${CMAKE_CURRENT_SOURCE_DIR}/standalone/owned_extents.txt ${CMAKE_CURRENT_SOURCE_DIR}/standalone/owned_indirect.txt
         VERBATIM)
     add_custom_target(generate_owned_globals DEPENDS ${OWNED_DIR}/globals_owned.h ${OWNED_DIR}/globals_owned.c)
     # Keeps each canary right after its block (see gen_owned_globals.py).
@@ -189,6 +191,10 @@ if (SWR_STANDALONE)
     file(GLOB SA_FEATURE_HOOK_SOURCES
         dinput_hook/*.c dinput_hook/*.cpp dinput_hook/game_deltas/*.c dinput_hook/game_deltas/*.cpp
         dinput_hook/camera/*.cpp dinput_hook/nv_dds/*.cpp)
+    if (SWR_STANDALONE_REFINED)
+        file(GLOB SA_REFINED_SOURCES refined/*.c refined/*/*.c)
+        list(APPEND SA_FEATURE_HOOK_SOURCES ${SA_REFINED_SOURCES})
+    endif()
     if (SWR_STANDALONE_OPENAL)
         list(APPEND SA_FEATURE_HOOK_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook/audio/openal_audio.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook/movies/sanm.c
@@ -220,6 +226,7 @@ if (SWR_STANDALONE)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/hook_generated.c)
     add_dependencies(swe1r generate_global_h generate_hooks generate_embedded_shaders generate_build_id generate_owned_globals)
     target_include_directories(swe1r PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
         ${CMAKE_CURRENT_SOURCE_DIR}/standalone
@@ -228,7 +235,8 @@ if (SWR_STANDALONE)
         ${OWNED_DIR})
     target_compile_definitions(swe1r PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1> ${OWNED_DEFS}
         ENABLE_GLFW_INPUT_HANDLING=0 ENABLE_GAMEPAD_NAV=1 ENABLE_XINPUT_RUMBLE=1
-        $<$<BOOL:${SWR_STANDALONE_OPENAL}>:SWR_OPENAL_AUDIO=1 SWR_OWN_MOVIES=1>)
+        $<$<BOOL:${SWR_STANDALONE_OPENAL}>:SWR_OPENAL_AUDIO=1 SWR_OWN_MOVIES=1>
+        $<$<BOOL:${SWR_STANDALONE_REFINED}>:SWR_REFINED=1>)
     target_link_libraries(swe1r PRIVATE swe1r_globals swr_memsafety imgui glad glfw fastgltf detours
         winmm Comctl32 ole32 version dxguid dinput ddraw opengl32 Dwmapi bcrypt psapi kernel32)
     # Nothing lives at retail addresses, but the feature layer still tells retail addresses from its

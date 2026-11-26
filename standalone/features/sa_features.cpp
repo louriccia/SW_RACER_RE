@@ -9,6 +9,9 @@
 
 #include "audio/openal_audio.h"
 #include "movies/movie_player.h"
+#ifdef SWR_REFINED
+#include <refined/refined.h>
+#endif
 #include <cstdio>
 #include <cstring>
 #include <set>
@@ -201,6 +204,14 @@ extern "C" int __stdcall __wrap_WinMain(HINSTANCE hInstance, HINSTANCE hPrev, PS
 #endif
 #ifdef SWR_OWN_MOVIES
     init_movie_player();
+#endif
+#ifdef SWR_REFINED
+    // The refinement layer stands in for its faithful functions (SWR_REFINED_OFF=1: faithful only).
+    if (!GetEnvironmentVariableA("SWR_REFINED_OFF", NULL, 0)) {
+        for (int i = 0; i < refined_slot_count; i++)
+            hook_replacements[refined_slots[i].faithful] = refined_slots[i].refined;
+        fprintf(hook_log, "[refined] %d functions\n", refined_slot_count);
+    }
 #endif
     crash_logger_stage("init: game hooks");
     init_hooks();

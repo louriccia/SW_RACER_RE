@@ -18,6 +18,9 @@
 #include "../imgui_utils.h"
 #include "../ui_transform.h"
 #include "../mod_registry.h"
+#ifdef SWR_REFINED
+#include <refined/swrModel/texture_cache.h>
+#endif
 
 #include <regex>
 
@@ -291,23 +294,26 @@ void swrModel_InitializeTextureBuffer_delta() {
     swrLoader_ReadAt(swrLoader_TYPE_TEXTURE_BLOCK, 0, &texture_count, 4u);
     texture_count = SWAP32(texture_count);
 
-    texture_buffer_replacement =
-        (void **) realloc(texture_buffer_replacement, texture_count * sizeof(*texture_buffer_replacement));
-
     // Cached entries point into whichever block was mapped when they loaded, so a block swap
     // (stock <-> custom) invalidates all of them -- keeping them hands swrModel_LoadModelTexture
     // a pointer into the other block's data. Only a repeat init of the same block may keep its
     // cache.
     const char *const block = *SWR_TEXTUREBLOCK_PATH_PTR;
     const bool block_changed = texture_block_of_buffer != block;
+    texture_block_of_buffer = block;
+#ifdef SWR_REFINED
+    texture_buffer_replacement = refined_texture_cache_resize(texture_count, block_changed);
+#else
+    texture_buffer_replacement =
+        (void **) realloc(texture_buffer_replacement, texture_count * sizeof(*texture_buffer_replacement));
     if (block_changed) {
         memset(texture_buffer_replacement, 0, texture_count * sizeof(void *));
-        texture_block_of_buffer = block;
     } else if (prev_texture_count < texture_count) {
         // clear the new textures:
         memset(texture_buffer_replacement + prev_texture_count, 0,
                (texture_count - prev_texture_count) * sizeof(void *));
     }
+#endif
 
     static int call_count = 0;
     const uintptr_t caller_addr = (uintptr_t) caller;
@@ -328,7 +334,9 @@ void swrModel_InitializeTextureBuffer_delta() {
             block_changed ? "CLEARED (block changed)" : "kept (same block)");
     fflush(hook_log);
 
-    // Point retail's texture-loading instructions at the replacement buffer (needs retail code).
+#ifndef SWR_REFINED
+    // Point retail's texture-loading instructions at the replacement buffer. (The refined
+    // swrModel_LoadModelTexture / InvalidateTexturesBelow read the cache directly.)
     if (retail_code_present()) {
         char *range_begin = (char *) 0x00447420;
         char *range_end = (char *) 0x004475ED;
@@ -343,6 +351,7 @@ void swrModel_InitializeTextureBuffer_delta() {
 
         VirtualProtect(range_begin, range_end - range_begin, old_protect, &old_protect);
     }
+#endif
 
     swrLoader_CloseBlock(swrLoader_TYPE_TEXTURE_BLOCK);
 }

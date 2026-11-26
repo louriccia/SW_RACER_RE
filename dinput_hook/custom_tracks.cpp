@@ -244,6 +244,10 @@ bool try_load_custom_track_folder(const std::filesystem::path &folder) {
     return true;
 }
 
+#ifdef SWR_GLOBALS_OWNED
+extern "C" void *standalone_global_rebind(const char *name, void *storage);
+#endif
+
 int patch_occurrence(uint32_t value, uint32_t replacement) {
     int num_occurrences = 0;
     if (!retail_code_present())
@@ -293,11 +297,18 @@ void init_customTracks() {
     fprintf(hook_log, "[init_customTracks]\n");
     fflush(hook_log);
 
-    patch_trackInfos_Usages();
-
     // Copy stock Infos
     for (uint8_t i = 0; i < 25; i++)
         g_aNewTrackInfos[i] = g_aTrackInfos[i];
+
+    // Every reader of g_aTrackInfos now sees the larger table: in the standalone by pointing the
+    // global at it, in the DLL by patching retail's operands.
+#ifdef SWR_GLOBALS_OWNED
+    standalone_global_rebind("g_aTrackInfos", g_aNewTrackInfos);
+    fprintf(hook_log, "[init_customTracks]: g_aTrackInfos now holds %d entries\n", (int) MAX_NB_TRACKS);
+#else
+    patch_trackInfos_Usages();
+#endif
 
     // Detection diffs against these, so a modified data/lev01 silently mis-pairs every custom
     // track. A stock install reads 25 track models / 91 splines.

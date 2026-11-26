@@ -6,6 +6,9 @@
 
 #include "types.h"
 #include <swr_data_addr.h>
+extern "C" {
+#include <globals.h>
+}
 #include "custom_track_blocks.h"
 
 struct CustomTrack {
@@ -15,11 +18,11 @@ struct CustomTrack {
 };
 
 
-// The loader's three block file paths, as pointers into the game's own string globals.
-// Redirecting them is how a custom track's blocks load in place of data/lev01.
-#define SWR_SPLINEBLOCK_PATH_PTR ((const char **) SWR_GLOBAL_PTR(0x004B9590))
-#define SWR_TEXTUREBLOCK_PATH_PTR ((const char **) SWR_GLOBAL_PTR(0x004B9594))
-#define SWR_MODELBLOCK_PATH_PTR ((const char **) SWR_GLOBAL_PTR(0x004B9598))
+// The loader's three block file paths (swrLoader_OpenBlock reads them). Redirecting them is how
+// a custom track's blocks load in place of data/lev01.
+#define SWR_SPLINEBLOCK_PATH_PTR ((const char **) &swrLoader_spline_path)
+#define SWR_TEXTUREBLOCK_PATH_PTR ((const char **) &swrLoader_texture_path)
+#define SWR_MODELBLOCK_PATH_PTR ((const char **) &swrLoader_model_path)
 
 extern int currentCustomID;
 extern std::optional<CustomTrack> currentCustomTrack;

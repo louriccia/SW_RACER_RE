@@ -1,0 +1,3 @@
+# Globals reached through one pointer in the standalone, so a feature can point them at larger
+# storage (standalone_global_rebind) instead of patching the code that reads them.
+g_aTrackInfos  # custom tracks: track table beyond the 25 stock entries
