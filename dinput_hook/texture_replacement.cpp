@@ -122,7 +122,7 @@ void refresh_replacement_textures() {
     }
 }
 
-extern void **texture_buffer_replacement;
+extern void *SWR_P32 *texture_buffer_replacement;
 static std::vector<std::pair<GLuint*, GLuint>> replacement_backup;
 
 void begin_texture_replacement() {

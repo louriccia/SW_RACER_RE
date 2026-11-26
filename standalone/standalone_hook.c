@@ -136,8 +136,10 @@ void hook_install(const char* function_name, uint32_t reimpl_addr, uint32_t reta
         return;
     }
     // retail's _ftol takes its argument in ST0, unlike the C stand-in
+#if defined(__i386__)
     if (!strcmp(function_name, "c__ftol"))
         reimpl_addr = (uint32_t)standalone_ftol;
+#endif
     // Without the retail code range (the default), the table alone maps retail entries to bodies.
     if (standalone_code_range_mapped())
         standalone_write_jmp(retail_addr, reimpl_addr);

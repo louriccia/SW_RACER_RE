@@ -16,6 +16,7 @@
 #include <Main/swrControl.h>
 #include <Platform/std3D.h>
 #include <Platform/stdControl.h>
+#include "../crash_logger.h"
 #include <Swr/swrDisplay.h>
 #include <Win95/stdDisplay.h>
 #include <Win95/Window.h>
@@ -451,8 +452,10 @@ int Window_Main_delta(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLin
     InitCommonControls();
     Window_SetHINSTANCE(hInstance);
     Window_SetGUID((GUID *) Window_UUID);
+    crash_logger_stage("main: window ids");
 
     glfwInit();
+    crash_logger_stage("main: glfw init");
 
     {// Core compatibility for RenderDocs
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
@@ -468,6 +471,7 @@ int Window_Main_delta(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLin
 
         abort();
     }
+    crash_logger_stage("main: window created");
     g_hWnd = glfwGetWin32Window(window);
     Window_SetHWND(g_hWnd);// Sound card isn't detected without this
 
@@ -482,6 +486,7 @@ int Window_Main_delta(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLin
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetFramebufferSizeCallback(window, Window_FramebufferSizeCallback);
 
+    crash_logger_stage("main: Main_Startup");
     Main_Startup((char *) pCmdLine);
 
     // NEEDS to be AFTER Main_Startup !

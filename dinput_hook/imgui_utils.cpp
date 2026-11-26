@@ -648,7 +648,7 @@ void collect_all_visual_textures(const swrViewport &current_vp, bool skip_pod_te
     }
 }
 
-extern void **texture_buffer_replacement;
+extern void *SWR_P32 *texture_buffer_replacement;
 
 const RdMaterial *material_from_texture_id(TEXID id) {
     if (!texture_buffer_replacement || !texture_buffer_replacement[id])

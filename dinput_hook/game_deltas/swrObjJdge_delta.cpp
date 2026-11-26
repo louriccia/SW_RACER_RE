@@ -147,8 +147,8 @@ unsigned int swrObjJdge_InitTrack_delta(swrObjJdge *judge, swrScore *scores) {
 // fresh race sets up outside the pods.
 
 typedef void(__cdecl *swrObjHang_AssignRacerCameras_t)(void *hang);
-typedef void(__cdecl *swrRace_Init_t)(swrRace *, float, int, void *, int, float *, int, int, int,
-                                      int);
+typedef void(__cdecl *swrRace_Init_t)(swrRace *, swrSpline *, swrModel_Node *SWR_P32 *,
+                                      swrModel_Node *, int, float *, int, int, int, int);
 
 static bool g_fast_restart_requested = false;// set by the hotkey, consumed next frame
 
@@ -408,9 +408,9 @@ static void restore_trigger_state() {
 // the resident pod. Indexed by the racer's slot in swrScoresPtr (swrScore[20]).
 struct PodSpawnArgs {
     bool valid;
-    float spline;       // arg2: spline pointer passed through the float slot (kept as raw bits)
-    int podModel;       // arg3
-    void *trackModel;   // arg4
+    swrSpline *spline;                // arg2
+    swrModel_Node *SWR_P32 *podModel; // arg3
+    swrModel_Node *trackModel;        // arg4
     int lightIndex;     // arg5
     float transform[16];// arg6: starting-grid transform (copied; the original is a stack matrix)
     int gridPos;        // arg7
@@ -447,7 +447,8 @@ static int remap_pod_light_bank(const swrRace *player, int bank, int numRacers) 
 
 // Wraps swrRace_Init to record each pod's spawn arguments (keyed by its swrScoresPtr slot) so a
 // fast restart can replay them exactly. Hooked by address in renderer_hook.cpp.
-void swrRace_Init_capture(swrRace *player, float a2_spline, int a3_podModel, void *a4_trackModel,
+void swrRace_Init_capture(swrRace *player, swrSpline *a2_spline, swrModel_Node *SWR_P32 *a3_podModel,
+                          swrModel_Node *a4_trackModel,
                           int a5_light, float *a6_transform, int a7_grid, int a8_numPlayers,
                           int a9_numLocal, int a10_dup) {
     a5_light = remap_pod_light_bank(player, a5_light, a8_numPlayers);
@@ -851,10 +852,8 @@ void swrText_FormatTimeEntryText(char *out, int out_size, const char *screenText
     snprintf(out, out_size, "%s%s", screenText ? screenText : "", tstr);
 }
 
-static void format_time_with_hours(int x, int y, int time_bits, int r, int g, int b, int a,
+static void format_time_with_hours(int x, int y, float t, int r, int g, int b, int a,
                                    char *screenText, int frac_scale, int frac_digits) {
-    float t;
-    std::memcpy(&t, &time_bits, sizeof(t));
     char body[96];
     swrText_FormatTimeEntryText(body, sizeof(body), screenText, t, frac_scale, frac_digits);
     const int index = swrTextEntries1Count;
@@ -871,22 +870,22 @@ bool g_time_show_millis = true;
 // positioned in. From the reimpl's own per-digit x-tier step (swrRace_InRaceEndStatistics, ~0xa).
 #define TIME_MS_DIGIT_WIDTH 0xa
 
-void swrText_CreateTimeEntry_delta(int x, int y, int unused, int r, int g, int b, int a,
+void swrText_CreateTimeEntry_delta(int x, int y, float time, int r, int g, int b, int a,
                                    char *screenText) {
     if (!g_time_show_millis) {
-        format_time_with_hours(x, y, unused, r, g, b, a, screenText, 100, 2); // stock centiseconds
+        format_time_with_hours(x, y, time, r, g, b, a, screenText, 100, 2); // stock centiseconds
         return;
     }
     // Right-aligned entries ("~r") gain the extra digit on the LEFT, so the anchor moves right by
     // one digit to hold the stock left edge. Left-aligned entries grow rightward and need no nudge.
     if (screenText && std::strstr(screenText, "~r"))
         x += TIME_MS_DIGIT_WIDTH;
-    format_time_with_hours(x, y, unused, r, g, b, a, screenText, 1000, 3); // milliseconds
+    format_time_with_hours(x, y, time, r, g, b, a, screenText, 1000, 3); // milliseconds
 }
 
-void swrText_CreateTimeEntryPrecise_delta(int x, int y, int unused, int r, int g, int b, int a,
+void swrText_CreateTimeEntryPrecise_delta(int x, int y, float time, int r, int g, int b, int a,
                                           char *screenText) {
-    format_time_with_hours(x, y, unused, r, g, b, a, screenText, 1000, 3); // milliseconds
+    format_time_with_hours(x, y, time, r, g, b, a, screenText, 1000, 3); // milliseconds
 }
 
 // --- 100-lap lap-time tracking + summary -----------------------------------------------------
@@ -1120,7 +1119,7 @@ void swrRace_InRaceEndStatistics_delta(void *jdge, void *score) {
 // always above still-racing ones (ordered by progress), comparing total_time directly so the order
 // keeps full precision. A no-op for any race the original already ordered correctly.
 typedef void swrObjJdge_UpdateStandings_t(swrObjJdge *jdge);
-typedef float swrObjJdge_GetRacerProgress_t(swrScore *score);
+typedef long double swrObjJdge_GetRacerProgress_t(swrScore *score);
 
 void swrObjJdge_UpdateStandings_delta(swrObjJdge *jdge) {
     hook_call_original((swrObjJdge_UpdateStandings_t *) swrObjJdge_UpdateStandings_ADDR, jdge);

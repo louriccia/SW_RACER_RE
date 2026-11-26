@@ -13,20 +13,27 @@ typedef LSTATUS(WINAPI* RegCreateKeyExA_fn)(HKEY, LPCSTR, DWORD, LPSTR, DWORD, R
 static RegOpenKeyExA_fn real_RegOpenKeyExA;
 static RegCreateKeyExA_fn real_RegCreateKeyExA;
 
+// The 32-bit installer wrote the game's keys; a 64-bit build reads the same (WOW64) view.
+#if defined(_WIN64)
+#define COMPAT_VIEW KEY_WOW64_32KEY
+#else
+#define COMPAT_VIEW 0
+#endif
+
 static LSTATUS WINAPI compat_RegOpenKeyExA(HKEY hKey, LPCSTR lpSubKey, DWORD ulOptions, REGSAM samDesired, PHKEY phkResult)
 {
-    LSTATUS s = real_RegOpenKeyExA(hKey, lpSubKey, ulOptions, samDesired, phkResult);
+    LSTATUS s = real_RegOpenKeyExA(hKey, lpSubKey, ulOptions, samDesired | COMPAT_VIEW, phkResult);
     if (s == ERROR_ACCESS_DENIED)
-        s = real_RegOpenKeyExA(hKey, lpSubKey, ulOptions, KEY_READ, phkResult);
+        s = real_RegOpenKeyExA(hKey, lpSubKey, ulOptions, KEY_READ | COMPAT_VIEW, phkResult);
     return s;
 }
 
 static LSTATUS WINAPI compat_RegCreateKeyExA(HKEY hKey, LPCSTR lpSubKey, DWORD Reserved, LPSTR lpClass, DWORD dwOptions, REGSAM samDesired,
                                              const LPSECURITY_ATTRIBUTES lpSecurityAttributes, PHKEY phkResult, LPDWORD lpdwDisposition)
 {
-    LSTATUS s = real_RegCreateKeyExA(hKey, lpSubKey, Reserved, lpClass, dwOptions, samDesired, lpSecurityAttributes, phkResult, lpdwDisposition);
+    LSTATUS s = real_RegCreateKeyExA(hKey, lpSubKey, Reserved, lpClass, dwOptions, samDesired | COMPAT_VIEW, lpSecurityAttributes, phkResult, lpdwDisposition);
     if (s == ERROR_ACCESS_DENIED) {
-        s = real_RegOpenKeyExA(hKey, lpSubKey, 0, KEY_READ, phkResult);
+        s = real_RegOpenKeyExA(hKey, lpSubKey, 0, KEY_READ | COMPAT_VIEW, phkResult);
         if (s == ERROR_SUCCESS && lpdwDisposition)
             *lpdwDisposition = REG_OPENED_EXISTING_KEY;
     }
@@ -36,20 +43,20 @@ static LSTATUS WINAPI compat_RegCreateKeyExA(HKEY hKey, LPCSTR lpSubKey, DWORD R
 static int patch_own_import(const char* dll, const char* name, void* replacement)
 {
     uint8_t* base = (uint8_t*)GetModuleHandleA(NULL);
-    IMAGE_NT_HEADERS32* nt = (IMAGE_NT_HEADERS32*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
+    IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
     IMAGE_DATA_DIRECTORY* dir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
     for (IMAGE_IMPORT_DESCRIPTOR* d = (IMAGE_IMPORT_DESCRIPTOR*)(base + dir->VirtualAddress); d->Name; d++) {
         if (_stricmp((const char*)(base + d->Name), dll))
             continue;
-        uint32_t* names = (uint32_t*)(base + d->OriginalFirstThunk);
-        uint32_t* iat = (uint32_t*)(base + d->FirstThunk);
+        uintptr_t* names = (uintptr_t*)(base + d->OriginalFirstThunk);
+        uintptr_t* iat = (uintptr_t*)(base + d->FirstThunk);
         for (; *names; names++, iat++) {
-            if ((*names & IMAGE_ORDINAL_FLAG32) || strcmp((const char*)(base + *names + 2), name))
+            if ((*names & IMAGE_ORDINAL_FLAG) || strcmp((const char*)(base + *names + 2), name))
                 continue;
             DWORD old;
-            VirtualProtect(iat, 4, PAGE_READWRITE, &old);
-            *iat = (uint32_t)replacement;
-            VirtualProtect(iat, 4, old, &old);
+            VirtualProtect(iat, sizeof(*iat), PAGE_READWRITE, &old);
+            *iat = (uintptr_t)replacement;
+            VirtualProtect(iat, sizeof(*iat), old, &old);
             return 1;
         }
     }

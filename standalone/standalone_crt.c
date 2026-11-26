@@ -130,6 +130,7 @@ size_t c_wcstombs(char* dst, const wchar_t* src, size_t len) { return wcstombs(d
 // MSVC's _ftol as retail's code calls it: the value in ST0 (popped), the truncated result in
 // EDX:EAX. c__ftol above is the C-convention stand-in for src callers; retail's own calls land here
 // (standalone_hook.c points 0x0049ed20 at it).
+#if defined(__i386__)
 __asm__(".globl _standalone_ftol\n"
         "_standalone_ftol:\n"
         "    subl $12, %esp\n"
@@ -144,3 +145,4 @@ __asm__(".globl _standalone_ftol\n"
         "    movl 4(%esp), %edx\n"
         "    addl $12, %esp\n"
         "    ret\n");
+#endif

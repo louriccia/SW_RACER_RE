@@ -22,7 +22,7 @@ int swrUtils_Rand(void) // randInt
         swrUtils_randState = 0x2750250;
         swrUtils_randInitialized = 1;
     }
-    int value = swrUtils_randState * 0x41c64e6d + 0x3039;
+    int value = (int)((unsigned int)swrUtils_randState * 0x41c64e6du + 0x3039u); // wraps, as retail's imul does
     swrUtils_randState = value;
     // -INT_MIN overflows, so the most-negative state maps to 0 instead of abs()
     if (value == INT_MIN) {

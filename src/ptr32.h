@@ -34,7 +34,13 @@
         fntype proto[0];                                                                           \
     } name
 #define SWR_FN32(f) ((__typeof__((f).proto[0])) (uintptr_t) (f).raw)
-#define SWR_FN32_SET(f, v) ((f).raw = (uint32_t) (uintptr_t) (v))
+static inline uint32_t swr_fn32_narrow(uintptr_t v)
+{
+    if (v >> 32)
+        __builtin_trap();// a function outside our image (system DLL): needs an in-image thunk
+    return (uint32_t) v;
+}
+#define SWR_FN32_SET(f, v) ((f).raw = swr_fn32_narrow((uintptr_t) (v)))
 #define SWR_FN32_RAW(f) SWR_FN32(f)
 
 // `call` writes a native pointer through `swr_out_`; the result is stored in the 4-byte `slot`.

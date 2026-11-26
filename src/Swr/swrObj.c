@@ -3754,7 +3754,7 @@ void swrObjHang_StartRace(swrObjHang* hang, int* rosterArg, int noBroadcast)
     struct
     {
         int event;
-        void* roster; // Scen path: hang->unk68_type
+        void* SWR_P32 roster; // Scen path: hang->unk68_type
         int numRacers;
         int planetIdx;
         int trackModelId;
@@ -10852,11 +10852,11 @@ void swrRace_HandleDeathExplosion(swrRace* player)
     struct
     {
         int event;
-        swrRace* player;
+        swrRace* SWR_P32 player;
         int unk;
-        rdVector3* pos;
-        rdVector4* aheadPos;
-        rdVector4* behindPos;
+        rdVector3* SWR_P32 pos;
+        rdVector4* SWR_P32 aheadPos;
+        rdVector4* SWR_P32 behindPos;
     } deathEvent;
 
     if ((player->flags0 & swrObjTest_FLAG0_AI) && (player->flags1 & swrObjTest_FLAG1_FORCE_GROUND) == 0) {

@@ -563,9 +563,9 @@ static DWORD WINAPI watch_thread(LPVOID unused)
                 *(uint32_t*)SWR_GLOBAL_PTR(0x0050d548), *(uint32_t*)SWR_GLOBAL_PTR(0x004eb414), *(int*)SWR_GLOBAL_PTR(0x00e9f360), *(int*)SWR_GLOBAL_PTR(0x0050c69c));
         {
             // every 'Test' (pod) object: position, speed, flags0
-            uint32_t** it = *(uint32_t***)SWR_GLOBAL_PTR(0x004bfec0); // eventManagerMain
+            uint32_t* it = (uint32_t*)(uintptr_t)*(uint32_t*)SWR_GLOBAL_PTR(0x004bfec0); // eventManagerMain (4-byte slots)
             for (; it && *it; it++) {
-                uint32_t* m = *it;
+                uint32_t* m = (uint32_t*)(uintptr_t)*it;
                 if (m[0] == 'Jdge' && m[2] > 0) {
                     uint8_t* j = (uint8_t*)m[4];
                     fprintf(standalone_log, "jdge: flag %08x raceTimer %.3f\n", *(uint32_t*)(j + 8), (double)*(float*)(j + 0xc));
@@ -582,13 +582,13 @@ static DWORD WINAPI watch_thread(LPVOID unused)
             }
         }
         {
-            uint8_t* pod = *(uint8_t**)SWR_GLOBAL_PTR(0x004d78a8); // currentPlayer_Test
+            uint8_t* pod = (uint8_t*)(uintptr_t)*(uint32_t*)SWR_GLOBAL_PTR(0x004d78a8); // currentPlayer_Test
             if (pod && !IsBadReadPtr(pod, 0x200))
                 fprintf(standalone_log, "pod: %p pos %.2f %.2f %.2f flags0 %08x flags1 %08x throttle %.3f speed %.3f\n", pod, *(float*)(pod + 0x50),
                         *(float*)(pod + 0x54), *(float*)(pod + 0x58), *(uint32_t*)(pod + 0x60), *(uint32_t*)(pod + 0x64), *(float*)(pod + 0x18c), *(float*)(pod + 0x1a0));
         }
         {
-            LPDIRECTINPUTDEVICEA kbd = *(LPDIRECTINPUTDEVICEA*)SWR_GLOBAL_PTR(0x0050d89c);
+            LPDIRECTINPUTDEVICEA kbd = (LPDIRECTINPUTDEVICEA)(uintptr_t)*(uint32_t*)SWR_GLOBAL_PTR(0x0050d89c);
             char state[256];
             HRESULT hr = kbd ? IDirectInputDevice_GetDeviceState(kbd, sizeof(state), state) : E_POINTER;
             int down = 0;
@@ -733,6 +733,16 @@ __attribute__((constructor(101))) static void standalone_init(void)
     standalone_log = fopen("standalone.log", "w");
     hook_log = standalone_log;
     fprintf(standalone_log, "[SWE1R standalone]\n");
+#if defined(_WIN64)
+    {
+        void* m = malloc(64);
+        void* big = malloc(64 << 20);
+        fprintf(standalone_log, "x64 memory: image %p heap %p malloc %p malloc64M %p FILE %p stack %p\n", (void*)GetModuleHandleA(NULL),
+                (void*)GetProcessHeap(), m, big, (void*)standalone_log, (void*)&m);
+        free(big);
+        free(m);
+    }
+#endif
     AddVectoredExceptionHandler(1, retail_trap_handler);
 
     // Retail's CRT runs the x87 unit at 53-bit precision; mingw's default is 64-bit.

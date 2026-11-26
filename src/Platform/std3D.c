@@ -781,6 +781,12 @@ int std3D_SetTexFilterMode(void)
     return IDirect3DDevice3_SetTextureStageState(std3D_pD3Device, 0, D3DTSS_MIPFILTER, d3dMipFilter == 1 ? D3DTFP_POINT : d3dMipFilter == 2 ? D3DTFP_LINEAR : D3DTFP_NONE);
 }
 
+#if defined(__x86_64__)
+// x64 builds use -mlong-double-64; mingw's sinl/cosl still take an 80-bit argument.
+#define sinl sin
+#define cosl cos
+#endif
+
 // 0x0048b260
 RETAIL_FP int std3D_SetProjection(float fov, float aspectRatio, float nearPlane, float farPlane)
 {

@@ -276,7 +276,7 @@ swrModel_Header *swrModel_LoadFromId_delta(MODELID id) {
 #undef HD_FONT_WIDTH
 #undef HD_FONT_HEIGHT
 
-void **texture_buffer_replacement = nullptr;
+void *SWR_P32 *texture_buffer_replacement = nullptr;
 // Which texture block the cached entries in texture_buffer_replacement were loaded from.
 static std::string texture_block_of_buffer;
 
@@ -287,7 +287,7 @@ void swrModel_InitializeTextureBuffer_delta() {
     // assumes that the out_textureblock.bin file from the custom track only appends to the textures
     // and does not replace existing ones. the behavior is not totally clear if that happens.
     const uint32_t prev_texture_count = texture_count;
-    void **const prev_buffer = texture_buffer_replacement;
+    void *SWR_P32 *const prev_buffer = texture_buffer_replacement;
     const void *const caller = __builtin_return_address(0);
 
     swrLoader_OpenBlock(swrLoader_TYPE_TEXTURE_BLOCK);
@@ -305,13 +305,13 @@ void swrModel_InitializeTextureBuffer_delta() {
     texture_buffer_replacement = refined_texture_cache_resize(texture_count, block_changed);
 #else
     texture_buffer_replacement =
-        (void **) realloc(texture_buffer_replacement, texture_count * sizeof(*texture_buffer_replacement));
+        (void *SWR_P32 *) realloc(texture_buffer_replacement, texture_count * sizeof(*texture_buffer_replacement));
     if (block_changed) {
-        memset(texture_buffer_replacement, 0, texture_count * sizeof(void *));
+        memset(texture_buffer_replacement, 0, texture_count * sizeof(*texture_buffer_replacement));
     } else if (prev_texture_count < texture_count) {
         // clear the new textures:
         memset(texture_buffer_replacement + prev_texture_count, 0,
-               (texture_count - prev_texture_count) * sizeof(void *));
+               (texture_count - prev_texture_count) * sizeof(*texture_buffer_replacement));
     }
 #endif
 
@@ -343,11 +343,11 @@ void swrModel_InitializeTextureBuffer_delta() {
         DWORD old_protect;
         VirtualProtect(range_begin, range_end - range_begin, PAGE_EXECUTE_READWRITE, &old_protect);
 
-        *(void **) 0x4474B1 = texture_buffer_replacement;
-        *(void **) 0x4474C4 = texture_buffer_replacement;
-        *(void **) 0x447555 = texture_buffer_replacement;
-        *(void **) 0x4475D5 = texture_buffer_replacement;
-        *(void **) 0x4475E7 = texture_buffer_replacement + texture_count;
+        *(void **) 0x4474B1 = (void *) texture_buffer_replacement;
+        *(void **) 0x4474C4 = (void *) texture_buffer_replacement;
+        *(void **) 0x447555 = (void *) texture_buffer_replacement;
+        *(void **) 0x4475D5 = (void *) texture_buffer_replacement;
+        *(void **) 0x4475E7 = (void *) (texture_buffer_replacement + texture_count);
 
         VirtualProtect(range_begin, range_end - range_begin, old_protect, &old_protect);
     }

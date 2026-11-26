@@ -15,7 +15,7 @@ extern "C" {
 
 // Sizes the cache for `count` textures and returns it. clear_all drops every cached entry (the
 // texture block changed); otherwise entries are kept and new ones start empty.
-void** refined_texture_cache_resize(uint32_t count, int clear_all);
+void* SWR_P32* refined_texture_cache_resize(uint32_t count, int clear_all);
 
 // swrModel_LoadModelTexture over the cache. 0x00447490
 void refined_swrModel_LoadModelTexture(TEXID texture_index, swrMaterial* SWR_P32* material_ptr, uint8_t* SWR_P32* palette_data_ptr);

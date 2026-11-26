@@ -374,6 +374,10 @@ void crash_logger_stage(const char *name) {
     g_last_stage = name;
     if (hook_log) {
         fprintf(hook_log, "[stage] %s\n", name);
+#if defined(_WIN64)
+        if (GetEnvironmentVariableA("SWR_HEAP_CHECK", NULL, 0))
+            fprintf(hook_log, "[stage] heap %s\n", HeapValidate(GetProcessHeap(), 0, NULL) ? "ok" : "CORRUPT");
+#endif
         fflush(hook_log);
     }
 }

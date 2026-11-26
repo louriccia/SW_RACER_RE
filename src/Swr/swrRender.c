@@ -773,7 +773,7 @@ static rdModel3Mesh* rdModel_ConvertMeshIntoRoot(swrModel_Mesh* mesh, rdModel3HN
     }
     rdModel_ConvertSwrModelMesh(displayList, result, mesh, faceFlags);
     // faithful: the source display list pointer is parked (unaligned) in the name after the tag
-    memcpy(&result->name[10], &mesh->vertex_display_list, sizeof(Gfx*));
+    memcpy(&result->name[10], &mesh->vertex_display_list, sizeof(mesh->vertex_display_list));
     mesh->converted_mesh = result;
     result->radius = rdVector_Dist3((rdVector3*)&mesh->aabb[0], (rdVector3*)&mesh->aabb[3]) * 0.5f;
     rdModel3Mesh_CalculateSurfaceNormals(result);

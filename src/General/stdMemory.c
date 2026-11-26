@@ -206,7 +206,7 @@ void* daRealloc(void* old, uint32_t size)
 // 0x0048db10
 void* daSmallAlloc(int size)
 {
-    size_t* alloc = (size_t*)malloc(size + 8);
+    uint32_t* alloc = (uint32_t*)malloc(size + 8); // 8-byte daBlock header: size, then a NULL owner
     if (alloc == NULL)
         return NULL;
     alloc[0] = size + 8;

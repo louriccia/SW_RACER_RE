@@ -18,7 +18,7 @@ void swrModel_InitializeTextureBuffer_delta();
 // 0x00446C20 -- skips the conversion when swrModel_LoadTextureDataAndPalette left the texture NULL
 // (asset buffer exhausted or a corrupt texture table entry); stock writes through it and crashes.
 void swrModel_DoConvertTextureDataToRdMaterial_delta(swrMaterial* SWR_P32*texture_data_ptr,
-                                                     uint8_t **palette_data_ptr);
+                                                     uint8_t *SWR_P32 *palette_data_ptr);
 
 // 0x00450310 -- swrText_SetEntryClipRect. Per-text-entry scissor rect (used by swrUI_DrawText for
 // e.g. the scrolling profile list). The vanilla X mapping uses the stretched screen_width/640 while

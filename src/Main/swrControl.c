@@ -284,7 +284,7 @@ refreshSliders:
         else
             centerValue = isMappingPage;
         // faithful: indexes past swrControl_joystickAxes into swrControl_mouseAxes for the mouse
-        percent = (int)(((&swrControl_joystickAxes[0])[isMappingPage + device * 6] - -1.0f) * 50.0f);
+        percent = (int)(((&swrControl_joystickAxes[0])[(int)(isMappingPage + device * 6)] - -1.0f) * 50.0f);
         slider = swrUI_GetById(swrUI_mappingsPage, SWR_UI_MAPPING_DEADZONE_SLIDER);
         if (slider != NULL) {
             slider->slider_percent = percent;

@@ -148,6 +148,19 @@ void stdPlatform_noop(uint32_t x)
     return;
 }
 
+#if defined(__x86_64__)
+// A 4-byte function slot reaches only our own image; system DLLs load above 4 GB.
+static uint32_t stdPlatform_TimerTick(void)
+{
+    return timeGetTime();
+}
+
+static int stdPlatform_Feof(FILE* f)
+{
+    return feof(f);
+}
+#endif
+
 // 0x0048c3d0
 void stdPlatform_InitServices(HostServices* handlers)
 {
@@ -162,13 +175,21 @@ void stdPlatform_InitServices(HostServices* handlers)
     SWR_FN32_SET(handlers->alloc, daAlloc);
     SWR_FN32_SET(handlers->free, daFree);
     SWR_FN32_SET(handlers->realloc, daRealloc);
+#if defined(__x86_64__)
+    SWR_FN32_SET(handlers->getTimerTick, stdPlatform_TimerTick);
+#else
     SWR_FN32_SET(handlers->getTimerTick, (uint32_t(*)(void))timeGetTime); // stdcall without args can be safely converted to cdecl
+#endif
     SWR_FN32_SET(handlers->fileOpen, stdFileOpen);
     SWR_FN32_SET(handlers->fileClose, stdFileClose);
     SWR_FN32_SET(handlers->fileRead, stdFileRead);
     SWR_FN32_SET(handlers->fileGets, stdFileGets);
     SWR_FN32_SET(handlers->fileWrite, stdFileWrite);
+#if defined(__x86_64__)
+    SWR_FN32_SET(handlers->feof, stdPlatform_Feof);
+#else
     SWR_FN32_SET(handlers->feof, feof);
+#endif
     SWR_FN32_SET(handlers->ftell, stdFtell);
     SWR_FN32_SET(handlers->fseek, stdFseek);
     SWR_FN32_SET(handlers->fileSize, stdFileSize);

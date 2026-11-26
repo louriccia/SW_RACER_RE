@@ -110,10 +110,10 @@ namespace {
 void init_movie_player(void) {
     if (GetEnvironmentVariableA("SWR_MOVIES_SMUSH", NULL, 0))
         return;
-    SmushStartup = Startup_ours;
-    SmushSetVolume = SetVolume_ours;
-    SmushPlay = Play_ours;
-    SmushShutdown = Shutdown_ours;
+    SWR_FN32_SET(SmushStartup_SLOT, Startup_ours);
+    SWR_FN32_SET(SmushSetVolume_SLOT, SetVolume_ours);
+    SWR_FN32_SET(SmushPlay_SLOT, Play_ours);
+    SWR_FN32_SET(SmushShutdown_SLOT, Shutdown_ours);
     if (hook_log) {
         fprintf(hook_log, "[movie] SANM player in place of Smush.dll\n");
         fflush(hook_log);

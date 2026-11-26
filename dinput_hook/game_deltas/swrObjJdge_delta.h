@@ -9,7 +9,8 @@ unsigned int swrObjJdge_InitTrack_delta(swrObjJdge *judge, swrScore * scores);
 // in-place reset (no teardown/reload) that keeps every pod and asset resident and replays each
 // pod's captured swrRace_Init. The pause-menu Restart stays on the full reload. See
 // swrObjJdge_delta.cpp. swrRace_Init_capture records each pod's spawn args (hooked by address).
-void swrRace_Init_capture(swrRace *player, float a2_spline, int a3_podModel, void *a4_trackModel,
+void swrRace_Init_capture(swrRace *player, swrSpline *a2_spline, swrModel_Node *SWR_P32 *a3_podModel,
+                          swrModel_Node *a4_trackModel,
                           int a5_light, float *a6_transform, int a7_grid, int a8_numPlayers,
                           int a9_numLocal, int a10_dup);
 // Trigger dispatcher hook: snapshot each fired trigger's armed description + the nodes it hides, so
@@ -55,11 +56,11 @@ extern ModId mod_race_time_cap;
 
 // 1hr+ race-time support: time formatters reimplemented to show an hours field (H:MM:SS.frac) once
 // the time reaches an hour; identical to stock under one hour. Cover all total-time readouts.
-void swrText_CreateTimeEntry_delta(int x, int y, int unused, int r, int g, int b, int a, char *screenText);
+void swrText_CreateTimeEntry_delta(int x, int y, float time, int r, int g, int b, int a, char *screenText);
 // The time-entry text layout (hours past an hour, frac_digits of a frac_scale-th second).
 void swrText_FormatTimeEntryText(char *out, int out_size, const char *screenText, float t,
                                  int frac_scale, int frac_digits);
-void swrText_CreateTimeEntryPrecise_delta(int x, int y, int unused, int r, int g, int b, int a, char *screenText);
+void swrText_CreateTimeEntryPrecise_delta(int x, int y, float time, int r, int g, int b, int a, char *screenText);
 
 // When set (default) the centisecond formatter also emits milliseconds; cleared = stock precision.
 // Persisted to SW_RACER_RE.ini [settings] time_show_millis.

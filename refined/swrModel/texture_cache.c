@@ -12,28 +12,28 @@
 #include <string.h>
 
 // Until a block sizes the cache, it is retail's fixed array.
-static void** cache = NULL;
+static void* SWR_P32* cache = NULL;
 static uint32_t cache_count = 0;
 
-static void** slots(uint32_t* count)
+static void* SWR_P32* slots(uint32_t* count)
 {
     if (cache != NULL) {
         *count = cache_count;
         return cache;
     }
     *count = SWR_TEXTURE_BUFFER_SIZE;
-    return (void**)texture_buffer;
+    return (void* SWR_P32*)texture_buffer;
 }
 
-void** refined_texture_cache_resize(uint32_t count, int clear_all)
+void* SWR_P32* refined_texture_cache_resize(uint32_t count, int clear_all)
 {
-    void** grown = (void**)realloc(cache, (count ? count : 1) * sizeof(void*));
+    void* SWR_P32* grown = (void* SWR_P32*)realloc(cache, (count ? count : 1) * sizeof(void* SWR_P32));
     if (grown == NULL)
         return cache;
     if (clear_all)
-        memset(grown, 0, count * sizeof(void*));
+        memset(grown, 0, count * sizeof(void* SWR_P32));
     else if (count > cache_count)
-        memset(grown + cache_count, 0, (count - cache_count) * sizeof(void*));
+        memset(grown + cache_count, 0, (count - cache_count) * sizeof(void* SWR_P32));
     cache = grown;
     cache_count = count;
     return cache;
@@ -67,7 +67,7 @@ static void note_special_material(TEXID texture_index, swrMaterial* material)
 void refined_swrModel_LoadModelTexture(TEXID texture_index, swrMaterial* SWR_P32* material_ptr, uint8_t* SWR_P32* palette_data_ptr)
 {
     uint32_t count;
-    void** entries = slots(&count);
+    void* SWR_P32* entries = slots(&count);
     const int index = (int)texture_index;
 
     if (index < 0 || index >= (int)texture_count || (uint32_t)index >= count) {
@@ -96,7 +96,7 @@ void refined_swrModel_LoadModelTexture(TEXID texture_index, swrMaterial* SWR_P32
 void refined_swrAssetBuffer_InvalidateTexturesBelow(char* ptr)
 {
     uint32_t count;
-    void** entries = slots(&count);
+    void* SWR_P32* entries = slots(&count);
     for (uint32_t i = 0; i < count; i++) {
         if ((char*)entries[i] > ptr)
             entries[i] = NULL;

@@ -20,9 +20,19 @@ typedef void (*SmushSetVolume_t)(int volume);
 typedef int (*SmushPlay_t)(const char* file, int flags, int unk2, int unk3, int unk4, int width, int height, int unk7, int unk8, SmushFrameCallback callback, int unk10, int unk11, int unk12);
 typedef void (*SmushShutdown_t)(void);
 
-#define SmushStartup (*(SmushStartup_t*)SWR_GLOBAL_PTR(SMUSH_IAT_STARTUP))
-#define SmushSetVolume (*(SmushSetVolume_t*)SWR_GLOBAL_PTR(SMUSH_IAT_SET_VOLUME))
-#define SmushPlay (*(SmushPlay_t*)SWR_GLOBAL_PTR(SMUSH_IAT_PLAY))
-#define SmushShutdown (*(SmushShutdown_t*)SWR_GLOBAL_PTR(SMUSH_IAT_SHUTDOWN))
+// Import slots are 4 bytes on every build (src/ptr32.h): call them as SmushX(...), fill them with
+// SWR_FN32_SET(SmushX_SLOT, fn).
+typedef SWR_FNSLOT_T(SmushStartup_t, SmushStartup_slot);
+typedef SWR_FNSLOT_T(SmushSetVolume_t, SmushSetVolume_slot);
+typedef SWR_FNSLOT_T(SmushPlay_t, SmushPlay_slot);
+typedef SWR_FNSLOT_T(SmushShutdown_t, SmushShutdown_slot);
+#define SmushStartup_SLOT (*(SmushStartup_slot*)SWR_GLOBAL_PTR(SMUSH_IAT_STARTUP))
+#define SmushSetVolume_SLOT (*(SmushSetVolume_slot*)SWR_GLOBAL_PTR(SMUSH_IAT_SET_VOLUME))
+#define SmushPlay_SLOT (*(SmushPlay_slot*)SWR_GLOBAL_PTR(SMUSH_IAT_PLAY))
+#define SmushShutdown_SLOT (*(SmushShutdown_slot*)SWR_GLOBAL_PTR(SMUSH_IAT_SHUTDOWN))
+#define SmushStartup SWR_FN32(SmushStartup_SLOT)
+#define SmushSetVolume SWR_FN32(SmushSetVolume_SLOT)
+#define SmushPlay SWR_FN32(SmushPlay_SLOT)
+#define SmushShutdown SWR_FN32(SmushShutdown_SLOT)
 
 #endif // SMUSH_H
