@@ -4,6 +4,7 @@
 #include "swrModel/texture_cache.h"
 #include "swrObjJdge/race_timing.h"
 #include "swrRace/racer_options.h"
+#include "track_lifecycle/track_lifecycle.h"
 
 #include <Swr/swrAssetBuffer.h>
 #include <Swr/swrModel.h>
@@ -26,6 +27,8 @@ const RefinedSlot refined_slots[] = {
      (void*)refined_swrRace_PoddAnimateVariousThings},
     {"swrRace_UpdatePlayerControl", (void*)swrRace_UpdatePlayerControl, (void*)refined_swrRace_UpdatePlayerControl},
     {"swrObjTest_F0", (void*)swrObjTest_F0, (void*)refined_swrObjTest_F0},
+    {"swrAssetBuffer_ResetToIndex", (void*)swrAssetBuffer_ResetToIndex, (void*)refined_swrAssetBuffer_ResetToIndex},
+    {"swrObjJdge_InitTrack", (void*)swrObjJdge_InitTrack, (void*)refined_swrObjJdge_InitTrack},
 };
 
 const int refined_slot_count = sizeof(refined_slots) / sizeof(refined_slots[0]);

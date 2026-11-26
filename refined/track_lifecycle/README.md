@@ -1,6 +1,6 @@
 # track_lifecycle (refined) — dossier
 
-Status: dossier only, no code yet (2026-11-26). Base: `proto/x64` (the line that carries
+Status: steps 1-3 in progress (2026-11-26), see "Progress" at the end. Base: `proto/x64` (the line that carries
 `refined/`; the 32-bit build is the oracle build, the 64-bit build must still compile and race).
 
 The problem in one line: retail has no notion of "the track was unloaded". A track's models,
@@ -139,3 +139,19 @@ lockstep driver (race A, back to hangar, race B, hash both) would close it (size
 - Step 1 ordering: does `track_registry_ApplyForCurrentTrack` need a before-load event, or can it
   run as the previous track's unload listener? Depends on whether anything between the rewind and
   `LoadTrackModels` reads the mapping.
+
+## Progress
+
+### Step 1 (done) — lifetime owner + events
+
+- `track_lifecycle.c`: `track_generation()`, `track_on_unload()` / `track_on_loaded()` (fixed table
+  of `TRACK_LIFECYCLE_MAX_LISTENERS`, registration order, duplicate (fn, user) ignored) and
+  `refined_swrAssetBuffer_ResetToIndex` (0x00445aa0, equivalent): unload listeners, generation bump,
+  then the faithful rewind unchanged. Every rewind is an unload, including the hangar's
+  `CullElmoAssets` and the two that precede a race (`StartRace`, then `InitTrack`).
+- `track_lifecycle_refined.c`: `refined_swrObjJdge_InitTrack` (0x00466bd0, sacred) is the src/
+  body byte-for-byte plus `track_lifecycle_notify_loaded()` after `swrAssetBuffer_CheckOverflow()`.
+- Both in `refined_slots`. No listener is registered yet (step 4 migrates the delta duties).
+- Verified: swe1r full link; lockstep 25/25 ALL MATCH refined on, 25/25 ALL MATCH with
+  `SWR_REFINED_OFF=1` (sa_t0..24, 1500 frames, pod 0); x64 (llvm-mingw, Release) compiles and links.
+
