@@ -117,6 +117,9 @@ extern "C" {
 #include <Win95/Window.h>
 #include <swr.h>
 #include <hook.h>
+#ifdef SWR_REFINED
+#include <refined/track_lifecycle/track_lifecycle.h>
+#endif
 }
 
 extern "C" FILE *hook_log;
@@ -146,9 +149,9 @@ static double ibl_settled_at = 0.0;
 // Per-mesh geometry cache (perf): a static mesh is parsed, CPU-transformed and uploaded once, then
 // just bound + drawn while its model matrix is unchanged, instead of redoing all of that every
 // frame. Meshes whose matrix changes (pods, animated parts) rebuild as before, so nothing
-// regresses. Flushed on track unload via swrModel_ClearLoadedModels_delta so reused mesh pointers
-// can't return stale geometry and the GL objects don't leak. Profiling (renderer_perf): the
-// per-frame glBufferData re-upload was ~52% of the per-draw CPU cost.
+// regresses. Flushed on track unload (swe1r: track_on_unload; DLL: swrModel_ClearLoadedModels_delta)
+// so reused mesh pointers can't return stale geometry and the GL objects don't leak. Profiling
+// (renderer_perf): the per-frame glBufferData re-upload was ~52% of the per-draw CPU cost.
 struct CachedMeshGeometry {
     GLuint vao = 0;
     GLuint vbo = 0;
@@ -2356,9 +2359,9 @@ extern "C" int stdDisplay_Update_Hook() {
 
 void noop() {}
 
-// Flush the per-mesh geometry cache when loaded models are cleared (track change) so reused mesh
-// pointers can't return stale geometry and the cached GL objects don't leak.
-extern "C" void swrModel_ClearLoadedModels_delta(void) {
+// Drop the per-mesh geometry cache so reused mesh pointers can't return stale geometry and the
+// cached GL objects don't leak.
+static void flush_mesh_geometry_cache() {
     for (auto &[mesh, cached]: g_mesh_geometry_cache) {
         if (cached.vbo)
             glDeleteBuffers(1, &cached.vbo);
@@ -2368,8 +2371,20 @@ extern "C" void swrModel_ClearLoadedModels_delta(void) {
     g_mesh_geometry_cache.clear();
     cached_model_matrix.clear();
     ibl_settle_frames = 0;// recapture the env cubemap for the next scene
+}
+
+#ifdef SWR_REFINED
+// swe1r: every asset-buffer rewind frees meshes, including the hangar's room and pod changes.
+static void on_unload_mesh_geometry_cache(void *) {
+    flush_mesh_geometry_cache();
+}
+#else
+// DLL: loaded models are cleared on a track change (swrObjHang_LoadScreen).
+extern "C" void swrModel_ClearLoadedModels_delta(void) {
+    flush_mesh_geometry_cache();
     hook_call_original(swrModel_ClearLoadedModels);
 }
+#endif
 
 // Smush cinematic auto-skip + fade suppression + cutscene audio volume. The game plays every
 // pre-rendered movie through Window_PlayCinematic: the three startup movies (Goldie/TextCrawl/
@@ -3013,10 +3028,14 @@ extern "C" void init_renderer_hooks() {
     hook_function("swrObjTrig_EnableFXAnimation", (uint32_t) swrObjTrig_EnableFXAnimation_ADDR,
                   (uint8_t *) swrObjTrig_EnableFXAnimation_delta);
 
+#ifdef SWR_REFINED
+    track_on_unload("mesh_geometry_cache", on_unload_mesh_geometry_cache, nullptr);
+#else
     // Flush the per-mesh geometry cache when loaded models are cleared (track change).
     hook_function("swrModel_ClearLoadedModels", (uint32_t) swrModel_ClearLoadedModels,
                   (uint8_t *) swrModel_ClearLoadedModels_ADDR);
     hook_replace(swrModel_ClearLoadedModels, swrModel_ClearLoadedModels_delta);
+#endif
 
     // Multiplayer netcode stability: async DirectPlay sends (no game-thread stall under packet
     // loss) + a per-pump incoming-packet cap. See swrMultiplayer_delta.cpp.
