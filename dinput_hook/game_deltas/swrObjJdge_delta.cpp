@@ -129,6 +129,11 @@ static void on_before_load_track_registry(void *) {
     track_registry_ApplyForCurrentTrack();
 }
 
+// Cable nodes key into the old track's meshes; reused addresses would match new meshes.
+static void on_unload_cable_bends(void *) {
+    swrRace_ClearCableBends();
+}
+
 static void on_loaded_crash_stage(void *) {
     crash_stage_track_loaded(loaded_judge());
 }
@@ -136,6 +141,7 @@ static void on_loaded_crash_stage(void *) {
 void swrObjJdge_RegisterTrackListeners() {
     track_on_before_load("crash_logger", on_before_load_crash_stage, nullptr);
     track_on_before_load("track_registry", on_before_load_track_registry, nullptr);
+    track_on_unload("cable_bends", on_unload_cable_bends, nullptr);
     track_on_loaded("crash_logger", on_loaded_crash_stage, nullptr);
 }
 #endif
@@ -149,8 +155,10 @@ unsigned int swrObjJdge_InitTrack_delta(swrObjJdge *judge, swrScore *scores) {
     // track's, so a stock track never inherits another track's geometry).
     track_registry_ApplyForCurrentTrack();
 #endif
+#ifndef SWR_REFINED
     // Drop cable nodes from the previous track so freed pointers aren't matched against new meshes.
     swrRace_ClearCableBends();
+#endif
     const unsigned int x = hook_call_original(swrObjJdge_InitTrack, judge, scores);
 #ifndef SWR_REFINED
     crash_stage_track_loaded(judge);
