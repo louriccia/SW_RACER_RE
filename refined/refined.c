@@ -3,6 +3,7 @@
 #include "swrAssetBuffer/asset_buffer.h"
 #include "swrModel/texture_cache.h"
 #include "swrObjJdge/race_timing.h"
+#include "swrRace/racer_options.h"
 
 #include <Swr/swrAssetBuffer.h>
 #include <Swr/swrModel.h>
@@ -20,6 +21,11 @@ const RefinedSlot refined_slots[] = {
     {"swrRace_InRaceEndStatistics", (void*)swrRace_InRaceEndStatistics, (void*)refined_swrRace_InRaceEndStatistics},
     {"swrObjHang_ResultsMenu", (void*)swrObjHang_ResultsMenu, (void*)refined_swrObjHang_ResultsMenu},
     {"swrMultiplayer_InRace", (void*)swrMultiplayer_InRace, (void*)refined_swrMultiplayer_InRace},
+    {"swrObjJdge_SpawnRacers", (void*)swrObjJdge_SpawnRacers, (void*)refined_swrObjJdge_SpawnRacers},
+    {"swrRace_PoddAnimateVariousThings", (void*)swrRace_PoddAnimateVariousThings,
+     (void*)refined_swrRace_PoddAnimateVariousThings},
+    {"swrRace_UpdatePlayerControl", (void*)swrRace_UpdatePlayerControl, (void*)refined_swrRace_UpdatePlayerControl},
+    {"swrObjTest_F0", (void*)swrObjTest_F0, (void*)refined_swrObjTest_F0},
 };
 
 const int refined_slot_count = sizeof(refined_slots) / sizeof(refined_slots[0]);

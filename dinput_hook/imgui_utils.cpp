@@ -1,5 +1,8 @@
 #include "imgui_utils.h"
 #include "patch.h"
+#ifdef SWR_REFINED
+#include <refined/swrRace/racer_options.h>
+#endif
 #include <swr_data_addr.h>
 #include "perf_stats.h"
 #include "debug_ui.h"
@@ -2450,6 +2453,10 @@ static void apply_cheats() {
     // taunt in swrRace_UpdatePlayerControl (0x0046c6e5, JNZ short, 2 bytes). AI = swrObjTest_F0
     // (0x0046d20c, JNZ near, 6 bytes) - only the pilot gate is lifted; the AI path keeps its
     // own speed / lap>=2 / opponent-in-front conditions.
+#ifdef SWR_REFINED
+    racer_options.flamejet_local = on && g_cheat_flamejet_local;
+    racer_options.flamejet_ai = on && g_cheat_flamejet_ai;
+#else
     {
         static const unsigned char local_jnz[2] = {0x75, 0x1a};
         static const unsigned char local_nop[2] = {0x90, 0x90};
@@ -2459,6 +2466,7 @@ static void apply_cheats() {
         static const unsigned char ai_nop[6] = {0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
         patch_code((void *) 0x0046d20c, (on && g_cheat_flamejet_ai) ? ai_nop : ai_jnz, 6);
     }
+#endif
 
     const bool fly = on && g_cheat_fly;
     swrRace *pod = currentPlayer_Test;

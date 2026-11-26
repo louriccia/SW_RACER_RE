@@ -11,6 +11,7 @@
 #include "movies/movie_player.h"
 #ifdef SWR_REFINED
 #include <refined/refined.h>
+#include <refined/swrRace/racer_options.h>
 #endif
 #include <cstdio>
 #include <cstring>
@@ -194,10 +195,21 @@ extern "C" void init_hooks() {
     fflush(hook_log);
 }
 
-// The DLL's ai_full_lod NOPs three branches in retail .text; here it needs a src-level switch.
+// The DLL's ai_full_lod NOPs three branches in retail .text; here it is a refined setting.
 static bool ai_full_lod_enable(ModId, void *) {
-    fprintf(hook_log, "[ai_full_lod] not available in the standalone build yet\n");
+#ifdef SWR_REFINED
+    racer_options.full_lod_ai = 1;
+    return true;
+#else
+    fprintf(hook_log, "[ai_full_lod] needs the refinement layer (SWR_STANDALONE_REFINED)\n");
     return false;
+#endif
+}
+
+static void ai_full_lod_disable(void *) {
+#ifdef SWR_REFINED
+    racer_options.full_lod_ai = 0;
+#endif
 }
 
 static const ModModule ai_full_lod_mod = {
@@ -206,7 +218,7 @@ static const ModModule ai_full_lod_mod = {
     .depends_on = nullptr,
     .user = nullptr,
     .enable = ai_full_lod_enable,
-    .on_disable = nullptr,
+    .on_disable = ai_full_lod_disable,
 };
 ModId mod_ai_full_lod = MOD_ID_INVALID;
 

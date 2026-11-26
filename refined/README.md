@@ -21,6 +21,7 @@ DLL still uses its retail-side patches for these features.
 |---|---|---|
 | [swrAssetBuffer](swrAssetBuffer/README.md) | `swrScene_InitWorld` | asset buffer size immediates (`asset_buffer_size`) |
 | [swrModel](swrModel/README.md) | `swrModel_LoadModelTexture`, `swrAssetBuffer_InvalidateTexturesBelow` | texture-buffer operand patches (custom tracks) |
+| [swrRace](swrRace/README.md) | `swrObjJdge_SpawnRacers`, `swrRace_PoddAnimateVariousThings`, `swrRace_UpdatePlayerControl`, `swrObjTest_F0` | `ai_full_lod` NOPs, flamejet cheat JNZ patches |
 | [swrObjJdge](swrObjJdge/README.md) | `swrObjJdge_F2`, `swrRace_InRaceTimer`, `swrRace_InRaceEndStatistics`, `swrObjHang_ResultsMenu`, `swrMultiplayer_InRace` | lap-slot de-indexing (`lap_time_overflow`), 3000 s constants (`race_time_cap`) |
 
 Refined functions attach underneath every delta on the same function, so a delta's
