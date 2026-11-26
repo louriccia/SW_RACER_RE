@@ -1,0 +1,141 @@
+# track_lifecycle (refined) — dossier
+
+Status: dossier only, no code yet (2026-11-26). Base: `proto/x64` (the line that carries
+`refined/`; the 32-bit build is the oracle build, the 64-bit build must still compile and race).
+
+The problem in one line: retail has no notion of "the track was unloaded". A track's models,
+splines and textures live in the asset buffer; loading the next track rewinds the buffer and
+overwrites them in place, and every pointer still aimed at the old data (in game structs or in our
+own feature caches) silently turns into garbage. Retail never notices because, with stock data and
+stock features, nothing reads those pointers after the switch. Custom tracks and our features do,
+and the delta layer has grown one band-aid per crash. This pass gives the track a lifetime with one
+owner, so stale pointers are cleared at the source and features subscribe to load/unload events
+instead of wrapping `swrObjJdge_InitTrack`.
+
+## 1. Boundary
+
+Functions (all have full faithful bodies in `src/`; the standalone runs zero retail code).
+
+| Address | Ghidra name | Role here |
+|---|---|---|
+| 0x00445aa0 | `swrAssetBuffer_ResetToIndex` | **The unload point.** Rewinds the arena; everything above the mark is dead |
+| 0x0045b290 | `swrObjHang_StartRace` | Calls ResetToIndex(1) before a race |
+| 0x0045ce90 | `swrObjHang_CullElmoAssets` | Calls ResetToIndex(checkpoint) (hangar asset cull) |
+| 0x00466bd0 | `swrObjJdge_InitTrack` | Calls ResetToIndex(1), then loads models, HUD, spline, grid, racers |
+| 0x00464b90 | `swrObjJdge_SetupTrackEnvironment` | Seeds the fly-by cursor; early-returns without clearing it |
+| 0x004472e0 | `swrSpline_LoadSplineById` | Loads a spline into the arena |
+| 0x0047e8b0 | `swrSpline_CursorSeekToProgress` | Leaves the node window untouched when no node matches |
+| 0x0044ed80 | `swrSpline_EvaluateToMatrix` | Evaluates a cursor (faults on a stale spline) |
+| 0x00448780 | `swrModel_LoadFromId` | Loads a model into the arena |
+| 0x00454c60 | `swrModel_ClearLoadedModels` | Clears the loaded-model table on track change |
+
+Owned state: the asset-buffer marks (`swrAssetBuffer_*`, already partly refined in
+`refined/swrAssetBuffer`), `swrObjJdge.cam_spline` / `camSweepCursor` / `camSweepTransform`, the
+viewport scene roots (`swrViewport_array[*].model_root_node` children, `someRootNodeChildNodes`).
+
+Seams (crossing edges, debt until the neighbour is refined):
+- In: hangar (`StartRace`, `CullElmoAssets`), judge (`InitTrack`), every caller of the spline
+  cursor API (judge F2 fly-by, `swrRace_UpdateSurfaceTag`, swrObjTest, cMan cinematics, AI).
+- Out: `swrObjJdge_LoadTrackModels`, `swrObjJdge_LoadTrackSpline`, `swrPlayerHUD_LoadRaceHUD`,
+  `swrObjJdge_SpawnRacers` (stay faithful, called in retail order).
+
+## 2. Tier table
+
+| Function | Tier | Reason |
+|---|---|---|
+| `swrAssetBuffer_ResetToIndex` | equivalent | Adds an event; arena arithmetic unchanged |
+| `swrObjJdge_InitTrack` | **sacred** | Load order feeds spawn and RNG draws; refined copy may only add events at the edges |
+| `swrObjJdge_SetupTrackEnvironment` | equivalent | Clearing the cursor on the early-return path is unreachable with stock data (see flaw U1) |
+| `swrSpline_LoadSplineById`, `swrModel_LoadFromId` | equivalent | Wrap with load events; load bytes unchanged |
+| `swrSpline_CursorSeekToProgress` | **sacred** | AI and progress use it; no math change. Only an invalid-window guard on a path retail never takes |
+| `swrSpline_EvaluateToMatrix` | **sacred** | Physics and camera; untouched. The guard moves out (stale cursors no longer exist) |
+| `swrModel_ClearLoadedModels` | equivalent | Becomes an unload listener trigger |
+
+## 3. Flaw inventory
+
+| Tag | Address | Function | Finding | Refinement |
+|---|---|---|---|---|
+| UNSAFE (U1) | 0x00464b90 | `SetupTrackEnvironment` | Returns early when the track has no camera spline (`cam_splineId < 0`), leaving `cam_spline` and `camSweepCursor.spline` aimed at the previous track's arena data. Root cause of the 2026-09 custom-track CTDs (PR #307). Stock data never takes it: the camSplines table has an entry for every one of the 25 stock tracks (2+4+3+3+4+3+3+3); every -1 is a slot with no stock track | Clear `cam_spline`, `camSweepCursor`, `camSweepTransform` on every early return |
+| GLOBAL (G1) | 0x00445aa0 | `ResetToIndex` | The unload is implicit; nobody can tell which pointers it killed | Track generation counter + ordered `on_track_unload` / `on_track_loaded` listeners |
+| UNSAFE (U2) | — | scene roots | Root-child node slots carry nodes from the previous track into the next; the delta nulls any child with an invalid node type after InitTrack (`fixup_invalid_node_ptrs`, logged as HACK). Which slots and why is not yet traced | Trace the slots (step 2); reset them at unload, delete the scan |
+| UNSAFE (U3) | 0x0047e8b0 | `CursorSeekToProgress` | Scan falls through without writing when no node matches, keeping a node window from a longer spline. Only reachable with a cursor carried across tracks | With U1/U4 fixed, prove unreachable (log); keep a guard only behind a debug assert |
+| UNSAFE (U4) | — | cursor owners | Any `swrSplineCursor` that outlives its track (fly-by, swrObjTest `splineCursor@0xac`, cMan) holds a raw `swrSpline*` into the arena | Cursors registered with the lifetime owner are reset on unload |
+| TANGLE (T1) | 0x00466bd0 | `InitTrack` (delta) | One wrapper does nine unrelated things for different features: track_registry mapping, cable bends, lap tracking, scene-animation snapshot, trigger state, countdown latch, crash-log stages, node fixup | Each feature registers its own load/unload listener; the wrapper disappears |
+| DUP (D1) | — | caches | Four feature caches flush themselves from four different hooks (mesh geometry via ClearLoadedModels, texture cache via InitializeTextureBuffer, trigger state and cable bends via InitTrack) | All flush from `on_track_unload` |
+
+## 4. Target shape
+
+```c
+/* refined/track_lifecycle/track_lifecycle.h */
+uint32_t track_generation(void);                 /* bumps at every unload */
+void track_on_unload(const char *owner, void (*fn)(void *), void *user);
+void track_on_loaded(const char *owner, void (*fn)(void *), void *user);
+void track_register_cursor(swrSplineCursor *c);  /* reset to {spline=NULL} on unload */
+bool track_pointer_is_live(const void *p);       /* p inside the arena below the current top */
+```
+
+- Listeners run in registration order; unload listeners run inside the refined
+  `ResetToIndex`, before the rewind, so they may still read the old data.
+- `on_track_loaded` fires at the end of refined `InitTrack` (after `CheckOverflow`); a pre-load
+  hook (`track_registry` mapping) uses `on_track_unload` of the previous track, or a dedicated
+  `track_on_before_load` if ordering requires it (decide in step 3).
+- No data files: this subsystem has nothing to externalize.
+
+Name map:
+
+| Refined | Ghidra | Address |
+|---|---|---|
+| `refined_swrAssetBuffer_ResetToIndex` | `swrAssetBuffer_ResetToIndex` | 0x00445aa0 |
+| `refined_swrObjJdge_InitTrack` | `swrObjJdge_InitTrack` | 0x00466bd0 |
+| `refined_swrObjJdge_SetupTrackEnvironment` | `swrObjJdge_SetupTrackEnvironment` | 0x00464b90 |
+| `refined_swrModel_ClearLoadedModels` | `swrModel_ClearLoadedModels` | 0x00454c60 |
+
+## 5. Band-aids retired (swe1r)
+
+| Band-aid | Where | Replaced by |
+|---|---|---|
+| `swrSpline_EvaluateToMatrix_delta` refusal + clamp | `swrSpline_delta.cpp` | U1/U4 fixed at the source; refusal kept as a debug assert only |
+| `swrSpline_CursorSeekToProgress_delta` re-seed | `swrSpline_delta.cpp` | U3 unreachable |
+| `spline_cursor_has_usable_spline` in the fly-by gate | `swrObjJdge_delta.cpp` | cursor is NULL after an early return, plain NULL check suffices |
+| `fixup_invalid_node_ptrs` HACK | `swrObjJdge_delta.cpp` | U2 reset at unload |
+| `swrObjJdge_InitTrack_delta` (9 duties) | `swrObjJdge_delta.cpp` | per-feature listeners |
+| `swrModel_ClearLoadedModels_delta` mesh-cache flush | `renderer_hook.cpp` | `on_track_unload` listener |
+| texture-cache clear on block change | `refined/swrModel`, `swrModel_delta.cpp` | `on_track_unload` listener |
+
+The DLL build keeps its retail-side hooks (unchanged), as for the other refined subsystems.
+
+## 6. Oracle plan
+
+| Step | Check |
+|---|---|
+| Lifecycle events (equivalent) | Lockstep ALL MATCH on all 25 tracks, refined on vs `SWR_REFINED_OFF=1`; texture-hash oracle unchanged |
+| U1 cursor clear | Same lockstep (path unreachable with stock data) + custom-track crash repro: Boonta Training (model 115 / spline 74) then Big Blue with `restore_prerace_track_sweep=1`, no fault, fly-by skipped |
+| U2 node slots | Log which root slots change across stock→custom→stock; after the fix, the old scan (kept as a log-only check for one round) finds 0 invalid nodes |
+| U3/U4 | Instrumented run over the same switch sequence: zero out-of-range windows, zero stale cursors |
+| Listener migration | Each feature's own behaviour: fast restart, trigger FX, cable bends, lap tracking, crash-log stages, mesh cache (renderer perf stays at ~110 fps on a 16-racer grid) |
+
+Gaps: lockstep runs one race per process, so a multi-race track-switch sequence has no machine
+oracle yet; the switch repro is a scripted launch + log check. Adding a "sequence" mode to the
+lockstep driver (race A, back to hangar, race B, hash both) would close it (size M).
+
+## 7. Step plan
+
+1. **S — Lifetime owner + events.** `refined_swrAssetBuffer_ResetToIndex` with generation +
+   unload listeners; `on_track_loaded` from a refined `InitTrack` that is a verbatim copy plus one
+   call at the end. Lockstep 25/25.
+2. **M — Trace U2.** Find the root-child slots that carry over; record findings here.
+3. **S — U1 + U4.** Refined `SetupTrackEnvironment` clears the cursor on early return; cursor
+   registry resets registered cursors on unload. Switch repro clean, lockstep 25/25.
+4. **M — Migrate listeners.** Move the nine `InitTrack_delta` duties, the mesh-cache flush and the
+   texture-cache clear onto events, one commit per feature; delete the wrappers in swe1r.
+5. **S — Retire spline guards.** Downgrade the EvaluateToMatrix / CursorSeekToProgress deltas to
+   debug asserts; confirm zero hits over the switch sequence.
+6. **M (optional) — Lockstep sequence mode** to give step 3-5 a machine oracle.
+
+## Open questions
+
+- Location (roadmap 9.1) still unagreed with tim; this lives on the proto line like the rest of
+  `refined/`.
+- Step 1 ordering: does `track_registry_ApplyForCurrentTrack` need a before-load event, or can it
+  run as the previous track's unload listener? Depends on whether anything between the rewind and
+  `LoadTrackModels` reads the mapping.
