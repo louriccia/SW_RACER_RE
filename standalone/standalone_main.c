@@ -13,6 +13,7 @@
 #include <windows.h>
 #define DIRECTINPUT_VERSION 0x0500
 #include <dinput.h>
+#include <psapi.h>
 #include <float.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -619,6 +620,31 @@ static DWORD WINAPI watch_thread(LPVOID unused)
     return 0;
 }
 
+// SWR_STANDALONE_MODULES=<seconds>: log every loaded module once, after that delay (which platform
+// DLLs a build really pulls in at runtime).
+static __attribute__((noinline)) void log_modules(void)
+{
+    HMODULE mods[512];
+    DWORD bytes = 0;
+    if (EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &bytes)) {
+        for (DWORD i = 0; i < bytes / sizeof(HMODULE) && i < 512; i++) {
+            char path[MAX_PATH];
+            if (GetModuleFileNameA(mods[i], path, sizeof(path)))
+                fprintf(standalone_log, "module %s\n", path);
+        }
+    }
+    fflush(standalone_log);
+}
+
+// Started before the CRT sets the stack-protector guard, so this frame holds no buffers: a canary
+// saved here would no longer match when it returns.
+static DWORD WINAPI modules_thread(LPVOID seconds)
+{
+    Sleep((DWORD)(uintptr_t)seconds * 1000);
+    log_modules();
+    return 0;
+}
+
 // stdDisplay_CreateZBuffer only installs the per-frame z-buffer clear (DirectDraw_FillMainSurface)
 // when the device reports DDCAPS2 bit 0x10000000; DDrawCompat and modern drivers don't, so the
 // z-buffer is never cleared and only z = 0 geometry (the 2D UI) passes the depth test. Retail on
@@ -700,6 +726,11 @@ __attribute__((constructor(101))) static void standalone_init(void)
     if (GetEnvironmentVariableA("SWR_STANDALONE_WATCH", NULL, 0)) {
         DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &main_thread, 0, FALSE, DUPLICATE_SAME_ACCESS);
         CreateThread(NULL, 0, watch_thread, NULL, 0, NULL);
+    }
+    {
+        char secs[16];
+        if (GetEnvironmentVariableA("SWR_STANDALONE_MODULES", secs, sizeof(secs)))
+            CreateThread(NULL, 0, modules_thread, (LPVOID)(uintptr_t)atoi(secs), 0, NULL);
     }
     fflush(standalone_log);
 }

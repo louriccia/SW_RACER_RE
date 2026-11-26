@@ -7,6 +7,7 @@
 // forms become one Detours hook on our body, and hook_call_original() reaches that body through
 // the trampoline, whether the caller names the retail address or the src symbol.
 
+#include "audio/openal_audio.h"
 #include <cstdio>
 #include <cstring>
 #include <set>
@@ -197,6 +198,9 @@ extern "C" int __stdcall __wrap_WinMain(HINSTANCE hInstance, HINSTANCE hPrev, PS
     memsafety_RegisterHooks();
     crash_logger_stage("init: renderer hooks");
     init_renderer_hooks();
+#ifdef SWR_OPENAL_AUDIO
+    init_openal_audio_hooks();
+#endif
     crash_logger_stage("init: game hooks");
     init_hooks();
     crash_logger_stage("init: custom tracks");
