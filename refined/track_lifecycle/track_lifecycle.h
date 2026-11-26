@@ -21,13 +21,20 @@ typedef void (*track_listener_fn)(void* user);
 // Bumps at every unload (every asset-buffer rewind, including the two that precede a race).
 uint32_t track_generation(void);
 
-// Listeners run in registration order. Unload listeners run before the rewind, so they may
-// still read the old data. Registering the same (fn, user) twice is a no-op. Returns 0 when the
-// table is full. `owner` names the subscriber for diagnostics.
+// Listeners run in registration order. Registering the same (fn, user) twice is a no-op.
+// Returns 0 when the table is full. `owner` names the subscriber for diagnostics.
+//
+// before_load: a race track is about to load (start of swrObjJdge_InitTrack, before its rewind).
+//   swrObjHang.track_index names the track; the previous track's data is still resident.
+// unload: the asset buffer is about to rewind (any rewind: race load, hangar room/pod changes,
+//   cutscene scenes). Runs before the rewind, so the old data can still be read.
+// loaded: the race track, HUD, spline, grid and racers are loaded (end of InitTrack).
+int track_on_before_load(const char* owner, track_listener_fn fn, void* user);
 int track_on_unload(const char* owner, track_listener_fn fn, void* user);
 int track_on_loaded(const char* owner, track_listener_fn fn, void* user);
 
-// Fires the loaded listeners; called once by the refined InitTrack below.
+// Fire the before_load / loaded listeners; called by the refined InitTrack below.
+void track_lifecycle_notify_before_load(void);
 void track_lifecycle_notify_loaded(void);
 
 // A registered spline cursor is zeroed (spline = NULL) at every unload, so it can never walk a
@@ -43,7 +50,7 @@ void refined_swrAssetBuffer_ResetToIndex(int index);
 // the fly-by cursor. 0x00464b90
 void refined_swrObjJdge_SetupTrackEnvironment(swrObjJdge* judge, int* anims, int model);
 
-// swrObjJdge_InitTrack verbatim, firing the loaded listeners at the end. 0x00466bd0
+// swrObjJdge_InitTrack verbatim, firing before_load at the start and loaded at the end. 0x00466bd0
 unsigned int refined_swrObjJdge_InitTrack(swrObjJdge* judge, swrScore* scores);
 
 #ifdef __cplusplus

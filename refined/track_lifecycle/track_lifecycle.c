@@ -20,6 +20,7 @@ typedef struct TrackListenerList {
 } TrackListenerList;
 
 static uint32_t generation;
+static TrackListenerList before_load_listeners;
 static TrackListenerList unload_listeners;
 static TrackListenerList loaded_listeners;
 static swrSplineCursor* cursors[TRACK_LIFECYCLE_MAX_CURSORS];
@@ -49,6 +50,11 @@ static void listeners_run(const TrackListenerList* list)
 uint32_t track_generation(void)
 {
     return generation;
+}
+
+int track_on_before_load(const char* owner, track_listener_fn fn, void* user)
+{
+    return listener_add(&before_load_listeners, owner, fn, user);
 }
 
 int track_on_unload(const char* owner, track_listener_fn fn, void* user)
@@ -87,6 +93,11 @@ static void cursors_reset(void)
 int track_on_loaded(const char* owner, track_listener_fn fn, void* user)
 {
     return listener_add(&loaded_listeners, owner, fn, user);
+}
+
+void track_lifecycle_notify_before_load(void)
+{
+    listeners_run(&before_load_listeners);
 }
 
 void track_lifecycle_notify_loaded(void)

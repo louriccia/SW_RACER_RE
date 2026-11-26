@@ -1,5 +1,6 @@
 // swrObjJdge_InitTrack is sacred (its load order feeds the grid and the RNG draws): this is the
-// src/ body unchanged, plus the loaded event after the last load.
+// src/ body unchanged, plus the before_load event on entry and the loaded event after the last
+// load.
 #include "track_lifecycle.h"
 
 #include <Swr/swrAssetBuffer.h>
@@ -20,6 +21,7 @@ unsigned int refined_swrObjJdge_InitTrack(swrObjJdge* judge, swrScore* scores)
     swrScore* score;
     int i;
 
+    track_lifecycle_notify_before_load();
     rdroid_g_curRenderOptions2 = 0;
     for (i = 0; i < SWR_MAX_RACERS; i++)
         swrObjJdge_prevRacePositions[i] = i;
