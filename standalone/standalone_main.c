@@ -45,6 +45,7 @@ static uint8_t* retail_va(uint32_t va)
 
 #ifdef SWR_GLOBALS_OWNED
 #include "standalone_owned.h"
+#include "FUN.h"
 
 // Wherever retail data address a lives now: the owned variable that covers it, else the image.
 void* swr_data_ptr(unsigned a)
@@ -680,6 +681,25 @@ static DWORD WINAPI zclear_thread(LPVOID unused)
 extern const uint32_t standalone_code_relocs[];
 extern const int standalone_code_reloc_count;
 
+// src/FUN.h: function pointers initialised to retail addresses for functions not yet named.
+static void relocate_fun_pointers(void)
+{
+    void** slots[] = {
+        (void**)&FUN_00409d70, (void**)&FUN_0040a120, (void**)&FUN_004118b0, (void**)&FUN_0041e5a0,
+        (void**)&FUN_0041e660, (void**)&FUN_00427d90, (void**)&FUN_0042de10, (void**)&FUN_0043b1d0,
+        (void**)&FUN_0043fe90, (void**)&FUN_00440550, (void**)&FUN_004409d0, (void**)&FUN_00440c10,
+        (void**)&FUN_0045a3e0, (void**)&FUN_0045b290, (void**)&FUN_0045bee0, (void**)&FUN_00469b90,
+        (void**)&FUN_00469c30,
+    };
+    for (unsigned i = 0; i < sizeof(slots) / sizeof(slots[0]); i++) {
+        uint32_t body = standalone_body_of((uint32_t)*slots[i]);
+        if (body)
+            *slots[i] = (void*)body;
+        else
+            fprintf(standalone_log, "FUN_ pointer -> 0x%08x has no body\n", (unsigned)(uintptr_t)*slots[i]);
+    }
+}
+
 static void relocate_code_pointers(void)
 {
     int moved = 0, unknown = 0;
@@ -719,10 +739,15 @@ __attribute__((constructor(101))) static void standalone_init(void)
 
     // Search the game directory for its own DLLs (Smush, IFORCE2, a3d), as retail would, but take
     // the system DirectInput: the game directory's dinput.dll is the hook DLL.
-    char sys[MAX_PATH];
-    GetSystemDirectoryA(sys, MAX_PATH - 16);
-    strcat(sys, "\\dinput.dll");
-    LoadLibraryA(sys);
+#ifdef SWR_OWN_INPUT
+    if (GetEnvironmentVariableA("SWR_INPUT_DINPUT", NULL, 0))
+#endif
+    {
+        char sys[MAX_PATH];
+        GetSystemDirectoryA(sys, MAX_PATH - 16);
+        strcat(sys, "\\dinput.dll");
+        LoadLibraryA(sys);
+    }
     char cwd[MAX_PATH];
     GetCurrentDirectoryA(MAX_PATH, cwd);
     SetDllDirectoryA(cwd);
@@ -730,6 +755,7 @@ __attribute__((constructor(101))) static void standalone_init(void)
     map_retail();
     standalone_install_bodies();
     relocate_code_pointers();
+    relocate_fun_pointers();
     standalone_install_compat();
     if (!GetEnvironmentVariableA("SWR_STANDALONE_NO_ZCLEAR", NULL, 0))
         CreateThread(NULL, 0, zclear_thread, NULL, 0, NULL);

@@ -9,6 +9,9 @@
 
 #include "audio/openal_audio.h"
 #include "movies/movie_player.h"
+#ifdef SWR_OWN_INPUT
+#include "input/glfw_dinput.h"
+#endif
 #ifdef SWR_REFINED
 #include <refined/refined.h>
 #include <refined/swrRace/racer_options.h>
@@ -32,6 +35,7 @@ extern "C" {
 #include <hook_mode.h>
 #include <Win95/Window.h>
 #include <Swr/swrRace.h>
+#include <Win95/DirectX.h>
 #include "standalone.h"
 }
 
@@ -239,6 +243,11 @@ extern "C" int __stdcall __wrap_WinMain(HINSTANCE hInstance, HINSTANCE hPrev, PS
 #endif
 #ifdef SWR_OWN_MOVIES
     init_movie_player();
+#endif
+#ifdef SWR_OWN_INPUT
+    // SWR_INPUT_DINPUT=1 keeps the system DirectInput (force-feedback wheels need it).
+    if (!GetEnvironmentVariableA("SWR_INPUT_DINPUT", NULL, 0))
+        hook_replace(DirectX_DirectInputCreateA, glfw_dinput_create);
 #endif
     // Test aid: SWR_STANDALONE_AUTOPILOT=1 lets the AI steering drive the local pod, so a whole
     // race (finish line, results, records) can run unattended.

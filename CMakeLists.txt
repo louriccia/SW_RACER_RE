@@ -125,6 +125,7 @@ option(SWR_STANDALONE_DATA_RELOC "Standalone keeps retail data in its own image 
 # swe1r: OpenAL Soft (OpenAL32.dll, loaded at runtime) instead of A3D.
 option(SWR_STANDALONE_REFINED "swe1r runs the refinement layer (refined/) in place of the faithful functions it covers" ON)
 option(SWR_STANDALONE_OPENAL "swe1r plays audio through OpenAL instead of A3D, and movies with its own SANM player" ON)
+option(SWR_STANDALONE_OWN_INPUT "swe1r reads keyboard, mouse and joysticks through GLFW instead of the system DirectInput" ON)
 option(SWR_STANDALONE_OWNED_GUARDED "Diagnostic: every owned global ends at a guard page (finds reads/writes past it)" OFF)
 if (SWR_STANDALONE)
     set(STANDALONE_SOURCES ${SOURCES})
@@ -200,6 +201,9 @@ if (SWR_STANDALONE)
             ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook/movies/sanm.c
             ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook/movies/movie_player.cpp)
     endif()
+    if (SWR_STANDALONE_OWN_INPUT)
+        list(APPEND SA_FEATURE_HOOK_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/dinput_hook/input/glfw_dinput.c)
+    endif()
     list(FILTER SA_FEATURE_HOOK_SOURCES EXCLUDE REGEX "dinput_hook/(main\.cpp|hook_helper\.cpp|dinput_hook\.c)$")
     set(SA_FEATURE_OWN ${STANDALONE_OWN})
     list(FILTER SA_FEATURE_OWN EXCLUDE REGEX "(standalone_lockstep\.cpp|dinput_hook/lockstep\.cpp)$")
@@ -236,6 +240,7 @@ if (SWR_STANDALONE)
     target_compile_definitions(swe1r PRIVATE GLFW_INCLUDE_NONE=1 SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1> ${OWNED_DEFS}
         ENABLE_GLFW_INPUT_HANDLING=0 ENABLE_GAMEPAD_NAV=1 ENABLE_XINPUT_RUMBLE=1
         $<$<BOOL:${SWR_STANDALONE_OPENAL}>:SWR_OPENAL_AUDIO=1 SWR_OWN_MOVIES=1>
+        $<$<BOOL:${SWR_STANDALONE_OWN_INPUT}>:SWR_OWN_INPUT=1>
         $<$<BOOL:${SWR_STANDALONE_REFINED}>:SWR_REFINED=1>)
     target_link_libraries(swe1r PRIVATE swe1r_globals swr_memsafety imgui glad glfw fastgltf detours
         winmm Comctl32 ole32 version dxguid dinput ddraw opengl32 Dwmapi bcrypt psapi kernel32)
