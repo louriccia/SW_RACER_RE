@@ -122,12 +122,20 @@ static void on_before_load_crash_stage(void *) {
     crash_stage_track_loading();
 }
 
+// Before the load, not at the unload: rewinds also happen in the hangar and for cutscene scenes,
+// where the selected track's block views must not be installed. Nothing between InitTrack's entry
+// and its model loads reads them.
+static void on_before_load_track_registry(void *) {
+    track_registry_ApplyForCurrentTrack();
+}
+
 static void on_loaded_crash_stage(void *) {
     crash_stage_track_loaded(loaded_judge());
 }
 
 void swrObjJdge_RegisterTrackListeners() {
     track_on_before_load("crash_logger", on_before_load_crash_stage, nullptr);
+    track_on_before_load("track_registry", on_before_load_track_registry, nullptr);
     track_on_loaded("crash_logger", on_loaded_crash_stage, nullptr);
 }
 #endif
@@ -136,9 +144,11 @@ unsigned int swrObjJdge_InitTrack_delta(swrObjJdge *judge, swrScore *scores) {
 #ifndef SWR_REFINED
     crash_stage_track_loading();
 #endif
+#ifndef SWR_REFINED
     // Map the selected track's assets before the original loads them (and unmap the previous
     // track's, so a stock track never inherits another track's geometry).
     track_registry_ApplyForCurrentTrack();
+#endif
     // Drop cable nodes from the previous track so freed pointers aren't matched against new meshes.
     swrRace_ClearCableBends();
     const unsigned int x = hook_call_original(swrObjJdge_InitTrack, judge, scores);
