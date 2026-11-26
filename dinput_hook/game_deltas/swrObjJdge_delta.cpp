@@ -143,6 +143,17 @@ static void on_loaded_crash_stage(void *) {
     crash_stage_track_loaded(loaded_judge());
 }
 
+// Safety net for U2 (refined/track_lifecycle): the refined unload clears the trigger slots that
+// used to leave invalid nodes in the scene, so this should find none; it still drops any it finds.
+static void on_loaded_scene_check(void *) {
+    const int removed = fixup_invalid_node_ptrs(swrViewport_array[0].model_root_node);
+    if (removed != 0) {
+        fprintf(hook_log, "[track_lifecycle] removed %d scene nodes with an invalid node type (U2 regression?)\n",
+                removed);
+        fflush(hook_log);
+    }
+}
+
 // 100-lap support: InitTrack stores the race's scores in swrScoresPtr.
 static void on_loaded_lap_tracking(void *) {
     reset_lap_tracking(swrScoresPtr);
@@ -167,6 +178,7 @@ void swrObjJdge_RegisterTrackListeners() {
     track_on_loaded("crash_logger", on_loaded_crash_stage, nullptr);
     track_on_loaded("fast_restart", on_loaded_fast_restart, nullptr);
     track_on_loaded("lap_tracking", on_loaded_lap_tracking, nullptr);
+    track_on_loaded("scene_check", on_loaded_scene_check, nullptr);
 }
 #endif
 
@@ -195,12 +207,14 @@ unsigned int swrObjJdge_InitTrack_delta(swrObjJdge *judge, swrScore *scores) {
     forget_trigger_state();// recorded nodes/descs point into the previous track's asset buffer
     latch_countdown(judge);
 #endif
+#ifndef SWR_REFINED
     const int num_removed_nodes = fixup_invalid_node_ptrs(swrViewport_array[0].model_root_node);
     if (num_removed_nodes != 0)
     {
         fprintf(hook_log, "[swrObjJdge_InitTrack_delta] HACK: removed %d nodes with an invalid node type.\n", num_removed_nodes);
         fflush(hook_log);
     }
+#endif
     return x;
 }
 
