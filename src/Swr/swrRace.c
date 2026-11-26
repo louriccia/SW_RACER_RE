@@ -3389,7 +3389,7 @@ void swrRace_UpdatePitDroidModels(void)
     ambient.z = 50.0f;
     for (i = 0; i < swrRace_nbPitDroids; i++) {
         sparkScale = (long double)swrUtils_Rand() * SWR_CTL_RAND_NORM * 2.5 - -2.0;
-        swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[SWR_SCENE_SLOT_PIT_DROIDS + i], &droidPos);
+        swrRace_GetEngineNodeOffsetPos((void* SWR_P32*)swr_sceneModels[SWR_SCENE_SLOT_PIT_DROIDS + i], &droidPos);
         if (droidPos.z <= -157.0f)
             continue;
         if (swr_sceneModels[INGAME_MODELID_sparky_part_0 + i] == NULL)
@@ -4209,7 +4209,7 @@ RETAIL_FP void swrRace_SetAngleFromTurnRate(float* out_tilt, float cur_turnrate,
 }
 
 // 0x0044afb0
-void swrRace_GetEngineNodeOffsetPos(void** nodePair, rdVector3* outPos)
+void swrRace_GetEngineNodeOffsetPos(void* SWR_P32* nodePair, rdVector3* outPos)
 {
     if (nodePair == NULL) {
         rdVector_Set3(outPos, 0.0f, 0.0f, 0.0f);
@@ -4235,7 +4235,7 @@ void swrRace_GetEngineNodeOffsetPos(void** nodePair, rdVector3* outPos)
 }
 
 // 0x0044b180
-void swrRace_SetEngineNodeRotScale(void** nodePair, float scale, float angle)
+void swrRace_SetEngineNodeRotScale(void* SWR_P32* nodePair, float scale, float angle)
 {
     rdMatrix44 rotScale;
     rdMatrix44 current;
@@ -4264,7 +4264,7 @@ void swrRace_SetEngineNodeRotScale(void** nodePair, float scale, float angle)
 }
 
 // 0x0044b270
-void swrRace_SetEngineNodeTranslation(void** nodePair, rdVector3* pos)
+void swrRace_SetEngineNodeTranslation(void* SWR_P32* nodePair, rdVector3* pos)
 {
     if (nodePair == NULL)
         return;

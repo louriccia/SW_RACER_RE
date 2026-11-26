@@ -1328,7 +1328,7 @@ void swrModel_ConvertIndexedTextureRows(int width, int height, int paddedWidth, 
 }
 
 // 0x00445EE0
-void swrModel_ConvertTextureDataToRdMaterial(int texture_type_a, int texture_type_b, int orig_width, int orig_height, int width, int height, swrMaterial* SWR_P32* texture_data_ptr, uint8_t** palette_ptr, char flipSomething, char adjustWidthHeightFlag)
+void swrModel_ConvertTextureDataToRdMaterial(int texture_type_a, int texture_type_b, int orig_width, int orig_height, int width, int height, swrMaterial* SWR_P32* texture_data_ptr, uint8_t* SWR_P32* palette_ptr, char flipSomething, char adjustWidthHeightFlag)
 {
     tVBuffer buffer;
     tVBuffer* SWR_P32 pBuffer = &buffer;
@@ -1609,7 +1609,7 @@ void swrModel_ConvertTextureDataToRdMaterial(int texture_type_a, int texture_typ
 }
 
 // 0x00446C20
-void swrModel_DoConvertTextureDataToRdMaterial(swrMaterial* SWR_P32* texture_data_ptr, uint8_t** palette_data_ptr)
+void swrModel_DoConvertTextureDataToRdMaterial(swrMaterial* SWR_P32* texture_data_ptr, uint8_t* SWR_P32* palette_data_ptr)
 {
     swrModel_MaterialTexture* texture = (swrModel_MaterialTexture*)((char*)texture_data_ptr - offsetof(swrModel_MaterialTexture, texture_data));
     int origWidth;
@@ -1679,7 +1679,7 @@ void swrModel_ConvertTileToRdMaterial(void* tex, void* tile)
 {
     swrSpriteTextureHeader* header = (swrSpriteTextureHeader*)tex;
     swrSpriteTexturePage* page = (swrSpriteTexturePage*)tile;
-    uint8_t* palette = (uint8_t*)header->palette_offset;
+    uint8_t* SWR_P32 palette = (uint8_t*)header->palette_offset;
     int height = (short)page->height;
     unsigned int mask;
 

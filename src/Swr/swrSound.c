@@ -102,7 +102,7 @@ int swrSound_LoadSoundMap(void)
     void* sound = NULL;
 
     if (stdConffile_ReadArgs() == 0 || _strcmpi(stdConffile_g_entry.aArgs[0].argName, "NUMSOUNDS") != 0) {
-        if (*(void**)((char*)swrSound_bank + 0x28) != NULL)
+        if (*(void* SWR_P32*)((char*)swrSound_bank + 0x28) != NULL)
             swrSound_FreeBank();
         return 1;
     }
@@ -169,7 +169,7 @@ unsigned int swrSound_EvictSounds(unsigned int bytesNeeded)
     freed = 0;
     for (;;) {
         index = swrSound_evictCursor;
-        entry = (swrSoundDescriptor*)(*(char**)(bank + 0x28) + index * sizeof(swrSoundDescriptor));
+        entry = (swrSoundDescriptor*)(*(char* SWR_P32*)(bank + 0x28) + index * sizeof(swrSoundDescriptor));
         for (; index < *(uint32_t*)(bank + 0x20); index++, entry++) {
             if ((entry->flags & swrSoundDescriptor_LOADED) == 0 || (entry->flags & swrSoundDescriptor_STREAMED) != 0)
                 continue;
@@ -486,7 +486,7 @@ int swrSound_Init(void)
 
     if (Sound_enabled_3d != 0)
     {
-        if ((*IA3d4_ptr->lpVtbl->QueryInterface)(IA3d4_ptr, &IID_IA3dListener_GUID, (void**)&IA3dListener_ptr) < 0)
+        if (SWR_OUT_NATIVE(void*, IA3dListener_ptr, (*IA3d4_ptr->lpVtbl->QueryInterface)(IA3d4_ptr, &IID_IA3dListener_GUID, swr_out_)) < 0)
         {
             Sound_A3Dinitted = 0;
             Sound_enabled_3d = 0;
@@ -1215,10 +1215,10 @@ void swrSound_FreeBank(void)
         }
         swrSound_Remove((char*)(*(int*)(bank + 0x28) + i * 0x4c));
     }
-    c_free(*(void**)(bank + 0x28));
+    c_free(*(void* SWR_P32*)(bank + 0x28));
     *(int*)(bank + 0x20) = 0;
     *(int*)(bank + 0x24) = 0;
-    *(void**)(bank + 0x28) = NULL;
+    *(void* SWR_P32*)(bank + 0x28) = NULL;
 }
 
 // Allocate the bank's descriptor array (count entries of 0x4c bytes each), zero it,
@@ -1228,7 +1228,7 @@ int swrSound_AllocBank(int count)
 {
     char* bank = (char*) swrSound_bank;
     void* entries = c_malloc(count * 0x4c);
-    *(void**) (bank + 0x28) = entries;
+    *(void* SWR_P32*) (bank + 0x28) = entries;
     if (entries == NULL)
         return 0;
     memset(entries, 0, count * 0x4c);
@@ -1261,7 +1261,7 @@ void* swrSound_RegisterSound(char* name, int load)
             swrSound_LoadSound(found);
         if (*(uint32_t*)(bank + 0x20) >= *(uint32_t*)(bank + 0x24))
             return NULL;
-        entry = (swrSoundDescriptor*)(*(char**)(bank + 0x28) + *(uint32_t*)(bank + 0x20) * sizeof(swrSoundDescriptor));
+        entry = (swrSoundDescriptor*)(*(char* SWR_P32*)(bank + 0x28) + *(uint32_t*)(bank + 0x20) * sizeof(swrSoundDescriptor));
         *entry = *found;
         if ((found->flags & swrSoundDescriptor_STREAMED) == 0) {
             found->flags |= swrSoundDescriptor_ALIAS;
@@ -1291,7 +1291,7 @@ void* swrSound_RegisterSound(char* name, int load)
 
     if (*(uint32_t*)(bank + 0x20) < *(uint32_t*)(bank + 0x24)) {
         uint32_t index = *(uint32_t*)(bank + 0x20);
-        entry = (swrSoundDescriptor*)(*(char**)(bank + 0x28) + index * sizeof(swrSoundDescriptor));
+        entry = (swrSoundDescriptor*)(*(char* SWR_P32*)(bank + 0x28) + index * sizeof(swrSoundDescriptor));
         entry->index = index;
         strncpy(entry->name, name, sizeof(entry->name) - 1);
         entry->name[sizeof(entry->name) - 1] = '\0';

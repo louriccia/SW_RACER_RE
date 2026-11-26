@@ -321,7 +321,7 @@ swrModel_Header* swrModel_LoadFromId(MODELID id)
         if ((data & 0xFF000000) == 0xA000000)
         {
             // this is a texture index
-            swrModel_LoadModelTexture((TEXID)(data & 0xFFFFFF), (swrMaterial* SWR_P32*)&model_buff[i], (uint8_t**)&model_buff[i + 1]);
+            swrModel_LoadModelTexture((TEXID)(data & 0xFFFFFF), (swrMaterial* SWR_P32*)&model_buff[i], (uint8_t* SWR_P32*)&model_buff[i + 1]);
         }
         else if (data != 0)
         {
@@ -2293,7 +2293,7 @@ int swrModel_NodeComputeFirstMeshAABB(swrModel_Node* node, float* aabb, int a3)
 }
 
 // 0x00447370
-void swrModel_LoadTextureDataAndPalette(int* texture_offsets, uint8_t** texture_data_ptr, uint8_t** palette_ptr)
+void swrModel_LoadTextureDataAndPalette(int* texture_offsets, uint8_t* SWR_P32* texture_data_ptr, uint8_t* SWR_P32* palette_ptr)
 {
     // texture_offsets = { pixel data, palette (0 = none), next texture's pixel data } in the texture block
     size_t size = texture_offsets[2] - texture_offsets[0];
@@ -2336,7 +2336,7 @@ void swrModel_InitializeTextureBuffer()
 }
 
 // 0x00447490
-void swrModel_LoadModelTexture(TEXID texture_index, swrMaterial* SWR_P32* material_ptr, uint8_t** palette_data_ptr)
+void swrModel_LoadModelTexture(TEXID texture_index, swrMaterial* SWR_P32* material_ptr, uint8_t* SWR_P32* palette_data_ptr)
 {
     int offsets[3];
     int i;
@@ -2349,13 +2349,13 @@ void swrModel_LoadModelTexture(TEXID texture_index, swrMaterial* SWR_P32* materi
     // texture_buffer caches a pointer to the first loader's {material, palette} slot pair
     if (texture_buffer[texture_index] != NULL) {
         *material_ptr = ((swrMaterial* SWR_P32*)texture_buffer[texture_index])[0];
-        *palette_data_ptr = ((uint8_t**)texture_buffer[texture_index])[1];
+        *palette_data_ptr = ((uint8_t* SWR_P32*)texture_buffer[texture_index])[1];
         return;
     }
     swrLoader_ReadAt(swrLoader_TYPE_TEXTURE_BLOCK, texture_index * 8 + 4, offsets, sizeof(offsets));
     for (i = 0; i < 3; i++)
         offsets[i] = SWAP32(offsets[i]);
-    swrModel_LoadTextureDataAndPalette(offsets, (uint8_t**)material_ptr, palette_data_ptr);
+    swrModel_LoadTextureDataAndPalette(offsets, (uint8_t* SWR_P32*)material_ptr, palette_data_ptr);
     swrModel_DoConvertTextureDataToRdMaterial(material_ptr, palette_data_ptr);
     texture_buffer[texture_index] = material_ptr;
     if (texture_index == TEXID_b_alpha_waterfall_ctr_rgb)

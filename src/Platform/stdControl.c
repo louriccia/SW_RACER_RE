@@ -428,7 +428,7 @@ void stdControl_InitJoysticks(void)
         caps = (LPDIDEVCAPS)(device + 1);
         // faithful: the CreateDevice result is not checked
         iDirectInputA_ptr->lpVtbl->CreateDevice(iDirectInputA_ptr, &instance->guidInstance, &created, NULL);
-        hr = created->lpVtbl->QueryInterface(created, &directInputDevice2A_GUID, (void**)device);
+        hr = SWR_OUT_NATIVE(void*, *device, created->lpVtbl->QueryInterface(created, &directInputDevice2A_GUID, swr_out_));
         created->lpVtbl->Release(created);
         created = NULL;
         if (hr >= 0) {

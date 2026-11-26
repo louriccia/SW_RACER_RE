@@ -132,7 +132,7 @@ BOOL DirectPlay_Startup(void)
     DWORD zero_;
 
     CoInitialize(NULL);
-    CoCreateInstance((IID*)&DirectPlay_GUID, NULL, 1, &IID_IDirectPlay4_GUID, (void**)&stdComm_pDirectPlay);
+    SWR_OUT_NATIVE(void*, stdComm_pDirectPlay, CoCreateInstance((IID*)&DirectPlay_GUID, NULL, 1, &IID_IDirectPlay4_GUID, swr_out_));
     stdComm_numConnections = 0;
     pSVar4 = stdComm_Connections;
     for (iVar3 = 0x460; iVar3 != 0; iVar3 = iVar3 + -1)

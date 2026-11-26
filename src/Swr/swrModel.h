@@ -352,9 +352,9 @@ void swrModel_ConvertIndexedTextureRows(int width, int height, int paddedWidth, 
 void swrModel_BuildTiledTextureMaterial(void* tex);
 void swrModel_ConvertTileToRdMaterial(void* tex, void* tile);
 
-void swrModel_LoadTextureDataAndPalette(int* texture_offsets, uint8_t** texture_data_ptr, uint8_t** palette_ptr);
+void swrModel_LoadTextureDataAndPalette(int* texture_offsets, uint8_t* SWR_P32* texture_data_ptr, uint8_t* SWR_P32* palette_ptr);
 void swrModel_InitializeTextureBuffer();
-void swrModel_LoadModelTexture(TEXID texture_index, swrMaterial* SWR_P32* material_ptr, uint8_t** palette_data_ptr);
+void swrModel_LoadModelTexture(TEXID texture_index, swrMaterial* SWR_P32* material_ptr, uint8_t* SWR_P32* palette_data_ptr);
 
 int swrModel_MeshMaterialAlreadyByteSwapped(swrModel_MeshMaterial* mesh_material);
 int swrModel_MeshTextureAlreadyByteSwapped(swrModel_MaterialTexture* texture);

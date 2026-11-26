@@ -292,7 +292,7 @@ void swrText_InitFonts(void)
 {
     // conversion order is retail's: fonts 3, 0, 1, 2, 4
     static const int order[] = { 3, 0, 1, 2, 4 };
-    uint8_t* palette = NULL;
+    uint8_t* SWR_P32 palette = NULL;
     int f;
     int i;
 

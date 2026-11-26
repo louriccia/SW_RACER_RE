@@ -2653,7 +2653,7 @@ void swrObjHang_UpdateVehicleSelectIntro(swrObjHang* hang)
     for (int i = 0; i < hang->num_local_players; i++) {
         if (swrControl_menuAcceptPressedEdge != 0 || swrControl_cancelPressedEdge != 0) {
             // faithful: elmoEntityIndex is -1 after the first skip, so later players index slot -1
-            swrRace_SetEngineNodeTranslation((void**)swr_sceneModels[hang->elmoEntityIndex], &swrObjElmo_waypoints[9]);
+            swrRace_SetEngineNodeTranslation((void* SWR_P32*)swr_sceneModels[hang->elmoEntityIndex], &swrObjElmo_waypoints[9]);
             swrObjElmo_SetAnimState(elmo, 0);
             hang->elmoEntityIndex = -1;
             swrRace_Transition = 0.0f;
@@ -2673,7 +2673,7 @@ void swrObjHang_UpdateVehicleSelectIntro(swrObjHang* hang)
         }
         if (swrObjHang_cameraMoveMode == 0) {
             if (swrObjHang_vehicleIntroStep == 1) {
-                swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[hang->elmoEntityIndex], &lookAt);
+                swrRace_GetEngineNodeOffsetPos((void* SWR_P32*)swr_sceneModels[hang->elmoEntityIndex], &lookAt);
                 lookAt.z = elmoHeight - 60.0f;
                 swrObjHang_SetHoloCameraTarget((rdVector3*)&swrObjHang_cameraMatrix.vD, &lookAt, 1, 0, 0);
                 rdVector_Copy3(&elmo->moveTarget, &swrObjElmo_waypoints[1]);
@@ -2713,13 +2713,13 @@ void swrObjHang_UpdateTauntScene(swrObjHang* hang)
         swrObjHang_tauntFavoriteSpoken = 0;
         swrObjHang_tauntReplySpoken = 0;
         // faithful: the shots computed from the puppets here are overwritten by the fixed poses below
-        swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[SWR_SCENE_SLOT_PILOT_PUPPETS], &swrObjHang_tauntShot2LookAt);
+        swrRace_GetEngineNodeOffsetPos((void* SWR_P32*)swr_sceneModels[SWR_SCENE_SLOT_PILOT_PUPPETS], &swrObjHang_tauntShot2LookAt);
         rdVector_Copy3(&swrObjHang_tauntShot1Eye, &swrObjHang_tauntShot2LookAt);
         swrObjHang_tauntShot2LookAt.z = (float)((double)swrRacer_PodData[(int)hang->vehiclePlayer].float20 * 0.6667 - 157.0);
         swrObjHang_tauntShot1Eye.z = (float)((double)swrRacer_PodData[2].float20 * 0.6667 - 157.0);
         swrObjHang_tauntShot1Eye.x -= -60.0f;
         swrObjHang_tauntShot1Eye.y -= -70.0f;
-        swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[SWR_SCENE_SLOT_PILOT_PUPPETS + 1], &swrObjHang_tauntShot1LookAt);
+        swrRace_GetEngineNodeOffsetPos((void* SWR_P32*)swr_sceneModels[SWR_SCENE_SLOT_PILOT_PUPPETS + 1], &swrObjHang_tauntShot1LookAt);
         rdVector_Copy3(&swrObjHang_tauntShot2Eye, &swrObjHang_tauntShot1LookAt);
         swrObjHang_tauntShot1LookAt.z = (float)((double)swrRacer_PodData[2].float20 * 0.6667 - 157.0);
         swrObjHang_tauntShot2Eye.z = (float)((double)swrRacer_PodData[(int)hang->vehiclePlayer].float20 * 0.6667 - 157.0);
@@ -2902,7 +2902,7 @@ void swrObjHang_UpdatePlanetSelectIntro(swrObjHang* hang)
         stdMath_SinCos(swrObjHang_planetIntroOrbitAngle[place], &bobSin, &bobCos);
         pilot = (swrObjElmo*)swrEvent_GetItem('Elmo', SWR_SCENE_SLOT_PILOT_PUPPETS + place);
         pilot->position.z = (float)place * -50.0f - bobSin * -15.0f;
-        swrRace_SetEngineNodeTranslation((void**)pilot->unk30_nodes, &pilot->position);
+        swrRace_SetEngineNodeTranslation((void* SWR_P32*)pilot->unk30_nodes, &pilot->position);
 
         // the award platform under the pilot, then the place number
         for (int part = 0; part < 2; part++) {
@@ -2933,7 +2933,7 @@ void swrObjHang_UpdateResultsIntro(void)
         swrObjHang_resultsIntroCameraSet = 0;
         rdVector_Set3(&swrObjHang_resultsPodPose.translation, 0.0f, 1200.0f, 50.0f);
         rdVector_Set3(&swrObjHang_resultsPodPose.yaw_roll_pitch, 0.0f, 0.0f, 0.0f);
-        swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[SWR_SCENE_SLOT_PIT_DROIDS], (rdVector3*)&swrObjHang_holoCameraMatrix.vD);
+        swrRace_GetEngineNodeOffsetPos((void* SWR_P32*)swr_sceneModels[SWR_SCENE_SLOT_PIT_DROIDS], (rdVector3*)&swrObjHang_holoCameraMatrix.vD);
         swrObjHang_holoCameraMatrix.vD.z = -97.0f;
         rdVector_Copy3((rdVector3*)&swrObjHang_cameraMatrix.vD, (rdVector3*)&swrObjHang_holoCameraMatrix.vD);
         swrObjHang_cameraMatrix.vD.y += 500.0f;
@@ -3319,7 +3319,7 @@ void swrObjHang_F2(swrObjHang* hang)
     }
 
     if (hang->elmoEntityIndex != -1)
-        swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[hang->elmoEntityIndex], &hang->elmoFocusPosition);
+        swrRace_GetEngineNodeOffsetPos((void* SWR_P32*)swr_sceneModels[hang->elmoEntityIndex], &hang->elmoFocusPosition);
 }
 
 // 0x00457b90
@@ -8654,7 +8654,7 @@ void swrObjElmo_F0(swrObjElmo* elmo)
 
     elmo->unk18_ms = swrRace_fdeltaTimeSecs + elmo->unk18_ms;
     swrModel_CompensateRootMotion((swrModel_Node* SWR_P32*)elmo->unk30_nodes, (swrModel_Animation* SWR_P32*)elmo->unk34, &elmo->unk38, 30.0f);
-    swrRace_GetEngineNodeOffsetPos((void**)elmo->unk30_nodes, &elmo->position);
+    swrRace_GetEngineNodeOffsetPos((void* SWR_P32*)elmo->unk30_nodes, &elmo->position);
     swrObjElmo_GetAnimTiming(elmo, &loopStart, &loopEnd);
     anims = (swrModel_Animation* SWR_P32*)elmo->unk34;
 
@@ -8732,7 +8732,7 @@ void swrObjElmo_F0(swrObjElmo* elmo)
         // 1-in-101 chance per frame: the first pilot puppet drifts 5% toward its target
         if ((int)((long double)swrUtils_Rand() * SWR_CTL_RAND_NORM * 101.0f) == 0 && elmo->unkc_index == SWR_SCENE_SLOT_PILOT_PUPPETS)
             rdVector_Scale3Add3_both(&elmo->position, 0.95f, &elmo->position, 0.05f, &elmo->moveTarget);
-        swrRace_SetEngineNodeTranslation((void**)elmo->unk30_nodes, &elmo->position);
+        swrRace_SetEngineNodeTranslation((void* SWR_P32*)elmo->unk30_nodes, &elmo->position);
         break;
     case 0x12:
         if (swrModel_GetAnimListTime(anims) >= loopEnd) {
@@ -8790,7 +8790,7 @@ void swrObjElmo_F0(swrObjElmo* elmo)
             rdVector_Sub3(&delta, &elmo->moveTarget, &elmo->position);
             rdVector_Normalize3Acc(&delta);
             rdVector_Scale3Add3(&elmo->position, &elmo->position, swrRace_fdeltaTimeSecs * 130.0f, &delta);
-            swrRace_SetEngineNodeTranslation((void**)elmo->unk30_nodes, &elmo->position);
+            swrRace_SetEngineNodeTranslation((void* SWR_P32*)elmo->unk30_nodes, &elmo->position);
         } else {
             // face the shop counter, or the camera when parked at waypoint 5
             elmo->yawTarget = stdMath_ArcTan2(elmo->position.x - 12.0f, -116.0f - elmo->position.y);
@@ -8851,7 +8851,7 @@ void swrObjElmo_F0(swrObjElmo* elmo)
         angle = elmo->yaw - swrModel_GetNodeYaw((swrModel_Node* SWR_P32*)elmo->unk30_nodes, (swrModel_Animation* SWR_P32*)elmo->unk34);
     else
         angle = elmo->yaw;
-    swrRace_SetEngineNodeRotScale((void**)elmo->unk30_nodes, elmo->scale, angle);
+    swrRace_SetEngineNodeRotScale((void* SWR_P32*)elmo->unk30_nodes, elmo->scale, angle);
 }
 
 // 0x00468570
@@ -9013,8 +9013,8 @@ void swrObjElmo_SetTransformAndAnimById(int elmoId, int animCmd, rdVector3* posi
         elmo->scale = 2.0f;
         break;
     }
-    swrRace_SetEngineNodeTranslation((void**)elmo->unk30_nodes, &elmo->position);
-    swrRace_SetEngineNodeRotScale((void**)elmo->unk30_nodes, elmo->scale, elmo->yaw);
+    swrRace_SetEngineNodeTranslation((void* SWR_P32*)elmo->unk30_nodes, &elmo->position);
+    swrRace_SetEngineNodeRotScale((void* SWR_P32*)elmo->unk30_nodes, elmo->scale, elmo->yaw);
     swrModel_SetAnimListSpeed((swrModel_Animation* SWR_P32*)elmo->unk34, elmo->animSpeed);
     swrObjElmo_SetAnimState(elmo, animCmd);
 }
@@ -9197,7 +9197,7 @@ void swrObjElmo_WalkIntoView(swrObjElmo* elmo)
         steps++;
     }
     if (steps > 0)
-        swrRace_SetEngineNodeTranslation((void**)elmo->unk30_nodes, &elmo->position);
+        swrRace_SetEngineNodeTranslation((void* SWR_P32*)elmo->unk30_nodes, &elmo->position);
 }
 
 // 0x004691c0
@@ -9387,8 +9387,8 @@ void swrObjHang_UpdateCantinaHolotable(int menuScreen)
             rdVector_Scale3Add3_both((rdVector3*)&world.vD, 0.75f, &swrObjHang_cameraPlacements[0x24].position1, 0.25f, (rdVector3*)&world.vD);
             fade = fade * 0.25f;
         }
-        swrRace_SetEngineNodeTranslation((void**)droid->unk30_nodes, (rdVector3*)&world.vD);
-        swrRace_SetEngineNodeRotScale((void**)droid->unk30_nodes, droid->scale * fade, swrObjHang_holoSpinAngle * 4.0f);
+        swrRace_SetEngineNodeTranslation((void* SWR_P32*)droid->unk30_nodes, (rdVector3*)&world.vD);
+        swrRace_SetEngineNodeRotScale((void* SWR_P32*)droid->unk30_nodes, droid->scale * fade, swrObjHang_holoSpinAngle * 4.0f);
     }
 
     vehicleFade = swrObjHang_vehicleStatsFade;
@@ -9511,7 +9511,7 @@ void swrObjSmok_Free(swrObj* obj)
             swrModel_NodeModifyFlags(smok->particleNodes[i], 2, -4, 0x10, 3);
     }
     if (smok->ownerHandle != NULL)
-        *(void**)smok->ownerHandle = NULL;
+        *(void* SWR_P32*)smok->ownerHandle = NULL;
     swrObj_Free(obj);
 }
 
@@ -13117,7 +13117,7 @@ void swrObjHang_PositionPlayerPuppets(swrObjHang* hang)
         swrObjHang_ComputeCameraEye(hang, player);
         elmo = (swrObjElmo*)swrEvent_GetItem('Elmo', SWR_SCENE_SLOT_PILOT_PUPPETS + player);
         if (elmo != NULL) {
-            swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[SWR_SCENE_SLOT_PILOT_PUPPETS + player], &puppetPos);
+            swrRace_GetEngineNodeOffsetPos((void* SWR_P32*)swr_sceneModels[SWR_SCENE_SLOT_PILOT_PUPPETS + player], &puppetPos);
             swrObjElmo_SetTransformAndAnimById(SWR_SCENE_SLOT_PILOT_PUPPETS + player, 0x14, &puppetPos, &swrObjHang_sceneCameraEye, elmo->yaw, stdMath_ArcTan2(swrObjHang_sceneCameraEye.x - lookAt.x, lookAt.y - swrObjHang_sceneCameraEye.y));
         }
     }
@@ -13614,7 +13614,7 @@ void swrObjHang_UpdateWattoShop(swrObjHang* hang)
                         swrObjHang_state2 = swrObjHang_STATE_LOOK_AT_VEHICLE;
                         swrObjHang_fadeState = -1;
                     } else if (SWR_PIT_DROID_PRICE - 1 < swrRace_truguts) {
-                        swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[SWR_SCENE_SLOT_PIT_DROIDS - 1 + swrObjHang_pitDroidsForSale], &droidPos);
+                        swrRace_GetEngineNodeOffsetPos((void* SWR_P32*)swr_sceneModels[SWR_SCENE_SLOT_PIT_DROIDS - 1 + swrObjHang_pitDroidsForSale], &droidPos);
                         rdVector_Copy3(&droidLookAt, &swrObjHang_cameraPlacements[0].position2);
                         droidLookAt.z = -60.0f;
                         yaw = stdMath_ArcTan2(droidPos.x - 12.0f, -116.0f - droidPos.y);
@@ -13981,7 +13981,7 @@ void swrObjHang_UpdateLookAtVehicle(swrObjHang* hang)
             elmo->position.z = elmo->position.z - 20.0f;
             break;
         }
-        swrRace_SetEngineNodeTranslation((void**)elmo->unk30_nodes, &elmo->position);
+        swrRace_SetEngineNodeTranslation((void* SWR_P32*)elmo->unk30_nodes, &elmo->position);
     }
     // the original pushes hang here, but the callee takes no arguments
     swrRace_UpdatePitDroidModels();
@@ -14338,14 +14338,14 @@ void swrObjHang_AimHoloCamera(swrObjHang* hang, int cameraState, int fromCurrent
     case HangCameraState_InspectPT02:
     case HangCameraState_InspectPT03:
     case HangCameraState_InspectPT04:
-        swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[SWR_SCENE_SLOT_PIT_DROIDS + cameraState - HangCameraState_InspectPT01], &lookAt);
+        swrRace_GetEngineNodeOffsetPos((void* SWR_P32*)swr_sceneModels[SWR_SCENE_SLOT_PIT_DROIDS + cameraState - HangCameraState_InspectPT01], &lookAt);
         if (lookAt.z == -157.0f)
             lookAt.z = lookAt.z - -60.0f;
         else
             lookAt.z = lookAt.z - -30.0f;
         break;
     case HangCameraState_InspectCharacter:
-        swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[SWR_SCENE_SLOT_PILOT_PUPPETS], &lookAt);
+        swrRace_GetEngineNodeOffsetPos((void* SWR_P32*)swr_sceneModels[SWR_SCENE_SLOT_PILOT_PUPPETS], &lookAt);
         lookAt.z = (float)((double)swrRacer_PodData[(int)hang->vehiclePlayer].float20 * 0.6667 - 157.0);
         break;
     }
@@ -14378,7 +14378,7 @@ void swrObjHang_UpdateHoloCameraTarget(swrObjHang* hang, int itemIndex)
     if (0x19 < itemIndex) {
         if (itemIndex < 0x1e) {
             // Pod engine/part nodes live at swr_sceneModels[itemIndex + 26].
-            swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[itemIndex + 26], &elementPos);
+            swrRace_GetEngineNodeOffsetPos((void* SWR_P32*)swr_sceneModels[itemIndex + 26], &elementPos);
             if (elementPos.z == -157.0f) {
                 elementPos.z = elementPos.z - -60.0f;
             } else {
@@ -14388,7 +14388,7 @@ void swrObjHang_UpdateHoloCameraTarget(swrObjHang* hang, int itemIndex)
             if (itemIndex != 0x1e) {
                 return;
             }
-            swrRace_GetEngineNodeOffsetPos((void**)swr_sceneModels[28], &elementPos);
+            swrRace_GetEngineNodeOffsetPos((void* SWR_P32*)swr_sceneModels[28], &elementPos);
             elementPos.z = swrRacer_PodData[hang->vehiclePlayer].float20 * 0.0331514f - 0.0f;
         }
         if (swrObjHang_cameraMoveMode == 1) {

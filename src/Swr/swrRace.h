@@ -346,13 +346,13 @@ void swrRace_UpdateTurn(float* turnRate, float* heading, float targetRate, float
 void swrRace_SetAngleFromTurnRate(float* out_tilt, float cur_turnrate, void* unused, float max_turnrate, float max_angle);
 
 // Reads an engine node's world translation and offsets it by the paired node's Y position (best guess).
-void swrRace_GetEngineNodeOffsetPos(void** nodePair, rdVector3* outPos);
+void swrRace_GetEngineNodeOffsetPos(void* SWR_P32* nodePair, rdVector3* outPos);
 
 // Builds a rotation and scale transform for an engine node, offset by the paired node's Y (best guess).
-void swrRace_SetEngineNodeRotScale(void** nodePair, float scale, float angle);
+void swrRace_SetEngineNodeRotScale(void* SWR_P32* nodePair, float scale, float angle);
 
 // Copies an engine node's transform and sets its translation minus the paired node's Y offset (best guess).
-void swrRace_SetEngineNodeTranslation(void** nodePair, rdVector3* pos);
+void swrRace_SetEngineNodeTranslation(void* SWR_P32* nodePair, rdVector3* pos);
 
 void swrRace_ReplaceMarsGuoWithJinnReeso(void);
 void swrRace_ReplaceBullseyeWithCyYunga(void);

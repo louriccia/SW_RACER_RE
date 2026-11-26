@@ -28,7 +28,7 @@
 #else
 #define SWR_OUT_NATIVE(T, slot, call)                                                              \
     ({                                                                                             \
-        T *const swr_out_ = &(slot);                                                               \
+        T *const swr_out_ = (T *) &(slot);                                                         \
         (call);                                                                                    \
     })
 #define SWR_P32

@@ -337,7 +337,7 @@ int stdDisplay_InitDirectDraw(HWND wnd)
         return 0;
 
     directDrawVidMemTotal = caps.dwVidMemTotal;
-    if (IDirectDraw_QueryInterface(lpDD, &IID_IDirectDraw4, (void**)&stdDisplay_lpDD) != S_OK)
+    if (SWR_OUT_NATIVE(void*, stdDisplay_lpDD, IDirectDraw_QueryInterface(lpDD, &IID_IDirectDraw4, swr_out_)) != S_OK)
         return 0;
 
     DDDEVICEIDENTIFIER did = { 0 };

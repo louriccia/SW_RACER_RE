@@ -24,7 +24,7 @@ int std3D_Startup(void)
     if (std3D_pDirectDraw == NULL)
         return 0;
 
-    if (IDirectDraw4_QueryInterface(std3D_pDirectDraw, &IID_IDirect3D3, (void**)&std3D_pDirect3D) != S_OK)
+    if (SWR_OUT_NATIVE(void*, std3D_pDirect3D, IDirectDraw4_QueryInterface(std3D_pDirectDraw, &IID_IDirect3D3, swr_out_)) != S_OK)
         return 0;
 
     std3D_numDevices = 0;
