@@ -31,6 +31,9 @@ extern FILE* hook_log;
 
 #include "../hook_helper.h"
 #include "../mod_registry.h"
+#ifdef SWR_REFINED
+#include <refined/swrObjJdge/race_timing.h>
+#endif
 #include "../crash_logger.h"
 #include "../ui_transform.h"
 #include "../imgui_utils.h"// imgui_state cutscene-skip toggles + fast_restart (debug-menu toggles)
@@ -620,6 +623,10 @@ void service_fast_restart() {
     fast_restart_inplace((swrObjJdge *) swrEvent_GetItem('Jdge', 0));
 }
 
+// True once the byte patch below has de-indexed F2's lap slots (hook DLL); the delta helpers
+// that compensate for that only make sense then.
+static bool g_lap_slots_deindexed = false;
+
 // --- 100-lap support -------------------------------------------------------------------------
 // swrObjJdge_F2 (0x0045ea30) accumulates each frame's elapsed time into a fixed 5-element array
 // swrScore::results_P1_Lap1..Lap5 (offsets 0x60..0x70), indexed *directly* by the current lap
@@ -644,6 +651,13 @@ void service_fast_restart() {
 // instruction boundaries are preserved and no trampoline is needed. We verify the original bytes
 // before patching so a mismatched / already-patched / future binary is skipped, never corrupted.
 static bool lap_time_overflow_enable(ModId self, void *) {
+#ifdef SWR_REFINED
+    // Refined race timing (refined/swrObjJdge) stores laps past the fifth itself.
+    (void) self;
+    fprintf(hook_log, "[lap_time_overflow] refined race timing keeps up to %d laps\n", RACE_TIMING_MAX_LAPS);
+    fflush(hook_log);
+    return true;
+#endif
     if (!retail_code_present()) {
         fprintf(hook_log, "[lap_time_overflow] patches retail code, which is not loaded; not applied\n");
         fflush(hook_log);
@@ -695,6 +709,7 @@ static bool lap_time_overflow_enable(ModId self, void *) {
         patched++;
     }
 
+    g_lap_slots_deindexed = true;
     fprintf(hook_log, "[lap_time_overflow] de-indexed %d/%d lap-time sites; >5 laps now safe.\n",
             patched, total);
     fflush(hook_log);
@@ -727,6 +742,13 @@ void swrObjJdge_PatchLapTimeOverflow() {
 // (swrText_CreateTimeEntryPrecise) already prints minutes unbounded (MM:SS.mmm, e.g. 72:34.567),
 // so every total-time readout (in-race timer, results summary, hangar results) follows.
 static bool race_time_cap_enable(ModId self, void *) {
+#ifdef SWR_REFINED
+    (void) self;
+    race_timing_set_time_cap(86400.0f);// 24h, as below
+    fprintf(hook_log, "[race_time_cap] refined race timing clamps at 24h\n");
+    fflush(hook_log);
+    return true;
+#endif
     if (!retail_code_present()) {
         fprintf(hook_log, "[race_time_cap] patches retail code, which is not loaded; not applied\n");
         fflush(hook_log);
@@ -924,7 +946,7 @@ void swrObjJdge_F2_delta(swrObjJdge *jdge) {
 
     // Only meaningful on top of the de-indexed F2; on the stock one the slot writes below would
     // overwrite real lap times.
-    if (!g_lapScores || !mod_enabled(mod_lap_time_overflow))
+    if (!g_lapScores || !g_lap_slots_deindexed)
         return;
 
     int numRacers = *(int *) ((char *) jdge + JDGE_NUM_RACERS);
@@ -981,13 +1003,42 @@ void swrObjJdge_F2_delta(swrObjJdge *jdge) {
 // stacks one row per lap off the top of the screen), so show a compact best/worst/average/total
 // summary in the same left-label / time-column style.
 void swrRace_InRaceEndStatistics_delta(void *jdge, void *score) {
-    if (!g_lapScores || !mod_enabled(mod_lap_time_overflow)) {
+    const int numLaps = *(int *) ((char *) jdge + JDGE_NUM_LAPS);
+#ifdef SWR_REFINED
+    // Refined race timing keeps every lap, so only the >5-lap layout needs replacing.
+    if (!g_lapScores || numLaps <= 5) {
         hook_call_original(swrRace_InRaceEndStatistics, (swrObjJdge *) jdge, (swrScore *) score);
         return;
     }
+#else
+    if (!g_lapScores || !g_lap_slots_deindexed) {
+        hook_call_original(swrRace_InRaceEndStatistics, (swrObjJdge *) jdge, (swrScore *) score);
+        return;
+    }
+#endif
 
-    const int numLaps = *(int *) ((char *) jdge + JDGE_NUM_LAPS);
     const int r = (int) (((char *) score - g_lapScores) / SCORE_STRIDE);
+#ifdef SWR_REFINED
+    if (r >= 0 && r < LAP_RACER_MAX) {
+        g_bestLap[r] = 1.0e9f;
+        g_bestLapNum[r] = 0;
+        g_worstLap[r] = 0.0f;
+        g_worstLapNum[r] = 0;
+        for (int i = 0; i < numLaps; i++) {
+            const float lapTime = *race_timing_lap((swrScore *) score, i, numLaps);
+            if (lapTime <= 0.0f)
+                continue;
+            if (lapTime < g_bestLap[r]) {
+                g_bestLap[r] = lapTime;
+                g_bestLapNum[r] = i + 1;
+            }
+            if (lapTime > g_worstLap[r]) {
+                g_worstLap[r] = lapTime;
+                g_worstLapNum[r] = i + 1;
+            }
+        }
+    }
+#endif
 
     if (numLaps <= 5) {
         if (r >= 0 && r < LAP_RACER_MAX) {

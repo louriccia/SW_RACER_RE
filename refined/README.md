@@ -21,6 +21,10 @@ DLL still uses its retail-side patches for these features.
 |---|---|---|
 | [swrAssetBuffer](swrAssetBuffer/README.md) | `swrScene_InitWorld` | asset buffer size immediates (`asset_buffer_size`) |
 | [swrModel](swrModel/README.md) | `swrModel_LoadModelTexture`, `swrAssetBuffer_InvalidateTexturesBelow` | texture-buffer operand patches (custom tracks) |
+| [swrObjJdge](swrObjJdge/README.md) | `swrObjJdge_F2`, `swrRace_InRaceTimer`, `swrRace_InRaceEndStatistics`, `swrObjHang_ResultsMenu`, `swrMultiplayer_InRace` | lap-slot de-indexing (`lap_time_overflow`), 3000 s constants (`race_time_cap`) |
+
+Refined functions attach underneath every delta on the same function, so a delta's
+`hook_call_original` reaches the refined version.
 
 Seam outside this directory: `g_aTrackInfos` is an indirect global in the standalone
 (`standalone/owned_indirect.txt`); custom tracks point it at their larger table with

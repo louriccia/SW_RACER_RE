@@ -30,6 +30,7 @@
 extern "C" {
 #include <hook_mode.h>
 #include <Win95/Window.h>
+#include <Swr/swrRace.h>
 #include "standalone.h"
 }
 
@@ -85,7 +86,17 @@ struct Attach {
     std::string name;
     void *delta;
     void *key;// what this delta's hook_call_original() names: the retail address or the src symbol
+    bool refined = false;// a refined/ function standing in for the body, innermost in the chain
 };
+
+// refined/ functions replace their faithful bodies underneath every delta (SWR_REFINED_OFF=1: off).
+static bool refined_enabled() {
+#ifdef SWR_REFINED
+    return !GetEnvironmentVariableA("SWR_REFINED_OFF", NULL, 0);
+#else
+    return false;
+#endif
+}
 
 // A function can carry several deltas (e.g. freecam's forward hook plus a hook_replace). In the DLL
 // the second Detours attach copies the first one's jmp into its trampoline, so they chain: the
@@ -125,6 +136,17 @@ extern "C" void init_hooks() {
     for (auto &[reimpl, delta]: hook_replacements)
         add(replace, reimpl, delta, reimpl, "(replace)");
 
+#ifdef SWR_REFINED
+    if (refined_enabled()) {
+        for (int i = 0; i < refined_slot_count; i++) {
+            const RefinedSlot &slot = refined_slots[i];
+            auto &list = forward[slot.faithful];
+            list.insert(list.begin(), Attach{std::string("refined ") + slot.name, slot.refined, slot.refined, true});
+        }
+        fprintf(hook_log, "[refined] %d functions\n", refined_slot_count);
+    }
+#endif
+
     std::map<void *, DebugFunctionInfo> installed;
     std::set<void *> bodies;
     int ok = 0, failed = 0;
@@ -144,7 +166,8 @@ extern "C" void init_hooks() {
         }
         fprintf(hook_log, "    %s: body %p -> %p\n", a.name.c_str(), body, a.delta);
         installed[a.key] = info;
-        bodies.insert(body);
+        if (!a.refined)
+            bodies.insert(body);
         ok++;
     };
     for (auto &[body, list]: forward)
@@ -205,14 +228,15 @@ extern "C" int __stdcall __wrap_WinMain(HINSTANCE hInstance, HINSTANCE hPrev, PS
 #ifdef SWR_OWN_MOVIES
     init_movie_player();
 #endif
-#ifdef SWR_REFINED
-    // The refinement layer stands in for its faithful functions (SWR_REFINED_OFF=1: faithful only).
-    if (!GetEnvironmentVariableA("SWR_REFINED_OFF", NULL, 0)) {
-        for (int i = 0; i < refined_slot_count; i++)
-            hook_replacements[refined_slots[i].faithful] = refined_slots[i].refined;
-        fprintf(hook_log, "[refined] %d functions\n", refined_slot_count);
+    // Test aid: SWR_STANDALONE_AUTOPILOT=1 lets the AI steering drive the local pod, so a whole
+    // race (finish line, results, records) can run unattended.
+    {
+        char v[8] = "";
+        if (GetEnvironmentVariableA("SWR_STANDALONE_AUTOPILOT", v, sizeof(v)) && v[0] != '0') {
+            hook_replacements[(void *) swrRace_UpdatePlayerControl] = (void *) swrRace_UpdateAutopilotControl;
+            fprintf(hook_log, "[autopilot] on\n");
+        }
     }
-#endif
     crash_logger_stage("init: game hooks");
     init_hooks();
     crash_logger_stage("init: custom tracks");
