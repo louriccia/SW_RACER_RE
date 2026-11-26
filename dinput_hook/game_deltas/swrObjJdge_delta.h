@@ -4,6 +4,10 @@
 #include "../mod_registry.h"
 
 unsigned int swrObjJdge_InitTrack_delta(swrObjJdge *judge, swrScore * scores);
+#ifdef SWR_REFINED
+// swe1r: subscribes the per-race track-load duties to the refined track lifecycle.
+void swrObjJdge_RegisterTrackListeners();
+#endif
 
 // Fast restart (speedrunner hotkey): restart the current race with no loading screen via an
 // in-place reset (no teardown/reload) that keeps every pod and asset resident and replays each

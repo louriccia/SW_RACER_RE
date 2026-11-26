@@ -33,6 +33,7 @@ extern FILE* hook_log;
 #include "../mod_registry.h"
 #ifdef SWR_REFINED
 #include <refined/swrObjJdge/race_timing.h>
+#include <refined/track_lifecycle/track_lifecycle.h>
 #endif
 #include "../crash_logger.h"
 #include "../ui_transform.h"
@@ -95,21 +96,55 @@ int fixup_invalid_node_ptrs(swrModel_Node *SWR_P32 &node) {
 //  afterwards a custom track. can be reproduced playing "Spice Mine Run" and then "Bowsers Castle 1".
 static void reset_lap_tracking(swrScore *scores); // 100-lap support, defined below
 
-unsigned int swrObjJdge_InitTrack_delta(swrObjJdge *judge, swrScore *scores) {
-    // Breadcrumb the race so a crash report names the track. The judge's model/spline ids are
-    // only valid after the original has run; before it they hold the previous track's.
+// Per-race duties around a track load. The DLL runs them from swrObjJdge_InitTrack_delta; swe1r
+// subscribes them to the refined track lifecycle (swrObjJdge_RegisterTrackListeners).
+
+// Breadcrumb the race so a crash report names the track. The judge's model/spline ids are only
+// valid once the track has loaded; before that they hold the previous track's.
+static void crash_stage_track_loading() {
     crash_logger_stage("race: init track");
+}
+
+// Asset buffer left with the track resident: what to compare when the grid is cut short.
+static void crash_stage_track_loaded(const swrObjJdge *judge) {
+    crash_logger_stagef("race: running track model %d spline %d on planet %d, %d bytes of asset "
+                        "buffer left",
+                        judge->unk1b0_modelId, judge->unk1b4_splineId, judge->planetId,
+                        swrAssetBuffer_RemainingSize());
+}
+
+#ifdef SWR_REFINED
+static swrObjJdge *loaded_judge() {
+    return (swrObjJdge *) swrEvent_GetItem('Jdge', 0);
+}
+
+static void on_before_load_crash_stage(void *) {
+    crash_stage_track_loading();
+}
+
+static void on_loaded_crash_stage(void *) {
+    crash_stage_track_loaded(loaded_judge());
+}
+
+void swrObjJdge_RegisterTrackListeners() {
+    track_on_before_load("crash_logger", on_before_load_crash_stage, nullptr);
+    track_on_loaded("crash_logger", on_loaded_crash_stage, nullptr);
+}
+#endif
+
+unsigned int swrObjJdge_InitTrack_delta(swrObjJdge *judge, swrScore *scores) {
+#ifndef SWR_REFINED
+    crash_stage_track_loading();
+#endif
     // Map the selected track's assets before the original loads them (and unmap the previous
     // track's, so a stock track never inherits another track's geometry).
     track_registry_ApplyForCurrentTrack();
     // Drop cable nodes from the previous track so freed pointers aren't matched against new meshes.
     swrRace_ClearCableBends();
     const unsigned int x = hook_call_original(swrObjJdge_InitTrack, judge, scores);
-    // Asset buffer left with the track resident: what to compare when the grid is cut short.
-    crash_logger_stagef("race: running track model %d spline %d on planet %d, %d bytes of asset "
-                        "buffer left",
-                        judge->unk1b0_modelId, judge->unk1b4_splineId, judge->planetId,
-                        swrAssetBuffer_RemainingSize());
+#ifndef SWR_REFINED
+    crash_stage_track_loaded(judge);
+#endif
     reset_lap_tracking(scores);
     capture_scene_animation_state();// record fresh animation state for a later fast restart
     forget_trigger_state();// recorded nodes/descs point into the previous track's asset buffer
