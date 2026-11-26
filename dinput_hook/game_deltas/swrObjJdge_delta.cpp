@@ -143,6 +143,11 @@ static void on_loaded_crash_stage(void *) {
     crash_stage_track_loaded(loaded_judge());
 }
 
+// 100-lap support: InitTrack stores the race's scores in swrScoresPtr.
+static void on_loaded_lap_tracking(void *) {
+    reset_lap_tracking(swrScoresPtr);
+}
+
 // Fast restart: the recorded trigger nodes/descriptions point into the old track's data.
 static void on_unload_fast_restart(void *) {
     forget_trigger_state();
@@ -161,6 +166,7 @@ void swrObjJdge_RegisterTrackListeners() {
     track_on_unload("fast_restart", on_unload_fast_restart, nullptr);
     track_on_loaded("crash_logger", on_loaded_crash_stage, nullptr);
     track_on_loaded("fast_restart", on_loaded_fast_restart, nullptr);
+    track_on_loaded("lap_tracking", on_loaded_lap_tracking, nullptr);
 }
 #endif
 
@@ -181,7 +187,9 @@ unsigned int swrObjJdge_InitTrack_delta(swrObjJdge *judge, swrScore *scores) {
 #ifndef SWR_REFINED
     crash_stage_track_loaded(judge);
 #endif
+#ifndef SWR_REFINED
     reset_lap_tracking(scores);
+#endif
 #ifndef SWR_REFINED
     capture_scene_animation_state();// record fresh animation state for a later fast restart
     forget_trigger_state();// recorded nodes/descs point into the previous track's asset buffer
