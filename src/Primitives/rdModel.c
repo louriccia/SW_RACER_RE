@@ -93,12 +93,12 @@ void rdModel3_NewEntry(RdModel3* pModel)
 void rdModel3_Free(RdModel3* model)
 {
     if (model != NULL) {
-        if (rdModel3_pUnloader != NULL) {
-            rdModel3_pUnloader(model);
+        if (SWR_FN32_RAW(rdModel3_pUnloader) != NULL) {
+            SWR_FN32(rdModel3_pUnloader)(model);
             return;
         }
         rdModel3_FreeEntry(model);
-        (*rdroid_hostServices_ptr->free)(model);
+        SWR_FN32(rdroid_hostServices_ptr->free)(model);
     }
 }
 
@@ -121,10 +121,10 @@ void rdModel3_FreeEntry(RdModel3* pModel3)
         for (meshIdx = 0; meshIdx < geoSet->numMeshes; meshIdx++) {
             mesh = geoSet->aMeshes + meshIdx;
             if (mesh->apVertices != NULL) {
-                (*rdroid_hostServices_ptr->free)(mesh->apVertices);
+                SWR_FN32(rdroid_hostServices_ptr->free)(mesh->apVertices);
             }
             if (mesh->apTexVertices != NULL) {
-                (*rdroid_hostServices_ptr->free)(mesh->apTexVertices);
+                SWR_FN32(rdroid_hostServices_ptr->free)(mesh->apTexVertices);
             }
             face = mesh->aFaces;
             if (face != NULL) {
@@ -132,31 +132,31 @@ void rdModel3_FreeEntry(RdModel3* pModel3)
                     rdFace_FreeEntry(face);
                     face = face + 1;
                 }
-                (*rdroid_hostServices_ptr->free)(mesh->aFaces);
+                SWR_FN32(rdroid_hostServices_ptr->free)(mesh->aFaces);
             }
             if (mesh->aVertColors != NULL) {
-                (*rdroid_hostServices_ptr->free)(mesh->aVertColors);
+                SWR_FN32(rdroid_hostServices_ptr->free)(mesh->aVertColors);
             }
             if (mesh->aLightIntensities != NULL) {
-                (*rdroid_hostServices_ptr->free)(mesh->aLightIntensities);
+                SWR_FN32(rdroid_hostServices_ptr->free)(mesh->aLightIntensities);
             }
             if (mesh->aVertNormals != NULL) {
-                (*rdroid_hostServices_ptr->free)(mesh->aVertNormals);
+                SWR_FN32(rdroid_hostServices_ptr->free)(mesh->aVertNormals);
             }
         }
         if (geoSet->aMeshes != NULL) {
-            (*rdroid_hostServices_ptr->free)(geoSet->aMeshes);
+            SWR_FN32(rdroid_hostServices_ptr->free)(geoSet->aMeshes);
         }
         geoSet = geoSet + 1;
     }
     if (pModel3->aHierarchyNodes != NULL) {
-        (*rdroid_hostServices_ptr->free)(pModel3->aHierarchyNodes);
+        SWR_FN32(rdroid_hostServices_ptr->free)(pModel3->aHierarchyNodes);
     }
     for (matIdx = 0; matIdx < pModel3->numMaterials; matIdx++) {
         rdMaterial_Free(pModel3->apMaterials[matIdx]);
     }
     if (pModel3->apMaterials != NULL) {
-        (*rdroid_hostServices_ptr->free)(pModel3->apMaterials);
+        SWR_FN32(rdroid_hostServices_ptr->free)(pModel3->apMaterials);
     }
 }
 
@@ -400,7 +400,7 @@ int rdModel3_DrawFace(RdFace* pFace, int bIsBackFace, rdVector4* pMeshColor, flo
         entry->extraLight.w = faceLight.w + entry->extraLight.w;
     }
 
-    rdCamera_pCurCamera->fnProjectLst(rdModel3_clipDst.verticesOrig, rdModel3_clipDst.verticesProjected, rdModel3_clipDst.numVertices);
+    SWR_FN32(rdCamera_pCurCamera->fnProjectLst)(rdModel3_clipDst.verticesOrig, rdModel3_clipDst.verticesProjected, rdModel3_clipDst.numVertices);
 
     if ((rdroid_g_curRenderOptions & RDROID_USE_AMBIENT_CAMERA_LIGHT) != 0) {
         entry->extraLight.x = rdCamera_pCurCamera->ambientColor.x + entry->extraLight.x;

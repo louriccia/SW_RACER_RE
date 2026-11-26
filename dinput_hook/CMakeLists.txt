@@ -29,6 +29,7 @@ add_library(detours STATIC
         detours-master/src/image.cpp
         detours-master/src/creatwth.cpp
         detours-master/src/disolx86.cpp
+        detours-master/src/disolx64.cpp
 )
 target_include_directories(detours PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/detours-master/include)
 target_compile_definitions(detours PUBLIC DETOUR_DEBUG=0)

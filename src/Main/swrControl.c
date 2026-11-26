@@ -255,7 +255,7 @@ deleteBinding:
         swrUI_GetById(swrUI_mappingsPage, param);
         if (bAnalog != 0 && _strcmpi(functionName, swrText_Translate("/MONDOTEXT_H_0020/ROLL_LEFT")) == 0) {
             if (swrControl_RemoveMapping((void*)swrConfig_currentInputDeviceType, swrText_Translate("/MONDOTEXT_H_0021/ROLL_RIGHT"), 1, whichOne, 1) == 0)
-                (*stdPlatform_hostServices_ptr->assert)("elfControl_RemoveMapping(cid, TXT_ROLL_RIGHT, 1, whichOne, TRUE)", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Source\\elfCallback.c", 0x43b);
+                SWR_FN32(stdPlatform_hostServices_ptr->assert)("elfControl_RemoveMapping(cid, TXT_ROLL_RIGHT, 1, whichOne, TRUE)", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Source\\elfCallback.c", 0x43b);
         }
         swrConfig_RefreshMappingMenu(swrConfig_currentInputDeviceType, swrUI_mappingsPage);
         swrText_ShowTimedMessage(swrText_Translate("/MONDOTEXT_H_0037/~nDeleted."), 1.5f);
@@ -789,7 +789,7 @@ int swrControl_LoadForceEffects(int deviceType)
         return 0;
     }
     if (cifr_LoadAllEffects(&swrControl_forceEffects) < 0) {
-        (*stdPlatform_hostServices_ptr->errorPrint)("BIZARRO ALERT!  cifr_LoadAllEffectsSlots couldn't load any forces!\n");
+        SWR_FN32(stdPlatform_hostServices_ptr->errorPrint)("BIZARRO ALERT!  cifr_LoadAllEffectsSlots couldn't load any forces!\n");
         return 0;
     }
     *(unsigned char*)&swrControl_forceEffectsDeviceType = (unsigned char)deviceType;
@@ -996,7 +996,7 @@ int swrControl_ConfigureForceEffect(int effectId, int value)
         return 0;
     }
     size = effect->params.cbTypeSpecificParams;
-    params = (*stdPlatform_hostServices_ptr->alloc)(size);
+    params = SWR_FN32(stdPlatform_hostServices_ptr->alloc)(size);
     memcpy(params, effect->typeSpecificBuffer, size);
     scale = 1.0f;
     if (setting->magnitudeScale != 0.0f) {
@@ -1012,7 +1012,7 @@ int swrControl_ConfigureForceEffect(int effectId, int value)
     }
     swrControl_forceEffectValue[effectId] = value;
     ok = cifr_SetTypeSpecificParams(effect, size, params, restarted);
-    (*stdPlatform_hostServices_ptr->free)(params);
+    SWR_FN32(stdPlatform_hostServices_ptr->free)(params);
     if (ok != 0 && restarted != 0) {
         swrControl_forceEffectPlaying[effectId] = 1;
     }
@@ -1054,12 +1054,12 @@ int swrControl_UpdateForceEffect(int effectId, int period)
         return 0;
     }
     size = effect->params.cbTypeSpecificParams;
-    params = (*stdPlatform_hostServices_ptr->alloc)(size);
+    params = SWR_FN32(stdPlatform_hostServices_ptr->alloc)(size);
     memcpy(params, effect->typeSpecificBuffer, size);
     params[3] = period; // DIPERIODIC dwPeriod
     swrControl_forceEffectValue[effectId] = period;
     ok = cifr_SetTypeSpecificParams(effect, size, params, restarted);
-    (*stdPlatform_hostServices_ptr->free)(params);
+    SWR_FN32(stdPlatform_hostServices_ptr->free)(params);
     if (ok != 0 && restarted != 0) {
         swrControl_forceEffectPlaying[effectId] = 1;
     }
@@ -2145,7 +2145,7 @@ unsigned char swrControl_CaptureBinding(int bAnalogCapture, swrConfig_DEVICE dev
                 }
                 if (!done) {
                     if (swrControl_ReplaceMapping((void*)device, functionName, whichOne, 0, 0, button) == 0)
-                        (*stdPlatform_hostServices_ptr->assert)("elfControl_ReplaceMapping(cid, fncStr, whichOne, bAnalogCapture, 0, controllerBinding)", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Source\\elfControl.c", 0x6f8);
+                        SWR_FN32(stdPlatform_hostServices_ptr->assert)("elfControl_ReplaceMapping(cid, fncStr, whichOne, bAnalogCapture, 0, controllerBinding)", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Source\\elfControl.c", 0x6f8);
                     if (device == swrConfig_DEVICE_KEYBOARD) {
                         name = swrText_Translate(swrConfig_ControlToString(button, NULL));
                         sprintf(line, swrTextFmtString1, name);
@@ -2209,12 +2209,12 @@ unsigned char swrControl_CaptureBinding(int bAnalogCapture, swrConfig_DEVICE dev
                     // binding roll left binds the same axis, inverted, to roll right
                     if (_strcmpi(functionName, swrText_Translate("/MONDOTEXT_H_0020/ROLL_LEFT")) == 0) {
                         if (swrControl_ReplaceMapping((void*)device, swrText_Translate("/MONDOTEXT_H_0021/ROLL_RIGHT"), whichOne, 1, -direction, capturedAxis) == 0)
-                            (*stdPlatform_hostServices_ptr->assert)("elfControl_ReplaceMapping(cid, TXT_ROLL_RIGHT, whichOne, 1, -sign, lastBinding)", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Source\\elfControl.c", 0x741);
+                            SWR_FN32(stdPlatform_hostServices_ptr->assert)("elfControl_ReplaceMapping(cid, TXT_ROLL_RIGHT, whichOne, 1, -sign, lastBinding)", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Source\\elfControl.c", 0x741);
                         directionLatched = 1;
                     }
                     direction = directionLatched != 0 ? direction : 0;
                     if (swrControl_ReplaceMapping((void*)device, functionName, whichOne, bAnalogCapture, direction, capturedAxis) == 0)
-                        (*stdPlatform_hostServices_ptr->assert)("elfControl_ReplaceMapping(cid, fncStr, whichOne, bAnalogCapture, sign, lastBinding)", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Source\\elfControl.c", 0x746);
+                        SWR_FN32(stdPlatform_hostServices_ptr->assert)("elfControl_ReplaceMapping(cid, fncStr, whichOne, bAnalogCapture, sign, lastBinding)", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Source\\elfControl.c", 0x746);
                     result = swrControl_CAPTURE_SWALLOW_ACCEPT | swrControl_CAPTURE_CHANGED;
                     done = 1;
                 }

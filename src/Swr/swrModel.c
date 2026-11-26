@@ -32,8 +32,8 @@ void* swrModel_AllocMaterial(unsigned int offset, unsigned int byteSize)
     void* buffer;
 
     i = swrAssetBuffer_GetNewIndex(offset);
-    spriteSlot = (swrMaterialSlot*)(*stdPlatform_hostServices_ptr->alloc)(8);
-    buffer = (*stdPlatform_hostServices_ptr->alloc)(byteSize);
+    spriteSlot = (swrMaterialSlot*)SWR_FN32(stdPlatform_hostServices_ptr->alloc)(8);
+    buffer = SWR_FN32(stdPlatform_hostServices_ptr->alloc)(byteSize);
     spriteSlot->data = buffer;
     spriteSlot->next = swrMaterialSlot_array[i];
     swrMaterialSlot_array[i] = spriteSlot;
@@ -68,8 +68,8 @@ void swrModel_FreeSlotMaterials(int slot)
     entry = swrMaterialSlot_array[slot];
     while (entry != NULL) {
         next = entry->next;
-        (*stdPlatform_hostServices_ptr->free)(entry->data);
-        (*stdPlatform_hostServices_ptr->free)(entry);
+        SWR_FN32(stdPlatform_hostServices_ptr->free)(entry->data);
+        SWR_FN32(stdPlatform_hostServices_ptr->free)(entry);
         entry = next;
     }
     swrMaterialSlot_array[slot] = NULL;
@@ -3335,11 +3335,11 @@ float swrModel_MeshIterateOverCollisionFaces(swrModel_Mesh* mesh)
         switch (primitive_type) {
         case 3: // independent triangles
             for (int i = 0; i < num_primitives; i++)
-                swrModel_meshCollisionFaceCallback(vertices + i * 3, 0);
+                SWR_FN32(swrModel_meshCollisionFaceCallback)(vertices + i * 3, 0);
             break;
         case 4: // independent quads
             for (int i = 0; i < num_primitives; i++)
-                swrModel_meshCollisionFaceCallback(vertices + i * 4, 2);
+                SWR_FN32(swrModel_meshCollisionFaceCallback)(vertices + i * 4, 2);
             break;
         case 5:
         case 7: { // triangle strips
@@ -3348,7 +3348,7 @@ float swrModel_MeshIterateOverCollisionFaces(swrModel_Mesh* mesh)
             for (int strip = 0; strip < num_primitives; strip++) {
                 int flip = 0;
                 for (int j = 0; j < (int) strip_lengths[strip] - 2; j++) {
-                    swrModel_meshCollisionFaceCallback(vertices + base + j, flip);
+                    SWR_FN32(swrModel_meshCollisionFaceCallback)(vertices + base + j, flip);
                     flip = 1 - flip;
                 }
                 base += strip_lengths[strip];
@@ -3360,11 +3360,11 @@ float swrModel_MeshIterateOverCollisionFaces(swrModel_Mesh* mesh)
         switch (primitive_type) {
         case 3:
             for (int i = 0; i < num_primitives; i++)
-                swrModel_meshCollisionFaceCallbackIndexed(vertices, 0, indices + i * 3);
+                SWR_FN32(swrModel_meshCollisionFaceCallbackIndexed)(vertices, 0, indices + i * 3);
             break;
         case 4:
             for (int i = 0; i < num_primitives; i++)
-                swrModel_meshCollisionFaceCallbackIndexed(vertices, 2, indices + i * 4);
+                SWR_FN32(swrModel_meshCollisionFaceCallbackIndexed)(vertices, 2, indices + i * 4);
             break;
         case 5:
         case 7: {
@@ -3373,7 +3373,7 @@ float swrModel_MeshIterateOverCollisionFaces(swrModel_Mesh* mesh)
             for (int strip = 0; strip < num_primitives; strip++) {
                 int flip = 0;
                 for (int j = 0; j < (int) strip_lengths[strip] - 2; j++) {
-                    swrModel_meshCollisionFaceCallbackIndexed(vertices, flip, indices + base + j);
+                    SWR_FN32(swrModel_meshCollisionFaceCallbackIndexed)(vertices, flip, indices + base + j);
                     flip = 1 - flip;
                 }
                 base += strip_lengths[strip];
@@ -3549,10 +3549,10 @@ void swrModel_SetupSphereCollision(float* center, float radius, float* axis, flo
     swrModel_collisionResultNode = NULL;
     swrModel_collisionUnkE70 = 0;
     swrModel_collisionUnk250 = 0;
-    swrModel_meshCollisionFaceCallback = swrModel_MeshCollisionFaceCallback2;
+    SWR_FN32_SET(swrModel_meshCollisionFaceCallback, swrModel_MeshCollisionFaceCallback2);
     swrModel_collisionSlabMaxWorld = along + slabMax;
     swrModel_collisionSlabMinWorld = along + slabMin;
-    swrModel_meshCollisionFaceCallbackIndexed = swrModel_MeshCollisionFaceCallback2Indexed;
+    SWR_FN32_SET(swrModel_meshCollisionFaceCallbackIndexed, swrModel_MeshCollisionFaceCallback2Indexed);
     swrModel_collisionSlabMax = swrModel_collisionSlabMaxWorld;
     swrModel_collisionSlabMin = swrModel_collisionSlabMinWorld;
     rdMatrixStack44_Init();
@@ -3820,8 +3820,8 @@ int swrModel_CollideRayWithModel(swrModel_NodeTransformed* node, float* ray)
     swrModel_collisionRayOrigin.y = ray[1];
     swrModel_collisionRayOrigin.z = ray[2];
     swrModel_collisionUnkE1c = 1;
-    swrModel_meshCollisionFaceCallback = swrModel_MeshCollisionFaceCallback;
-    swrModel_meshCollisionFaceCallbackIndexed = swrModel_MeshCollisionFaceCallbackIndexed;
+    SWR_FN32_SET(swrModel_meshCollisionFaceCallback, swrModel_MeshCollisionFaceCallback);
+    SWR_FN32_SET(swrModel_meshCollisionFaceCallbackIndexed, swrModel_MeshCollisionFaceCallbackIndexed);
     swrModel_collisionUnkE70 = 0;
     swrModel_collisionUnk250 = 0;
     rdMatrixStack44_Init();
@@ -3848,8 +3848,8 @@ float swrModel_CollideRayWithMesh(swrModel_Mesh* mesh, float* ray, float* outPoi
         swrModel_collisionRayOrigin.y = ray[1];
         swrModel_collisionRayOrigin.z = ray[2];
         swrModel_collisionUnkE1c = 1;
-        swrModel_meshCollisionFaceCallback = swrModel_MeshCollisionFaceCallback;
-        swrModel_meshCollisionFaceCallbackIndexed = swrModel_MeshCollisionFaceCallbackIndexed;
+        SWR_FN32_SET(swrModel_meshCollisionFaceCallback, swrModel_MeshCollisionFaceCallback);
+        SWR_FN32_SET(swrModel_meshCollisionFaceCallbackIndexed, swrModel_MeshCollisionFaceCallbackIndexed);
 
         buildRayAABB();
         selectFaceAcceptance(mesh);

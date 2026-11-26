@@ -266,8 +266,8 @@ extern "C"
         float screenAspectRatio; // 0x40
         float orthoScale; // 0x44
         rdClipFrustum * SWR_P32 pClipFrustum; // 0x48
-        void (* SWR_P32 fnProject)(rdVector3*, rdVector3*); // 0x4c
-        void (* SWR_P32 fnProjectLst)(rdVector3*, rdVector3*, unsigned int); // 0x50
+        SWR_FNSLOT(void, fnProject, (rdVector3*, rdVector3*)); // 0x4c
+        SWR_FNSLOT(void, fnProjectLst, (rdVector3*, rdVector3*, unsigned int)); // 0x50
         float ambientLight;
         float depthRangeScale; // 0x58. 1 / (fov_y/zFar - fov_y/zNear); depth-range normalization scale
         rdVector4 ambientColor; // 0x5c. rdCamera_SetAmbientLight; rgb seeds rdLight_CalcVertexIntensities
@@ -281,33 +281,33 @@ extern "C"
     typedef struct HostServices
     {
         float some_float;
-        int (* SWR_P32 messagePrint)(const char*, ...);
-        int (* SWR_P32 statusPrint)(const char*, ...);
-        int (* SWR_P32 warningPrint)(const char*, ...);
-        int (* SWR_P32 errorPrint)(const char*, ...);
-        int (* SWR_P32 debugPrint)(const char*, ...);
-        void (* SWR_P32 assert)(const char*, const char*, int);
+        SWR_FNSLOT(int, messagePrint, (const char*, ...));
+        SWR_FNSLOT(int, statusPrint, (const char*, ...));
+        SWR_FNSLOT(int, warningPrint, (const char*, ...));
+        SWR_FNSLOT(int, errorPrint, (const char*, ...));
+        SWR_FNSLOT(int, debugPrint, (const char*, ...));
+        SWR_FNSLOT(void, assert, (const char*, const char*, int));
         uint32_t unk_0;
-        void* (* SWR_P32 alloc)(unsigned int);
-        void (* SWR_P32 free)(void*);
-        void* (* SWR_P32 realloc)(void*, unsigned int);
-        uint32_t (* SWR_P32 getTimerTick)();
-        stdFile_t (* SWR_P32 fileOpen)(const char*, const char*);
-        int (* SWR_P32 fileClose)(stdFile_t);
-        size_t (* SWR_P32 fileRead)(stdFile_t, void*, size_t);
-        char* (* SWR_P32 fileGets)(stdFile_t, char*, size_t);
-        size_t (* SWR_P32 fileWrite)(stdFile_t, const void*, size_t);
-        int (* SWR_P32 feof)(stdFile_t);
-        int (* SWR_P32 ftell)(stdFile_t);
-        int (* SWR_P32 fseek)(stdFile_t, int, int);
-        int (* SWR_P32 fileSize)(const char*);
-        int (* SWR_P32 filePrintf)(stdFile_t, const char*, ...);
-        wchar_t* (* SWR_P32 fileGetws)(stdFile_t, wchar_t*, size_t);
-        void* (* SWR_P32 allocHandle)(size_t);
-        void (* SWR_P32 freeHandle)(void*);
-        void* (* SWR_P32 reallocHandle)(void*, size_t);
-        uint32_t (* SWR_P32 lockHandle)(uint32_t);
-        void (* SWR_P32 unlockHandle)(uint32_t);
+        SWR_FNSLOT(void*, alloc, (unsigned int));
+        SWR_FNSLOT(void, free, (void*));
+        SWR_FNSLOT(void*, realloc, (void*, unsigned int));
+        SWR_FNSLOT(uint32_t, getTimerTick, ());
+        SWR_FNSLOT(stdFile_t, fileOpen, (const char*, const char*));
+        SWR_FNSLOT(int, fileClose, (stdFile_t));
+        SWR_FNSLOT(size_t, fileRead, (stdFile_t, void*, size_t));
+        SWR_FNSLOT(char*, fileGets, (stdFile_t, char*, size_t));
+        SWR_FNSLOT(size_t, fileWrite, (stdFile_t, const void*, size_t));
+        SWR_FNSLOT(int, feof, (stdFile_t));
+        SWR_FNSLOT(int, ftell, (stdFile_t));
+        SWR_FNSLOT(int, fseek, (stdFile_t, int, int));
+        SWR_FNSLOT(int, fileSize, (const char*));
+        SWR_FNSLOT(int, filePrintf, (stdFile_t, const char*, ...));
+        SWR_FNSLOT(wchar_t*, fileGetws, (stdFile_t, wchar_t*, size_t));
+        SWR_FNSLOT(void*, allocHandle, (size_t));
+        SWR_FNSLOT(void, freeHandle, (void*));
+        SWR_FNSLOT(void*, reallocHandle, (void*, size_t));
+        SWR_FNSLOT(uint32_t, lockHandle, (uint32_t));
+        SWR_FNSLOT(void, unlockHandle, (uint32_t));
     } HostServices;
 
     typedef LRESULT (*Window_MSGHANDLER)(HWND, UINT, WPARAM, LPARAM, UINT*);
@@ -1102,11 +1102,11 @@ extern "C"
         int count; // 0x8
         int size; // 0xca
         swrObj * SWR_P32 head; // 0x10
-        void (* SWR_P32 f0)(swrObj* obj); // 0x14
-        void (* SWR_P32 f1)(swrObj* obj); // 0x18
-        void (* SWR_P32 f2)(swrObj* obj); // 0x1c
-        void (* SWR_P32 f3)(swrObj* obj); // 0x20
-        int (* SWR_P32 f4)(swrObj* obj, int* subEvent); // 0x24 int[2] subEvent; returns 2 to stop CallF4 iteration
+        SWR_FNSLOT(void, f0, (swrObj* obj)); // 0x14
+        SWR_FNSLOT(void, f1, (swrObj* obj)); // 0x18
+        SWR_FNSLOT(void, f2, (swrObj* obj)); // 0x1c
+        SWR_FNSLOT(void, f3, (swrObj* obj)); // 0x20
+        SWR_FNSLOT(int, f4, (swrObj* obj, int* subEvent)); // 0x24 int[2] subEvent; returns 2 to stop CallF4 iteration
     } swrEventManager; // sizeof(0x28)
 
     typedef struct swrObj_Message // Unused but documentation purpose
@@ -1336,8 +1336,8 @@ extern "C"
         struct swrUI_unk * SWR_P32 next2;
         struct swrUI_unk * SWR_P32 prev;
         struct swrUI_unk * SWR_P32 next;
-        swrUI_unk_F1 SWR_P32 fun;
-        swrUI_unk_F2 SWR_P32 fun2;
+        SWR_FNSLOT_T(swrUI_unk_F1, fun);
+        SWR_FNSLOT_T(swrUI_unk_F2, fun2);
         int widget_class; // 0x18 widget class id (swrUI_New* sets it; (flags & 0xc) == list item, 6 == number field)
         int id;
         swrUI_FLAG flags; // 0x20 element flags (visible 0x40 / focused 0x20 / hover 0x10 / disabled 0x100 / animating 1)
@@ -2239,7 +2239,7 @@ extern "C"
     {
         int numNodes;
         tLinkListNode * SWR_P32 paNodes;
-        tHashFunc SWR_P32 hashFunc;
+        SWR_FNSLOT_T(tHashFunc, hashFunc);
     } tHashTable;
 
     // daAlloc arena allocator (stdMemory.c). daAlloc_struct is daArena[DAALLOC_ARENA_COUNT];
@@ -2595,7 +2595,7 @@ extern "C"
         SithAIEventType triggerEvents;
         float fltArg[24];
         int intArg[24];
-        SithAIInstinctFunc SWR_P32 pfInstinct;
+        SWR_FNSLOT_T(SithAIInstinctFunc, pfInstinct);
     } SithAIInstinct;
 
     typedef struct SithAIClass
@@ -3108,7 +3108,7 @@ extern "C"
         float curFrame; // 0x5de0
         float prevFrame;
         RdKeyframe * SWR_P32 pKFTrack;
-        RdPuppetTrackCallback SWR_P32 pfCallback;
+        SWR_FNSLOT_T(RdPuppetTrackCallback, pfCallback);
         unsigned int guid;
     } RdPuppetTrack; // 0x5df4 bytes
 

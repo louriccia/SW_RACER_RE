@@ -127,7 +127,7 @@ void stdDisplay_Close_delta(void) {
     memset(&stdDisplay_g_backBuffer, 0, sizeof(stdDisplay_g_backBuffer));
     memset(&stdDisplay_zBuffer, 0, sizeof(stdDisplay_zBuffer));
     stdDisplay_pcurDevice = 0;
-    stdDisplay_FillMainSurface_ptr = (void (*)()) stdPlatform_noop;// parameter count lint error
+    SWR_FN32_SET(stdDisplay_FillMainSurface_ptr, (void (*)()) stdPlatform_noop);// parameter count lint error
     stdDisplay_bOpen = 0;
 }
 
@@ -183,7 +183,7 @@ void stdDisplay_Refresh_delta(int bReload) {
 // 0x004881c0
 tVBuffer *stdDisplay_VBufferNew_delta(tRasterInfo *texFormat, int create_ddraw_surface,
                                       int use_video_memory) {
-    tVBuffer *buffer = (tVBuffer *) stdPlatform_hostServices.alloc(sizeof(tVBuffer));
+    tVBuffer *buffer = (tVBuffer *) SWR_FN32(stdPlatform_hostServices.alloc)(sizeof(tVBuffer));
     if (!buffer)
         return NULL;
 
@@ -202,7 +202,7 @@ tVBuffer *stdDisplay_VBufferNew_delta(tRasterInfo *texFormat, int create_ddraw_s
 
     buffer->bSurfaceAllocated = 0;
     buffer->bVideoMemory = 0;
-    buffer->pPixels = (BYTE *) stdPlatform_hostServices_ptr->alloc(buffer->rasterInfo.size);
+    buffer->pPixels = (BYTE *) SWR_FN32(stdPlatform_hostServices_ptr->alloc)(buffer->rasterInfo.size);
     if (buffer->pPixels) {
         buffer->lockSurfRefCount = 1;
         return buffer;

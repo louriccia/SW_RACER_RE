@@ -8,7 +8,7 @@
 // 0x00490a50
 rdCanvas* rdCanvas_New(uint32_t bIdk, tVBuffer* vbuf, uint32_t x, uint32_t y, uint32_t width, uint32_t height)
 {
-    rdCanvas* canvas = (*rdroid_hostServices_ptr->alloc)(sizeof(rdCanvas));
+    rdCanvas* canvas = SWR_FN32(rdroid_hostServices_ptr->alloc)(sizeof(rdCanvas));
     if (canvas == NULL)
     {
         return NULL;
@@ -49,6 +49,6 @@ void rdCanvas_Free(rdCanvas* canvas)
     if (canvas != NULL)
     {
         swr_noop2();
-        rdroid_hostServices_ptr->free(canvas);
+        SWR_FN32(rdroid_hostServices_ptr->free)(canvas);
     }
 }

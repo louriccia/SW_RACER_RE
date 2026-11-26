@@ -728,7 +728,7 @@ BOOL Window_SetWindowSize(int width, int height)
 // 0x0049ce90
 void Window_set_msg_handler(Window_MSGHANDLER handler)
 {
-    g_WndProc = handler;
+    SWR_FN32_SET(g_WndProc, handler);
 }
 
 // 0x0049cea0
@@ -808,9 +808,9 @@ LRESULT __stdcall Window_msg_main_handler(HWND hWnd, UINT uMsg, WPARAM wParam, L
         Main_Shutdown();
         PostQuitMessage(0);
     }
-    else if (g_WndProc != NULL)
+    else if (SWR_FN32_RAW(g_WndProc) != NULL)
     {
-        window_proc_res = (*g_WndProc)(hWnd, uMsg, wParam, lParam, &uMsg);
+        window_proc_res = SWR_FN32(g_WndProc)(hWnd, uMsg, wParam, lParam, &uMsg);
         if (window_proc_res != 0)
         {
             return uMsg;

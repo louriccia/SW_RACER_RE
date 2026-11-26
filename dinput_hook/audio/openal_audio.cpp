@@ -215,8 +215,8 @@ namespace {
         if (pcm == nullptr)
             return;
         HostServices *hs = stdPlatform_hostServices_ptr;
-        (*hs->fseek)(swrSoundStream_file, (int) (uintptr_t) entry->dataOffset, 0);
-        const unsigned int got = (*hs->fileRead)(swrSoundStream_file, pcm, entry->dataSize);
+        SWR_FN32(hs->fseek)(swrSoundStream_file, (int) (uintptr_t) entry->dataOffset, 0);
+        const unsigned int got = SWR_FN32(hs->fileRead)(swrSoundStream_file, pcm, entry->dataSize);
 
         if (music_source == 0)
             alGenSources(1, &music_source);

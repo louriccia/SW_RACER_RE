@@ -11,10 +11,14 @@ if (MINGW)
             -Wno-multichar
             -Werror=incompatible-pointer-types
             -Werror=implicit-function-declaration
-            # x87-only float math like the original; clang's i686 default is SSE2 math
-            -march=pentiumpro
-            -mfpmath=387
     )
+    if (CMAKE_SIZEOF_VOID_P EQUAL 4)
+        # x87-only float math like the original; clang's i686 default is SSE2 math
+        add_compile_options(-march=pentiumpro -mfpmath=387)
+    else()
+        # 64-bit: pointers stored in game memory are clang __ptr32 (src/ptr32.h)
+        add_compile_options(-fms-extensions)
+    endif()
 endif()
 
 include(cmake/Sanitizers.cmake)
@@ -218,8 +222,12 @@ if (SWR_STANDALONE)
         ${CMAKE_CURRENT_SOURCE_DIR}/standalone
         ${OWNED_DIR})
     target_compile_definitions(swe1r_game PRIVATE SWR_STANDALONE=1 SWR_STANDALONE_FEATURES=1 $<$<BOOL:${SWR_STANDALONE_DATA_RELOC}>:SWR_DATA_RELOC=1> ${OWNED_DEFS})
-    target_compile_options(swe1r_game PRIVATE -fno-inline -fno-partial-inlining -fno-ipa-cp -fno-ipa-sra
-        -fno-ipa-icf -fno-ipa-pure-const -fno-ipa-modref -fno-ipa-ra -fpatchable-function-entry=5)
+    if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(swe1r_game PRIVATE -fno-inline -fno-partial-inlining -fno-ipa-cp -fno-ipa-sra
+            -fno-ipa-icf -fno-ipa-pure-const -fno-ipa-modref -fno-ipa-ra -fpatchable-function-entry=5)
+    else()
+        target_compile_options(swe1r_game PRIVATE -fno-inline -fpatchable-function-entry=5)
+    endif()
     target_link_libraries(swe1r_game PRIVATE swe1r_globals)
     add_executable(swe1r WIN32
         $<TARGET_OBJECTS:swe1r_game>
@@ -246,6 +254,13 @@ if (SWR_STANDALONE)
         winmm Comctl32 ole32 version dxguid dinput ddraw opengl32 Dwmapi bcrypt psapi kernel32)
     # Nothing lives at retail addresses, but the feature layer still tells retail addresses from its
     # own by value (hook registration), so its code must not sit in 0x400000-0xECE000.
+    if (CMAKE_SIZEOF_VOID_P EQUAL 4)
+        set(SWR_WINMAIN_SYMBOL WinMain@16)
+    else()
+        # every game pointer is 4 bytes (src/ptr32.h): keep the image and its allocations low
+        set(SWR_WINMAIN_SYMBOL WinMain)
+        target_link_options(swe1r PRIVATE "-Wl,--disable-high-entropy-va")
+    endif()
     target_link_options(swe1r PRIVATE "-Wl,--image-base=0x10000000" "-Wl,--disable-dynamicbase" "-Wl,--stack,0x100000" "-static"
-        "-Wl,--wrap=WinMain@16")
+        "-Wl,--wrap=${SWR_WINMAIN_SYMBOL}")
 endif()

@@ -323,7 +323,7 @@ void swrRace_InitGameData(void)
     if (!swrRace_LoadGameData()) {
         swrRace_ResetGameData(1);
         if (!swrRace_SaveGameData())
-            (*stdPlatform_hostServices_ptr->assert)("elfSaveLoad_SaveThisGameStruct()", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Source\\elfSaveLoad.c", 0x4f);
+            SWR_FN32(stdPlatform_hostServices_ptr->assert)("elfSaveLoad_SaveThisGameStruct()", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Source\\elfSaveLoad.c", 0x4f);
     }
     swrRace_CopyProfileFromSave(0, 0);
 }
@@ -3579,8 +3579,8 @@ float swrRace_RaycastModel(swrModel_Node* model, float* ray, rdVector3* outHit, 
         swrModel_collisionRayOrigin.y = ray[1];
         swrModel_collisionRayOrigin.z = ray[2];
         swrModel_collisionUnkE1c = 1;
-        swrModel_meshCollisionFaceCallback = swrModel_MeshCollisionFaceCallback;
-        swrModel_meshCollisionFaceCallbackIndexed = swrModel_MeshCollisionFaceCallbackIndexed;
+        SWR_FN32_SET(swrModel_meshCollisionFaceCallback, swrModel_MeshCollisionFaceCallback);
+        SWR_FN32_SET(swrModel_meshCollisionFaceCallbackIndexed, swrModel_MeshCollisionFaceCallbackIndexed);
         swrModel_collisionUnkE70 = 0;
         swrModel_collisionUnk250 = 0;
         rdMatrixStack44_Init();

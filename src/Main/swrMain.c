@@ -328,7 +328,7 @@ void Main_Shutdown(void)
     swrSound_Teardown(1);
     swrControl_Shutdown();
     swrDisplay_Shutdown();
-    (*stdPlatform_hostServices_ptr->debugPrint)("rdShutdown...");
+    SWR_FN32(stdPlatform_hostServices_ptr->debugPrint)("rdShutdown...");
     rdShutdown();
     wuRegistry_Shutdown();
     Window_set_msg_handler(NULL);
@@ -360,9 +360,9 @@ int Main_Startup(char* cmdline)
     swrMain_initialized = 1;
     Main_ParseCmdLine(cmdline);
     stdPlatform_InitServices(&stdPlatform_hostServices);
-    stdPlatform_hostServices.statusPrint = (void*)stdConsole_Printf;
-    stdPlatform_hostServices.errorPrint = (void*)stdConsole_Printf;
-    stdPlatform_hostServices.debugPrint = (void*)stdConsole_Printf;
+    SWR_FN32_SET(stdPlatform_hostServices.statusPrint, (void*)stdConsole_Printf);
+    SWR_FN32_SET(stdPlatform_hostServices.errorPrint, (void*)stdConsole_Printf);
+    SWR_FN32_SET(stdPlatform_hostServices.debugPrint, (void*)stdConsole_Printf);
     stdPlatform_Initialize(&stdPlatform_hostServices);
     swrText_ParseRacerTab(".\\data\\racer.tab");
     swrDisplay_SetWindowSize();

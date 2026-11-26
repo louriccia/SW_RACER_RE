@@ -29,10 +29,10 @@ void rdFace_FreeEntry(RdFace* pFace)
 {
     if (pFace->aVertIdxs != NULL)
     {
-        (*rdroid_hostServices_ptr->free)(pFace->aVertIdxs);
+        SWR_FN32(rdroid_hostServices_ptr->free)(pFace->aVertIdxs);
     }
     if (pFace->aTexIdxs != NULL)
     {
-        (*rdroid_hostServices_ptr->free)(pFace->aTexIdxs);
+        SWR_FN32(rdroid_hostServices_ptr->free)(pFace->aTexIdxs);
     }
 }

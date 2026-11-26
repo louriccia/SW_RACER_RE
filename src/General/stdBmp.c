@@ -42,26 +42,26 @@ int stdBmp_VBufferToBmp(char* filename, tVBuffer* vbuffer)
     infoHeader.biXPelsPerMeter = 2834; // 72 dpi
     infoHeader.biYPelsPerMeter = 2834;
 
-    file = stdPlatform_hostServices_ptr->fileOpen(filename, "wb");
+    file = SWR_FN32(stdPlatform_hostServices_ptr->fileOpen)(filename, "wb");
     if (file == 0) {
-        stdPlatform_DebugLog(stdPlatform_hostServices_ptr->errorPrint, sourceFile, 506, "Unable to open file '%s' for writing.\n", filename, 0, 0, 0);
+        stdPlatform_DebugLog(SWR_FN32(stdPlatform_hostServices_ptr->errorPrint), sourceFile, 506, "Unable to open file '%s' for writing.\n", filename, 0, 0, 0);
         return 1;
     }
-    if (stdPlatform_hostServices_ptr->fileWrite(file, &fileHeader, sizeof(BITMAPFILEHEADER)) != sizeof(BITMAPFILEHEADER)) {
-        stdPlatform_DebugLog(stdPlatform_hostServices_ptr->errorPrint, sourceFile, 515, "Error attempting to write %d bytes to file '%s'.\n", sizeof(BITMAPFILEHEADER), filename, 0, 0);
-        stdPlatform_hostServices_ptr->fileClose(file);
+    if (SWR_FN32(stdPlatform_hostServices_ptr->fileWrite)(file, &fileHeader, sizeof(BITMAPFILEHEADER)) != sizeof(BITMAPFILEHEADER)) {
+        stdPlatform_DebugLog(SWR_FN32(stdPlatform_hostServices_ptr->errorPrint), sourceFile, 515, "Error attempting to write %d bytes to file '%s'.\n", sizeof(BITMAPFILEHEADER), filename, 0, 0);
+        SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(file);
         return 1;
     }
-    if (stdPlatform_hostServices_ptr->fileWrite(file, &infoHeader, sizeof(BITMAPINFOHEADER)) != sizeof(BITMAPINFOHEADER)) {
-        stdPlatform_DebugLog(stdPlatform_hostServices_ptr->errorPrint, sourceFile, 525, "Error attempting to write %d bytes to file '%s'.\n", sizeof(BITMAPINFOHEADER), filename, 0, 0);
-        stdPlatform_hostServices_ptr->fileClose(file);
+    if (SWR_FN32(stdPlatform_hostServices_ptr->fileWrite)(file, &infoHeader, sizeof(BITMAPINFOHEADER)) != sizeof(BITMAPINFOHEADER)) {
+        stdPlatform_DebugLog(SWR_FN32(stdPlatform_hostServices_ptr->errorPrint), sourceFile, 525, "Error attempting to write %d bytes to file '%s'.\n", sizeof(BITMAPINFOHEADER), filename, 0, 0);
+        SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(file);
         return 1;
     }
 
     rowBytes = vbuffer->rasterInfo.width * 3;
-    row = stdPlatform_hostServices_ptr->alloc(rowBytes);
+    row = SWR_FN32(stdPlatform_hostServices_ptr->alloc)(rowBytes);
     if (row == NULL) {
-        stdPlatform_hostServices_ptr->fileClose(file);
+        SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(file);
         return 1;
     }
     memset(row, 0, rowBytes);
@@ -79,15 +79,15 @@ int stdBmp_VBufferToBmp(char* filename, tVBuffer* vbuffer)
     stdDisplay_VBufferLock(vbuffer);
     for (y = vbuffer->rasterInfo.height - 1; y >= 0; y--) {
         stdColor_ColorConvertOneRow(row, &rgb24, (char*)(vbuffer->pPixels + y * vbuffer->rasterInfo.rowSize), &vbuffer->rasterInfo.colorInfo, vbuffer->rasterInfo.width, 0, NULL);
-        if (stdPlatform_hostServices_ptr->fileWrite(file, row, rowBytes) != (size_t)(vbuffer->rasterInfo.width * 3)) {
-            stdPlatform_DebugLog(stdPlatform_hostServices_ptr->errorPrint, sourceFile, 560, "Error attempting to write %d bytes to file '%s'.\n", rowBytes, filename, 0, 0);
-            stdPlatform_hostServices_ptr->free(row);
-            stdPlatform_hostServices_ptr->fileClose(file);
+        if (SWR_FN32(stdPlatform_hostServices_ptr->fileWrite)(file, row, rowBytes) != (size_t)(vbuffer->rasterInfo.width * 3)) {
+            stdPlatform_DebugLog(SWR_FN32(stdPlatform_hostServices_ptr->errorPrint), sourceFile, 560, "Error attempting to write %d bytes to file '%s'.\n", rowBytes, filename, 0, 0);
+            SWR_FN32(stdPlatform_hostServices_ptr->free)(row);
+            SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(file);
             return 1;
         }
     }
-    stdPlatform_hostServices_ptr->free(row);
+    SWR_FN32(stdPlatform_hostServices_ptr->free)(row);
     stdDisplay_VBufferUnlock(vbuffer);
-    stdPlatform_hostServices_ptr->fileClose(file);
+    SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(file);
     return 0;
 }

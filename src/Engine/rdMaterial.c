@@ -18,7 +18,7 @@ RdMaterial* rdMaterial_Load(char* pFilename)
     if (rdMaterial_pMaterialsLoader != NULL)
         return ((RdMaterial * (*)(char*)) rdMaterial_pMaterialsLoader)(pFilename);
 
-    material = (RdMaterial*)(*rdroid_hostServices_ptr->alloc)(sizeof(RdMaterial));
+    material = (RdMaterial*)SWR_FN32(rdroid_hostServices_ptr->alloc)(sizeof(RdMaterial));
     // the original passes a NULL alloc result to rdMaterial_Free (crash on OOM)
     if (material == NULL)
         return NULL;
@@ -47,11 +47,11 @@ int rdMaterial_LoadEntry(char* mat_fpath, swrMaterial* material)
     int mip;
 
     memset(material, 0, sizeof(swrMaterial));
-    file = (*rdroid_hostServices_ptr->fileOpen)(mat_fpath, "rb");
+    file = SWR_FN32(rdroid_hostServices_ptr->fileOpen)(mat_fpath, "rb");
     if (file == 0)
         return 1;
 
-    if ((*rdroid_hostServices_ptr->fileRead)(file, &header, sizeof(header)) != sizeof(header) || strncmp((char*)header.magic, "MAT ", 4) != 0 || header.revision != RD_MATERIAL_FILE_REVISION || header.num_texinfo != header.num_textures)
+    if (SWR_FN32(rdroid_hostServices_ptr->fileRead)(file, &header, sizeof(header)) != sizeof(header) || strncmp((char*)header.magic, "MAT ", 4) != 0 || header.revision != RD_MATERIAL_FILE_REVISION || header.num_texinfo != header.num_textures)
         goto error;
 
     material->nbTextures = header.num_texinfo;
@@ -61,22 +61,22 @@ int rdMaterial_LoadEntry(char* mat_fpath, swrMaterial* material)
     std3D_GetTextureFormat(material->unk_mat_flag, &convertFormat, &hasColorKey, &colorKey);
 
     for (i = 0; i < material->nbTextures; i++) {
-        if ((*rdroid_hostServices_ptr->fileRead)(file, &texinfo, sizeof(texinfo)) != sizeof(texinfo))
+        if (SWR_FN32(rdroid_hostServices_ptr->fileRead)(file, &texinfo, sizeof(texinfo)) != sizeof(texinfo))
             goto error;
-        if ((texinfo.texture_type & rdTexinfo_TYPE_HAS_EXT_HEADER) != 0 && (*rdroid_hostServices_ptr->fileRead)(file, &texinfoExt, sizeof(texinfoExt)) != sizeof(texinfoExt))
+        if ((texinfo.texture_type & rdTexinfo_TYPE_HAS_EXT_HEADER) != 0 && SWR_FN32(rdroid_hostServices_ptr->fileRead)(file, &texinfoExt, sizeof(texinfoExt)) != sizeof(texinfoExt))
             goto error;
     }
 
     material->textures_alloc = NULL;
     if (material->nbTextures != 0) {
-        material->textures_alloc = (*rdroid_hostServices_ptr->alloc)(material->nbTextures * sizeof(tSystemTexture));
+        material->textures_alloc = SWR_FN32(rdroid_hostServices_ptr->alloc)(material->nbTextures * sizeof(tSystemTexture));
         if (material->textures_alloc == NULL)
             goto error;
         memset(material->textures_alloc, 0, material->nbTextures * sizeof(tSystemTexture));
     }
 
     for (i = 0; i < material->nbTextures; i++) {
-        if ((*rdroid_hostServices_ptr->fileRead)(file, &textureHeader, sizeof(textureHeader)) != sizeof(textureHeader))
+        if (SWR_FN32(rdroid_hostServices_ptr->fileRead)(file, &textureHeader, sizeof(textureHeader)) != sizeof(textureHeader))
             goto error;
 
         material->height = textureHeader.height;
@@ -87,7 +87,7 @@ int rdMaterial_LoadEntry(char* mat_fpath, swrMaterial* material)
 
         mipBuffers = NULL;
         if (textureHeader.num_mipmaps != 0) {
-            mipBuffers = (tVBuffer* SWR_P32*)(*rdroid_hostServices_ptr->alloc)(textureHeader.num_mipmaps * sizeof(tVBuffer*));
+            mipBuffers = (tVBuffer* SWR_P32*)SWR_FN32(rdroid_hostServices_ptr->alloc)(textureHeader.num_mipmaps * sizeof(tVBuffer*));
             if (mipBuffers == NULL)
                 goto error;
             memset(mipBuffers, 0, textureHeader.num_mipmaps * sizeof(tVBuffer*));
@@ -99,7 +99,7 @@ int rdMaterial_LoadEntry(char* mat_fpath, swrMaterial* material)
                 goto error;
             stdDisplay_VBufferLock(mipBuffers[mip]);
             buffer = mipBuffers[mip];
-            if ((*rdroid_hostServices_ptr->fileRead)(file, buffer->pPixels, buffer->rasterInfo.size) != buffer->rasterInfo.size)
+            if (SWR_FN32(rdroid_hostServices_ptr->fileRead)(file, buffer->pPixels, buffer->rasterInfo.size) != buffer->rasterInfo.size)
                 goto error;
             stdDisplay_VBufferUnlock(buffer);
             // the unconverted buffer is not freed
@@ -112,19 +112,19 @@ int rdMaterial_LoadEntry(char* mat_fpath, swrMaterial* material)
         std3D_AllocSystemTexture(&((tSystemTexture*)material->textures_alloc)[i], mipBuffers, textureHeader.num_mipmaps, material->unk_mat_flag);
         for (mip = 0; mip < (int)textureHeader.num_mipmaps; mip++)
             stdDisplay_VBufferFree(mipBuffers[mip]);
-        (*rdroid_hostServices_ptr->free)(mipBuffers);
+        SWR_FN32(rdroid_hostServices_ptr->free)(mipBuffers);
     }
 
     if ((header.type & 1) == 0) {
         strncpy(material->filename, stdFnames_Basename(mat_fpath), sizeof(material->filename) - 1);
         material->filename[sizeof(material->filename) - 1] = '\0';
-        (*rdroid_hostServices_ptr->fileClose)(file);
+        SWR_FN32(rdroid_hostServices_ptr->fileClose)(file);
         return 0;
     }
 
 error:
     if (file != 0)
-        (*rdroid_hostServices_ptr->fileClose)(file);
+        SWR_FN32(rdroid_hostServices_ptr->fileClose)(file);
     return 1;
 }
 
@@ -136,7 +136,7 @@ void rdMaterial_Free(RdMaterial* pMaterial)
         return;
     }
     rdMaterial_FreeEntry(pMaterial);
-    (*rdroid_hostServices_ptr->free)(pMaterial);
+    SWR_FN32(rdroid_hostServices_ptr->free)(pMaterial);
 }
 
 // 0x0048eb00
@@ -153,7 +153,7 @@ void rdMaterial_FreeEntry(RdMaterial* pMaterial)
         } while (i < (unsigned int)pMaterial->curCelNum);
     }
     if (pMaterial->aTextures != NULL) {
-        (*rdroid_hostServices_ptr->free)(pMaterial->aTextures);
+        SWR_FN32(rdroid_hostServices_ptr->free)(pMaterial->aTextures);
     }
 }
 

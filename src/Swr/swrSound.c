@@ -148,7 +148,7 @@ int swrSound_LoadIntoSource(stdFile_t file, void* entry)
     buffer = swrSound_WriteLocked(desc->source, desc->dataSize, &lockedBytes);
     if (buffer == NULL)
         return 0;
-    read = stdPlatform_hostServices_ptr->fileRead(file, buffer, lockedBytes);
+    read = SWR_FN32(stdPlatform_hostServices_ptr->fileRead)(file, buffer, lockedBytes);
     return swrSound_UnlockSource(desc->source, buffer, read) ? 1 : 0;
 }
 
@@ -230,7 +230,7 @@ IA3dSource* swrSound_CreateSourceFromFile(char* wave_filename)
     dir = Main_hiRes_sound ? ".\\data\\wavs\\22K" : ".\\data\\wavs\\11K";
     sprintf(path, "%s%c%s", dir, '\\', wave_filename);
 
-    file = (stdFile_t)hs->fileOpen(path, "rb");
+    file = (stdFile_t)SWR_FN32(hs->fileOpen)(path, "rb");
     if (file == 0)
         return NULL;
 
@@ -244,17 +244,17 @@ IA3dSource* swrSound_CreateSourceFromFile(char* wave_filename)
             buffer = swrSound_WriteLocked(source, nSizeWaveData, &firstBlockLen);
             if (buffer != NULL)
             {
-                bytesRead = hs->fileRead(file, buffer, firstBlockLen);
+                bytesRead = SWR_FN32(hs->fileRead)(file, buffer, firstBlockLen);
                 if (swrSound_UnlockSource(source, buffer, bytesRead))
                 {
-                    hs->fileClose(file);
+                    SWR_FN32(hs->fileClose)(file);
                     return source;
                 }
             }
         }
     }
 
-    hs->fileClose(file);
+    SWR_FN32(hs->fileClose)(file);
     if (source != NULL)
         swrSound_ReleaseSource(source);
     return NULL;
@@ -385,14 +385,14 @@ unsigned int swrSound_FillStreamBuffer(void* entry, unsigned int writeCursor, un
         nRead = nbBytes; // min(bytesRemaining, nbBytes)
 
     memset(buffer, 0, nbBytes);
-    hs->fileRead(swrSoundStream_file, buffer, nRead);
+    SWR_FN32(hs->fileRead)(swrSoundStream_file, buffer, nRead);
 
     // Wrap to the start of the chunk when the read came up short and looping.
     if (nRead < nbBytes && swrSoundStream_loop != 0)
     {
-        hs->fseek(swrSoundStream_file, *(int*)((char*)entry + 0x3c), 0);
+        SWR_FN32(hs->fseek)(swrSoundStream_file, *(int*)((char*)entry + 0x3c), 0);
         swrSoundStream_bytesRemaining = *(int*)((char*)entry + 0x28);
-        hs->fileRead(swrSoundStream_file, (char*)buffer + nRead, nbBytes - nRead);
+        SWR_FN32(hs->fileRead)(swrSoundStream_file, (char*)buffer + nRead, nbBytes - nRead);
     }
 
     hr = (*source->lpVtbl->Unlock)(source, buffer, lockedLen, NULL, 0);
@@ -420,14 +420,14 @@ void swrSound_UpdateStreaming(void)
     {
         if (swrSoundStream_loop == 0)
             return;
-        hs->fseek(swrSoundStream_file, *(int*)((char*)swrSoundStream_entry + 0x3c), 0);
+        SWR_FN32(hs->fseek)(swrSoundStream_file, *(int*)((char*)swrSoundStream_entry + 0x3c), 0);
         swrSoundStream_bytesRemaining = *(int*)((char*)swrSoundStream_entry + 0x28);
     }
 
     source = iA3DSource_ptr;
     // Parenthesised so the <assert.h> macro does not hijack the hostServices member.
     if (iA3DSource_ptr == NULL)
-        (hs->assert)("pBuffer", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Source\\elfSound.c", 0x6ee);
+        SWR_FN32(hs->assert)("pBuffer", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Source\\elfSound.c", 0x6ee);
 
     (*source->lpVtbl->GetWavePosition)(source, &wavePos);
     filled = swrSound_FillStreamBuffer(swrSoundStream_entry, (wavePos < 0x15888) ? 0x15888 : 0, 0x15888);
@@ -948,41 +948,41 @@ int swrSound_ParseWave(stdFile_t file, int* out_param2, int* out_param3, unsigne
     } fmt; // 16-byte PCMWAVEFORMAT
 
     // "RIFF" <riffSize> "WAVE"
-    hs->fileRead(file, magic, 4);
+    SWR_FN32(hs->fileRead)(file, magic, 4);
     if (memcmp(magic, "RIFF", 4) != 0)
         return 0;
-    hs->fseek(file, 4, 1); // skip the RIFF chunk size
+    SWR_FN32(hs->fseek)(file, 4, 1); // skip the RIFF chunk size
 
-    hs->fileRead(file, magic, 4);
+    SWR_FN32(hs->fileRead)(file, magic, 4);
     if (memcmp(magic, "WAVE", 4) != 0)
         return 0;
-    hs->fseek(file, 4, 1); // skip the "fmt " sub-chunk id
+    SWR_FN32(hs->fseek)(file, 4, 1); // skip the "fmt " sub-chunk id
 
     // fmt sub-chunk: size followed by the 16-byte PCMWAVEFORMAT
-    hs->fileRead(file, &chunkSize, 4);
-    hs->fileRead(file, &fmt, 0x10);
+    SWR_FN32(hs->fileRead)(file, &chunkSize, 4);
+    SWR_FN32(hs->fileRead)(file, &fmt, 0x10);
 
     *out_param2 = fmt.nSamplesPerSec;                     // sample rate
     *out_param3 = (fmt.nBlockAlign / fmt.nChannels) << 3; // bits per sample
     *out_param4 = (fmt.nChannels == 2);                   // 1 = stereo, 0 = mono
 
     if (chunkSize > 0x10)
-        hs->fseek(file, chunkSize - 0x10, 1); // skip any extended fmt bytes
+        SWR_FN32(hs->fseek)(file, chunkSize - 0x10, 1); // skip any extended fmt bytes
 
     // Walk the remaining sub-chunks until the "data" chunk is reached.
-    hs->fileRead(file, magic, 4);
+    SWR_FN32(hs->fileRead)(file, magic, 4);
     while (memcmp(magic, "data", 4) != 0)
     {
-        hs->fileRead(file, &chunkSize, 4);
+        SWR_FN32(hs->fileRead)(file, &chunkSize, 4);
         // Faithful to the original: it advances chunkSize + 4 here. The extra 4
         // is a quirk of the shipped code and is never exercised in practice
         // because the game's WAVs place the "data" chunk right after "fmt ".
-        hs->fseek(file, chunkSize + 4, 1);
-        hs->fileRead(file, magic, 4);
+        SWR_FN32(hs->fseek)(file, chunkSize + 4, 1);
+        SWR_FN32(hs->fileRead)(file, magic, 4);
     }
 
-    hs->fileRead(file, &chunkSize, 4);            // data chunk size
-    *(uint32_t*)out_dataOffset = hs->ftell(file); // PCM start offset
+    SWR_FN32(hs->fileRead)(file, &chunkSize, 4);            // data chunk size
+    *(uint32_t*)out_dataOffset = SWR_FN32(hs->ftell)(file); // PCM start offset
     return chunkSize;
 }
 
@@ -1279,7 +1279,7 @@ void* swrSound_RegisterSound(char* name, int load)
         if (path[0] != '\0') {
             // the EXE formats path into itself; a second buffer avoids the overlapping-sprintf UB
             sprintf(filePath, "%s%c%s", path, '\\', name);
-            file = stdPlatform_hostServices_ptr->fileOpen(filePath, "rb");
+            file = SWR_FN32(stdPlatform_hostServices_ptr->fileOpen)(filePath, "rb");
             if (file != 0) {
                 opened = 1;
                 break;
@@ -1308,12 +1308,12 @@ void* swrSound_RegisterSound(char* name, int load)
                 entry->flags = swrSoundDescriptor_STREAMED;
             swrSound_Add((char*)entry);
             *(uint32_t*)(bank + 0x20) += 1;
-            stdPlatform_hostServices_ptr->fileClose(file);
+            SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(file);
             return entry;
         }
     }
     if (file != 0)
-        stdPlatform_hostServices_ptr->fileClose(file);
+        SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(file);
     return NULL;
 }
 
@@ -1360,7 +1360,7 @@ int swrSound_LoadSound(void* entry)
         if (path[0] != '\0') {
             // the EXE formats path into itself; a second buffer avoids the overlapping-sprintf UB
             sprintf(filePath, "%s%c%s", path, '\\', desc->name);
-            file = stdPlatform_hostServices_ptr->fileOpen(filePath, "rb");
+            file = SWR_FN32(stdPlatform_hostServices_ptr->fileOpen)(filePath, "rb");
             if (file != 0) {
                 opened = 1;
                 break;
@@ -1379,22 +1379,22 @@ int swrSound_LoadSound(void* entry)
         swrSoundStream_file = file;
         swrSoundStream_entry = desc;
         swrSoundStream_bytesRemaining = desc->dataSize;
-        stdPlatform_hostServices_ptr->fseek(file, (int)desc->dataOffset, 0);
+        SWR_FN32(stdPlatform_hostServices_ptr->fseek)(file, (int)desc->dataOffset, 0);
         swrSoundStream_bytesRemaining -= swrSound_FillStreamBuffer(desc, 0, swrSoundStream_bufferSize);
         desc->flags |= swrSoundDescriptor_LOADED;
         LeaveCriticalSection((LPCRITICAL_SECTION)&swrSound_criticalSection);
         return 1;
     }
-    stdPlatform_hostServices_ptr->fseek(file, (int)desc->dataOffset, 0);
+    SWR_FN32(stdPlatform_hostServices_ptr->fseek)(file, (int)desc->dataOffset, 0);
     if (swrSound_LoadIntoSource(file, desc) != 0) {
         desc->flags |= swrSoundDescriptor_LOADED;
-        stdPlatform_hostServices_ptr->fileClose(file);
+        SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(file);
         return 1;
     }
 
 fail:
     if (file != 0)
-        stdPlatform_hostServices_ptr->fileClose(file);
+        SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(file);
     if (desc->source != NULL)
         swrSound_ReleaseSource(desc->source);
     desc->source = NULL;
@@ -1417,7 +1417,7 @@ int swrSound_UnloadSound(swrSoundDescriptor* entry)
     }
 
     if (swrSoundStream_entry == entry) {
-        stdPlatform_hostServices_ptr->fileClose(swrSoundStream_file);
+        SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(swrSoundStream_file);
         swrSoundStream_file = NULL;
         swrSoundStream_bytesRemaining = 0;
         swrSoundStream_entry = NULL;

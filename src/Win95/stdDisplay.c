@@ -108,7 +108,7 @@ void stdDisplay_Close(void)
     memset(&stdDisplay_g_backBuffer, 0, sizeof(stdDisplay_g_backBuffer));
     memset(&stdDisplay_zBuffer, 0, sizeof(stdDisplay_zBuffer));
     stdDisplay_pcurDevice = 0;
-    stdDisplay_FillMainSurface_ptr = (void (*)())stdPlatform_noop;
+    SWR_FN32_SET(stdDisplay_FillMainSurface_ptr, (void (*)())stdPlatform_noop);
     stdDisplay_bOpen = 0;
 }
 
@@ -208,7 +208,7 @@ void stdDisplay_Refresh(int bReload)
 // 0x004881c0
 tVBuffer* stdDisplay_VBufferNew(tRasterInfo* texFormat, int create_ddraw_surface, int use_video_memory)
 {
-    tVBuffer* buffer = stdPlatform_hostServices.alloc(sizeof(tVBuffer));
+    tVBuffer* buffer = SWR_FN32(stdPlatform_hostServices.alloc)(sizeof(tVBuffer));
     if (!buffer)
         return NULL;
 
@@ -249,7 +249,7 @@ tVBuffer* stdDisplay_VBufferNew(tRasterInfo* texFormat, int create_ddraw_surface
 
     buffer->bSurfaceAllocated = 0;
     buffer->bVideoMemory = 0;
-    buffer->pPixels = stdPlatform_hostServices_ptr->alloc(buffer->rasterInfo.size);
+    buffer->pPixels = SWR_FN32(stdPlatform_hostServices_ptr->alloc)(buffer->rasterInfo.size);
     if (buffer->pPixels) {
         buffer->lockSurfRefCount = 1;
         return buffer;
@@ -264,17 +264,17 @@ void stdDisplay_VBufferFree(tVBuffer* vbuffer)
 
     if (vbuffer->bSurfaceAllocated == 0) {
         if (vbuffer->pPixels != NULL) {
-            (*stdPlatform_hostServices_ptr->free)(vbuffer->pPixels);
+            SWR_FN32(stdPlatform_hostServices_ptr->free)(vbuffer->pPixels);
             vbuffer->pPixels = NULL;
         }
     } else if ((vbuffer->bSurfaceAllocated == 1) && (This = vbuffer->pVSurface.pDDSurf, This != NULL)) {
         (*This->lpVtbl->Release)(This);
         vbuffer->pVSurface.pDDSurf = NULL;
-        (*stdPlatform_hostServices_ptr->free)(vbuffer);
+        SWR_FN32(stdPlatform_hostServices_ptr->free)(vbuffer);
         return;
     }
 
-    (*stdPlatform_hostServices_ptr->free)(vbuffer);
+    SWR_FN32(stdPlatform_hostServices_ptr->free)(vbuffer);
 }
 
 // 0x00488370
@@ -638,7 +638,7 @@ tVBuffer* stdDisplay_VBufferConvertColorFormat(ColorInfo* texFormat, tVBuffer* s
         rasterInfo.colorInfo = *texFormat;
         dst = stdDisplay_VBufferNew(&rasterInfo, 0, 0);
         if (dst == NULL) {
-            stdPlatform_DebugLog(stdPlatform_hostServices_ptr->errorPrint, "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Jones3D\\Libs\\Std\\Win95\\stdDisplay.c", 1146, "Unable to allocate memory for new tVBuffer", 0, 0, 0, 0);
+            stdPlatform_DebugLog(SWR_FN32(stdPlatform_hostServices_ptr->errorPrint), "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Jones3D\\Libs\\Std\\Win95\\stdDisplay.c", 1146, "Unable to allocate memory for new tVBuffer", 0, 0, 0, 0);
             return NULL;
         }
     }
@@ -728,9 +728,9 @@ int stdDisplay_CreateZBuffer(LPDDPIXELFORMAT pPixelFormat, int bSystemMemory, in
 
     // 0x10000000: undocumented DDCAPS2 bit of the selected device
     if ((stdDisplay_pcurDevice->ddcaps.dwCaps2 & 0x10000000) != 0 && zBufferlessHSR != 1) {
-        stdDisplay_FillMainSurface_ptr = DirectDraw_FillMainSurface;
+        SWR_FN32_SET(stdDisplay_FillMainSurface_ptr, DirectDraw_FillMainSurface);
     } else {
-        stdDisplay_FillMainSurface_ptr = (void (*)())stdPlatform_noop;
+        SWR_FN32_SET(stdDisplay_FillMainSurface_ptr, (void (*)())stdPlatform_noop);
     }
     DirectDraw_FillMainSurface();
     return 0;
@@ -843,8 +843,8 @@ int stdDisplay_Update(void)
 // 0x00489bc0
 void stdDisplay_FillMainSurface(void)
 {
-    if (stdDisplay_FillMainSurface_ptr != NULL)
-        stdDisplay_FillMainSurface_ptr();
+    if (SWR_FN32_RAW(stdDisplay_FillMainSurface_ptr) != NULL)
+        SWR_FN32(stdDisplay_FillMainSurface_ptr)();
 }
 
 // 0x00489bd0

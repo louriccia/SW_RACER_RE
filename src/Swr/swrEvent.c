@@ -51,13 +51,13 @@ void swrEvent_CallAllF0(void)
     for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
-        if (manager->f0 != NULL && (manager->flags & swrEvent_f0SkipMask) == 0)
+        if (SWR_FN32_RAW(manager->f0) != NULL && (manager->flags & swrEvent_f0SkipMask) == 0)
         {
             swrObj* obj = manager->head;
             for (short i = 0; i < manager->count; i++)
             {
                 if ((obj->flags & 0x1100) == 0)
-                    manager->f0(obj);
+                    SWR_FN32(manager->f0)(obj);
                 obj = (swrObj*) ((char*) obj + manager->size);
                 swr_noop4();
             }
@@ -71,13 +71,13 @@ void swrEvent_CallAllF1(void)
     for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
-        if (manager->f1 != NULL && (manager->flags & swrEvent_f0SkipMask) == 0)
+        if (SWR_FN32_RAW(manager->f1) != NULL && (manager->flags & swrEvent_f0SkipMask) == 0)
         {
             swrObj* obj = manager->head;
             for (short i = 0; i < manager->count; i++)
             {
                 if ((obj->flags & 0x1100) == 0)
-                    manager->f1(obj);
+                    SWR_FN32(manager->f1)(obj);
                 obj = (swrObj*) ((char*) obj + manager->size);
                 swr_noop4();
             }
@@ -91,13 +91,13 @@ void swrEvent_CallAllF2(void)
     for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
-        if (manager->f2 != NULL && (manager->flags & swrEvent_f0SkipMask) == 0)
+        if (SWR_FN32_RAW(manager->f2) != NULL && (manager->flags & swrEvent_f0SkipMask) == 0)
         {
             swrObj* obj = manager->head;
             for (short i = 0; i < manager->count; i++)
             {
                 if ((obj->flags & 0x1100) == 0)
-                    manager->f2(obj);
+                    SWR_FN32(manager->f2)(obj);
                 obj = (swrObj*) ((char*) obj + manager->size);
                 swr_noop4();
             }
@@ -111,13 +111,13 @@ void swrEvent_CallAllF3(void)
     for (swrEventManager* SWR_P32* it = eventManagerMain; *it != NULL; it++)
     {
         swrEventManager* manager = *it;
-        if (manager->f3 != NULL)
+        if (SWR_FN32_RAW(manager->f3) != NULL)
         {
             swrObj* obj = manager->head;
             for (short i = 0; i < manager->count; i++)
             {
                 if ((obj->flags & 0x1100) == 0)
-                    manager->f3(obj);
+                    SWR_FN32(manager->f3)(obj);
                 obj = (swrObj*) ((char*) obj + manager->size);
             }
             swr_noop4();
@@ -203,8 +203,8 @@ void swrEvent_DispatchSubEvents(void* obj, int* subEvents)
             return;
     }
 
-    if (manager->f4 != NULL && (((swrObj*) obj)->flags & 0x100) == 0)
-        ((swrEvent_F4Call) manager->f4)(obj, subEvents, subEvents);
+    if (SWR_FN32_RAW(manager->f4) != NULL && (((swrObj*) obj)->flags & 0x100) == 0)
+        ((swrEvent_F4Call) SWR_FN32(manager->f4))(obj, subEvents, subEvents);
 }
 
 // 0x00450c50
@@ -216,12 +216,12 @@ void swrEvent_CallF4(int event, void* forward_param)
         if (manager->event != event && event != 0x416c6c21 /* 'All!' */)
             continue;
 
-        if (manager->f4 != NULL)
+        if (SWR_FN32_RAW(manager->f4) != NULL)
         {
             swrObj* obj = manager->head;
             for (int i = 0; i < manager->count; i++)
             {
-                if ((obj->flags & 0x100) == 0 && ((swrEvent_F4Call) manager->f4)(obj, forward_param, forward_param) == 2)
+                if ((obj->flags & 0x100) == 0 && ((swrEvent_F4Call) SWR_FN32(manager->f4))(obj, forward_param, forward_param) == 2)
                     return;
                 obj = (swrObj*) ((char*) obj + manager->size);
             }
@@ -263,7 +263,7 @@ void* swrEvent_AllocObj(int event)
             return NULL;
     }
 
-    if (manager->f4 == NULL)
+    if (SWR_FN32_RAW(manager->f4) == NULL)
         return NULL;
 
     swrObj* obj = manager->head;

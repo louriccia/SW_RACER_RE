@@ -131,7 +131,7 @@ void daFree(void* alloc)
 
     if ((block->size & DABLOCK_ALLOCATED) == 0 ||
         (uint16_t) (owner - &daAlloc_struct[0]) > DAALLOC_ARENA_COUNT - 1) {
-        (*stdPlatform_hostServices_ptr->warningPrint)(
+        SWR_FN32(stdPlatform_hostServices_ptr->warningPrint)(
             "Attempting to dispose a bogus or already-disposed-of block!");
         return;
     }

@@ -171,7 +171,7 @@ void DirectPlay_Destroy(void)
         {
             if (*ppvVar2 != NULL)
             {
-                (*stdPlatform_hostServices_ptr->free)(*ppvVar2);
+                SWR_FN32(stdPlatform_hostServices_ptr->free)(*ppvVar2);
             }
             uVar3 = uVar3 + 1;
             ppvVar2 = ppvVar2 + 0x46;
@@ -201,7 +201,7 @@ BOOL __stdcall DirectPlay_EnumConnectionsCallback(const GUID* lpguidSP, LPVOID l
     wcsncpy(connection->name, lpName->lpszShortName, 127);
     connection->name[127] = 0;
     connection->guid = *lpguidSP;
-    connection->lpConnection = stdPlatform_hostServices_ptr->alloc(dwConnectionSize);
+    connection->lpConnection = SWR_FN32(stdPlatform_hostServices_ptr->alloc)(dwConnectionSize);
     memcpy(connection->lpConnection, lpConnection, dwConnectionSize);
     connection->lpConnectionSize = dwConnectionSize;
     stdComm_numConnections++;

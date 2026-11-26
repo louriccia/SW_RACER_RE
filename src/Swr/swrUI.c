@@ -362,9 +362,9 @@ void swrUI_ReparentElement(swrUI_unk* parent, swrUI_unk* element)
     if (parent == NULL || element == NULL)
         return;
     swrUI_UnlinkElement(element);
-    element->fun2 = NULL;
+    SWR_FN32_SET(element->fun2, NULL);
     swrUI_RunCallbacks2(element, 1);
-    element->fun2 = parent->fun2;
+    SWR_FN32_SET(element->fun2, SWR_FN32(parent->fun2));
     swrUI_Enqueue(parent, element);
 }
 
@@ -1924,13 +1924,13 @@ int swrUI_RunCallbacks(swrUI_unk* ui, int forward1, int forward2, int forward3)
 
     if (ui != NULL)
     {
-        if ((ui->fun2 != NULL) && (res = (ui->fun2)(ui, forward1, (void*)forward2, (swrUI_unk*)forward3), res != 0))
+        if ((SWR_FN32_RAW(ui->fun2) != NULL) && (res = SWR_FN32(ui->fun2)(ui, forward1, (void*)forward2, (swrUI_unk*)forward3), res != 0))
         {
             return res;
         }
-        if (ui->fun != NULL)
+        if (SWR_FN32_RAW(ui->fun) != NULL)
         {
-            res = (ui->fun)(ui, forward1, (void*)forward2, forward3);
+            res = SWR_FN32(ui->fun)(ui, forward1, (void*)forward2, forward3);
             return res;
         }
     }
@@ -2658,8 +2658,8 @@ swrUI_unk* swrUI_New(swrUI_unk* ui, int id, int new_index, char* mondo_text, int
     elem->size_unk2 = size_unk2;
     elem->size_unk1 = size_unk1;
     elem->unk01_10 = (char*)&elem->unk538 + size_unk1 * 4 + 0x38;
-    elem->fun = f1;
-    elem->fun2 = f2;
+    SWR_FN32_SET(elem->fun, f1);
+    SWR_FN32_SET(elem->fun2, f2);
     elem->font_index = 0;
     swrUI_SetBBox(elem, 0, 0, 0x27f, 0x1df);
     swrUI_SetColorUnk(elem, 0xb7, 0xf5, 0xff, 0xff);
@@ -2900,36 +2900,36 @@ int swrSprite_ReadTgaRLEData(void* file, void* dest, int elementSize, int count)
     if (count < 1)
         return 0;
     do {
-        if (stdPlatform_hostServices_ptr->fileRead((stdFile_t)file, &packet, 1) == 0)
+        if (SWR_FN32(stdPlatform_hostServices_ptr->fileRead)((stdFile_t)file, &packet, 1) == 0)
             return -1;
         run = (packet & SWR_TGA_RLE_COUNT_MASK) + 1;
         count -= run;
         if ((packet & SWR_TGA_RLE_RUN_PACKET) == 0) {
-            stdPlatform_hostServices_ptr->fileRead((stdFile_t)file, out, run * elementSize);
+            SWR_FN32(stdPlatform_hostServices_ptr->fileRead)((stdFile_t)file, out, run * elementSize);
             out += run * elementSize;
             continue;
         }
         switch (elementSize) {
         case 1:
-            stdPlatform_hostServices_ptr->fileRead((stdFile_t)file, &value8, 1);
+            SWR_FN32(stdPlatform_hostServices_ptr->fileRead)((stdFile_t)file, &value8, 1);
             memset(out, value8, run);
             out += run;
             break;
         case 2:
-            stdPlatform_hostServices_ptr->fileRead((stdFile_t)file, &value16, 2);
+            SWR_FN32(stdPlatform_hostServices_ptr->fileRead)((stdFile_t)file, &value16, 2);
             for (i = 0; i < run; i++, out += 2)
                 memcpy(out, &value16, 2);
             break;
         case 3:
-            stdPlatform_hostServices_ptr->fileRead((stdFile_t)file, &value8, 1);
-            stdPlatform_hostServices_ptr->fileRead((stdFile_t)file, &value16, 2);
+            SWR_FN32(stdPlatform_hostServices_ptr->fileRead)((stdFile_t)file, &value8, 1);
+            SWR_FN32(stdPlatform_hostServices_ptr->fileRead)((stdFile_t)file, &value16, 2);
             for (i = 0; i < run; i++, out += 3) {
                 out[0] = value8;
                 memcpy(out + 1, &value16, 2);
             }
             break;
         case 4:
-            stdPlatform_hostServices_ptr->fileRead((stdFile_t)file, &value32, 4);
+            SWR_FN32(stdPlatform_hostServices_ptr->fileRead)((stdFile_t)file, &value32, 4);
             for (i = 0; i < run; i++, out += 4)
                 memcpy(out, &value32, 4);
             break;
@@ -4767,21 +4767,21 @@ int swrUI_Initialize(void)
     swrUI_QuantizeNavAxis(swrControl_joystickAxes[0], swrControl_joystickAxes[1], &swrUI_navAxisXPrev, &swrUI_navAxisYPrev);
     for (int id = SWR_SPRITE_DYNAMIC_FIRST; id < SWR_SPRITE_DYNAMIC_END; id++)
         swrSprite_array[id].texture = NULL;
-    swrUI_unk_ptr->fun = (swrUI_unk_F1)swrUI_DefaultElementProc;
+    SWR_FN32_SET(swrUI_unk_ptr->fun, (swrUI_unk_F1)swrUI_DefaultElementProc);
     swrUI_RunCallbacks2(swrUI_unk_ptr, 1);
 
     score = 0.0f;
-    start = stdPlatform_hostServices_ptr->getTimerTick();
+    start = SWR_FN32(stdPlatform_hostServices_ptr->getTimerTick)();
     do {
-        tick = stdPlatform_hostServices_ptr->getTimerTick();
+        tick = SWR_FN32(stdPlatform_hostServices_ptr->getTimerTick)();
     } while (tick == start);
-    start = stdPlatform_hostServices_ptr->getTimerTick();
+    start = SWR_FN32(stdPlatform_hostServices_ptr->getTimerTick)();
     do {
         for (int i = 0; i < SWR_UI_BENCH_INNER_LOOPS; i++) {
             rounded = (int)score; // the original FRNDINT/FISTPs into a dead local each pass
             score = score - -1.0f;
         }
-    } while (stdPlatform_hostServices_ptr->getTimerTick() - start <= SWR_UI_BENCH_TICKS);
+    } while (SWR_FN32(stdPlatform_hostServices_ptr->getTimerTick)() - start <= SWR_UI_BENCH_TICKS);
     if (score * SWR_UI_BENCH_SCALE < SWR_UI_BENCH_MIN_SCORE)
         swrUI_pageTransitionsEnabled = 0;
     return 1;

@@ -95,10 +95,10 @@ swrSpriteTexture* swrSprite_GetTextureFromTGA(char* filename_tga, int id)
 
     if (filename_tga == NULL)
         return NULL;
-    file = stdPlatform_hostServices_ptr->fileOpen(filename_tga, "rb");
+    file = SWR_FN32(stdPlatform_hostServices_ptr->fileOpen)(filename_tga, "rb");
     if (file == 0)
         goto fail;
-    stdPlatform_hostServices_ptr->fileRead(file, header, SWR_TGA_HEADER_SIZE);
+    SWR_FN32(stdPlatform_hostServices_ptr->fileRead)(file, header, SWR_TGA_HEADER_SIZE);
     tex = (swrSpriteTextureHeader*)malloc(sizeof(swrSpriteTextureHeader));
     if (tex == NULL)
         goto fail;
@@ -109,17 +109,17 @@ swrSpriteTexture* swrSprite_GetTextureFromTGA(char* filename_tga, int id)
     memset(page, 0, sizeof(swrSpriteTexturePage));
 
     // skip the colormap: length (bytes 5-6) * entry size (byte 7)
-    stdPlatform_hostServices_ptr->fseek(file, (header[5] | (header[6] << 8)) * swrSprite_TgaBytesPerElement(header[7]), SEEK_CUR);
+    SWR_FN32(stdPlatform_hostServices_ptr->fseek)(file, (header[5] | (header[6] << 8)) * swrSprite_TgaBytesPerElement(header[7]), SEEK_CUR);
     width = header[12] | (header[13] << 8);
     height = header[14] | (header[15] << 8);
     bytesPerPixel = swrSprite_TgaBytesPerElement(header[16]);
     size = bytesPerPixel * height * width;
     pixels = malloc(size);
     if (header[2] < SWR_TGA_IMAGE_TYPE_RLE_FIRST)
-        stdPlatform_hostServices_ptr->fileRead(file, pixels, size);
+        SWR_FN32(stdPlatform_hostServices_ptr->fileRead)(file, pixels, size);
     else
         swrSprite_ReadTgaRLEData(file, pixels, bytesPerPixel, height * width);
-    stdPlatform_hostServices_ptr->fileClose(file);
+    SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(file);
 
     tex->page_table = page;
     tex->width = width;
@@ -159,7 +159,7 @@ fail:
     if (pixels != NULL)
         free(pixels);
     if (file != 0)
-        stdPlatform_hostServices_ptr->fileClose(file);
+        SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(file);
     return NULL;
 }
 

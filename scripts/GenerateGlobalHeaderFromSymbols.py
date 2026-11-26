@@ -26,6 +26,17 @@ def _pointer_typedefs():
     return names
 
 
+_FUNCTION_TYPEDEFS = None
+
+
+def FUNCTION_TYPEDEFS():
+    global _FUNCTION_TYPEDEFS
+    if _FUNCTION_TYPEDEFS is None:
+        text = open(os.path.join(project_root, "src", "types.h"), encoding="ascii", errors="replace").read()
+        _FUNCTION_TYPEDEFS = set(re.findall(r"typedef[^;{}]*\(\s*(?:__stdcall\s*|__cdecl\s*)?\*\s*(\w+)\s*\)\s*\(", text))
+    return _FUNCTION_TYPEDEFS
+
+
 POINTER_TYPEDEFS = None
 
 
@@ -83,7 +94,10 @@ with open(data_syms_file, "r", encoding="ascii") as global_symbols:
 
         global_var["new_type"] = global_var["new_type"].strip()
         if "function_specifier" not in global_var:
-            global_var["new_type"] = ptr32_type(global_var["new_type"])
+            if global_var["new_type"] in FUNCTION_TYPEDEFS():
+                global_var["fnslot_type"] = global_var["new_type"]
+            else:
+                global_var["new_type"] = ptr32_type(global_var["new_type"])
         global_var["new_name"] = global_var["new_name"].strip()
         data["globals"].append(global_var)
 

@@ -110,9 +110,9 @@ int sithMulti_RunCallback(tSithMessage* message)
 {
     int res;
 
-    if (((true) && ((unsigned short)message->callbackId < 100)) && (swrCallback_multiplayer[message->callbackId] != NULL))
+    if (((true) && ((unsigned short)message->callbackId < 100)) && (SWR_FN32_RAW(swrCallback_multiplayer[message->callbackId]) != NULL))
     {
-        res = (*swrCallback_multiplayer[message->callbackId])(message);
+        res = SWR_FN32(swrCallback_multiplayer[message->callbackId])(message);
         return res;
     }
     return 1;

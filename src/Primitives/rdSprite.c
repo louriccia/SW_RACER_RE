@@ -70,7 +70,7 @@ int rdSprite_Draw(swrUI_Unk3* pThing, rdMatrix34* orient)
 
     for (i = 0; i < dst.numVertices; i++)
         entry->aVertColors[i] = sprite->face.extraLight;
-    rdCamera_pCurCamera->fnProjectLst((rdVector3*)(intptr_t)dst.unknown2, dst.aVertices, dst.numVertices);
+    SWR_FN32(rdCamera_pCurCamera->fnProjectLst)((rdVector3*)(intptr_t)dst.unknown2, dst.aVertices, dst.numVertices);
 
     entry->extraLight = sprite->face.extraLight;
     if ((rdroid_g_curRenderOptions & RDROID_USE_AMBIENT_CAMERA_LIGHT) != 0) {

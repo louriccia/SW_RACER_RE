@@ -933,7 +933,7 @@ int std3D_PurgeTextureCache(unsigned int size)
 // 0x0048bc10
 StdDisplayEnvironment* std3D_BuildDisplayEnvironment(void)
 {
-    StdDisplayEnvironment* env = stdPlatform_hostServices.alloc(sizeof(StdDisplayEnvironment));
+    StdDisplayEnvironment* env = SWR_FN32(stdPlatform_hostServices.alloc)(sizeof(StdDisplayEnvironment));
     env->numInfos = 0;
     env->aDisplayInfos = NULL;
 
@@ -942,7 +942,7 @@ StdDisplayEnvironment* std3D_BuildDisplayEnvironment(void)
 
     env->numInfos = stdDisplay_GetNumDevices();
     if (env->numInfos != 0)
-        env->aDisplayInfos = stdPlatform_hostServices.alloc(sizeof(StdDisplayInfo) * env->numInfos);
+        env->aDisplayInfos = SWR_FN32(stdPlatform_hostServices.alloc)(sizeof(StdDisplayInfo) * env->numInfos);
 
     for (int device = 0; device < env->numInfos; device++)
     {
@@ -957,7 +957,7 @@ StdDisplayEnvironment* std3D_BuildDisplayEnvironment(void)
 
         info->numModes = stdDisplay_GetNumVideoModes();
         if (info->numModes != 0)
-            info->aModes = stdPlatform_hostServices.alloc(sizeof(StdVideoMode) * info->numModes);
+            info->aModes = SWR_FN32(stdPlatform_hostServices.alloc)(sizeof(StdVideoMode) * info->numModes);
 
         StdVideoMode* mode_ptr = info->aModes;
         for (int mode = 0; mode < info->numModes; mode++)
@@ -975,7 +975,7 @@ StdDisplayEnvironment* std3D_BuildDisplayEnvironment(void)
             info->numDevices = std3D_GetNumDevices();
             if (info->numDevices != 0)
             {
-                info->aDevices = stdPlatform_hostServices.alloc(sizeof(Device3D) * info->numDevices);
+                info->aDevices = SWR_FN32(stdPlatform_hostServices.alloc)(sizeof(Device3D) * info->numDevices);
                 memcpy(info->aDevices, std3D_GetAllDevices(), sizeof(Device3D) * info->numDevices);
             }
 
@@ -1006,16 +1006,16 @@ void std3D_FreeDisplayEnvironment(StdDisplayEnvironment* pEnv)
             StdDisplayInfo* info = &pEnv->aDisplayInfos[i];
             if (info->aModes)
             {
-                stdPlatform_hostServices.free(info->aModes);
+                SWR_FN32(stdPlatform_hostServices.free)(info->aModes);
                 info->aModes = NULL;
             }
             if (info->aDevices)
             {
-                stdPlatform_hostServices.free(info->aDevices);
+                SWR_FN32(stdPlatform_hostServices.free)(info->aDevices);
                 info->aDevices = NULL;
             }
         }
-        stdPlatform_hostServices.free(pEnv->aDisplayInfos);
+        SWR_FN32(stdPlatform_hostServices.free)(pEnv->aDisplayInfos);
     }
-    stdPlatform_hostServices.free(pEnv);
+    SWR_FN32(stdPlatform_hostServices.free)(pEnv);
 }

@@ -171,14 +171,14 @@ namespace {
         }
 
         HostServices *hs = stdPlatform_hostServices_ptr;
-        stdFile_t file = hs->fileOpen(path.c_str(), "rb");
+        stdFile_t file = SWR_FN32(hs->fileOpen)(path.c_str(), "rb");
         if (!file)
             return false;
         hdr.size = entry.size;
         hdr.mtime = entry.mtime;
         hdr.data_size =
             swrSound_ParseWave(file, &hdr.rate, &hdr.bits, &hdr.stereo, (char *) &hdr.data_offset);
-        hs->fileClose(file);
+        SWR_FN32(hs->fileClose)(file);
         g_headers[key] = hdr;
         g_headers_dirty = true;
         return true;

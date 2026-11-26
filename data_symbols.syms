@@ -616,7 +616,7 @@ SpritesLoaded 0x004d879c int
 
 sithMulti_aPendingMessages 0x004d9418 tSithMessage[32] # guaranteed sends awaiting acks; unk14 = per-player pending-ack mask (swrMultiplayer_ApplyAck clears bits)
 swrMultiplayer_aSeenMessages 0x004e9918 swrMultiplayer_SeenMessage[128] # ring of applied guaranteed messages, deduplicates resends
-swrCallback_multiplayer 0x004e9d18 tSithCallback*[100]
+swrCallback_multiplayer 0x004e9d18 tSithCallback[100]
 
 swrMultiplayer_pumpStop 0x004e9ea8 int # cleared on entry to swrMultiplayer_PumpPackets, which loops until it is set (nothing else writes it)
 sithMessage_g_outputstream 0x004e9eac unsigned int

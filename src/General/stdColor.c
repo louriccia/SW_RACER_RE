@@ -49,7 +49,7 @@ void stdColor_ColorConvertOneRow(char* destRow, ColorInfo* destInfo, char* srcRo
             pixel = *(unsigned int*)srcRow;
             break;
         default:
-            (*stdPlatform_hostServices_ptr->assert)("Unsupported pixel depth.  Only 8, 16, 24, & 32 bits per pixel supported at the moment.", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Jones3D\\Libs\\Std\\General\\stdColor.c", 0x108);
+            SWR_FN32(stdPlatform_hostServices_ptr->assert)("Unsupported pixel depth.  Only 8, 16, 24, & 32 bits per pixel supported at the moment.", "D:\\devel.QA5\\pc_gnome\\SpecPlat\\rdroid_gnome\\Jones3D\\Libs\\Std\\General\\stdColor.c", 0x108);
             break;
         }
 

@@ -38,17 +38,17 @@ int swrText_ParseRacerTab(char* filepath)
     char* SWR_P32* entry;
 
     swrText_nbLinesRacerTab = 0;
-    stream = (*stdPlatform_hostServices_ptr->fileOpen)(filepath, "rb");
+    stream = SWR_FN32(stdPlatform_hostServices_ptr->fileOpen)(filepath, "rb");
     if (stream == NULL)
         return 1;
 
-    (*stdPlatform_hostServices_ptr->fileRead)(stream, &magic, 4);
-    (*stdPlatform_hostServices_ptr->fseek)(stream, 0, SEEK_END);
+    SWR_FN32(stdPlatform_hostServices_ptr->fileRead)(stream, &magic, 4);
+    SWR_FN32(stdPlatform_hostServices_ptr->fseek)(stream, 0, SEEK_END);
     size = ftell(stream);
-    (*stdPlatform_hostServices_ptr->fseek)(stream, 0, SEEK_SET);
-    swrText_racerTab_buffer = (*stdPlatform_hostServices_ptr->alloc)(size);
-    (*stdPlatform_hostServices_ptr->fileRead)(stream, swrText_racerTab_buffer, size);
-    (*stdPlatform_hostServices_ptr->fileClose)(stream);
+    SWR_FN32(stdPlatform_hostServices_ptr->fseek)(stream, 0, SEEK_SET);
+    swrText_racerTab_buffer = SWR_FN32(stdPlatform_hostServices_ptr->alloc)(size);
+    SWR_FN32(stdPlatform_hostServices_ptr->fileRead)(stream, swrText_racerTab_buffer, size);
+    SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(stream);
 
     // "RCNE" magic => obfuscated file: real data starts after the 4-byte magic and is XOR 0xdd
     if (magic == 0x454e4352)
@@ -73,7 +73,7 @@ int swrText_ParseRacerTab(char* filepath)
         swrText_nbLinesRacerTab++;
     } while (p < end - 1);
 
-    swrText_racerTab_array = (*stdPlatform_hostServices_ptr->alloc)(swrText_nbLinesRacerTab * 4);
+    swrText_racerTab_array = SWR_FN32(stdPlatform_hostServices_ptr->alloc)(swrText_nbLinesRacerTab * 4);
 
     // split each line: unescape, cut at the first tab, uppercase, record the pointer
     entry = swrText_racerTab_array;
@@ -142,11 +142,11 @@ void swrText_Shutdown(void)
 {
     if (swrText_racerTab_buffer != NULL)
     {
-        (*stdPlatform_hostServices_ptr->free)(swrText_racerTab_buffer);
+        SWR_FN32(stdPlatform_hostServices_ptr->free)(swrText_racerTab_buffer);
     }
     if (swrText_racerTab_array != NULL)
     {
-        (*stdPlatform_hostServices_ptr->free)(swrText_racerTab_array);
+        SWR_FN32(stdPlatform_hostServices_ptr->free)(swrText_racerTab_array);
     }
 }
 

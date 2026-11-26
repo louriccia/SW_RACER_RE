@@ -21,7 +21,7 @@ void rdCamera_Shutdown(void)
 // 0x0048fad0
 rdCamera* rdCamera_New(float fov, float x, float y, float z, float aspectRatio)
 {
-    rdCamera* out = (*rdroid_hostServices_ptr->alloc)(sizeof(rdCamera));
+    rdCamera* out = SWR_FN32(rdroid_hostServices_ptr->alloc)(sizeof(rdCamera));
     if (out == NULL)
         return NULL;
 
@@ -36,7 +36,7 @@ int rdCamera_NewEntry(rdCamera* camera, float fov, float a3, float zNear, float 
 {
     rdClipFrustum* clipFrustum;
 
-    clipFrustum = (rdClipFrustum*)(*rdroid_hostServices_ptr->alloc)(100);
+    clipFrustum = (rdClipFrustum*)SWR_FN32(rdroid_hostServices_ptr->alloc)(100);
     camera->pClipFrustum = clipFrustum;
     if (clipFrustum != NULL)
     {
@@ -76,7 +76,7 @@ void rdCamera_Free(rdCamera* camera)
     if (camera != NULL)
     {
         rdCamera_FreeEntry(camera);
-        rdroid_hostServices_ptr->free(camera);
+        SWR_FN32(rdroid_hostServices_ptr->free)(camera);
     }
 }
 
@@ -85,7 +85,7 @@ void rdCamera_FreeEntry(rdCamera* camera)
 {
     if (camera->pClipFrustum)
     {
-        rdroid_hostServices_ptr->free(camera->pClipFrustum);
+        SWR_FN32(rdroid_hostServices_ptr->free)(camera->pClipFrustum);
     }
 }
 
@@ -116,26 +116,26 @@ int rdCamera_SetProjectType(rdCamera* camera, rdCameraProjectType type)
     {
         if (camera->screenAspectRatio == 1.0)
         {
-            camera->fnProject = rdCamera_OrthoProjectSquare;
-            camera->fnProjectLst = rdCamera_OrthoProjectSquareLst;
+            SWR_FN32_SET(camera->fnProject, rdCamera_OrthoProjectSquare);
+            SWR_FN32_SET(camera->fnProjectLst, rdCamera_OrthoProjectSquareLst);
         }
         else
         {
-            camera->fnProject = rdCamera_OrthoProject;
-            camera->fnProjectLst = rdCamera_OrthoProjectLst;
+            SWR_FN32_SET(camera->fnProject, rdCamera_OrthoProject);
+            SWR_FN32_SET(camera->fnProjectLst, rdCamera_OrthoProjectLst);
         }
     }
     else if (type == rdCameraProjectType_Perspective)
     {
         if (camera->screenAspectRatio == 1.0)
         {
-            camera->fnProject = rdCamera_PerspProjectSquare;
-            camera->fnProjectLst = rdCamera_PerspProjectSquareLst;
+            SWR_FN32_SET(camera->fnProject, rdCamera_PerspProjectSquare);
+            SWR_FN32_SET(camera->fnProjectLst, rdCamera_PerspProjectSquareLst);
         }
         else
         {
-            camera->fnProject = rdCamera_PerspProject;
-            camera->fnProjectLst = rdCamera_PerspProjectLst;
+            SWR_FN32_SET(camera->fnProject, rdCamera_PerspProject);
+            SWR_FN32_SET(camera->fnProjectLst, rdCamera_PerspProjectLst);
         }
     }
 
@@ -153,25 +153,25 @@ int rdCamera_UpdateProject(rdCamera* camera, float aspectRatio)
     {
         if (aspectRatio == 1.0)
         {
-            camera->fnProject = rdCamera_OrthoProjectSquare;
-            camera->fnProjectLst = rdCamera_OrthoProjectSquareLst;
+            SWR_FN32_SET(camera->fnProject, rdCamera_OrthoProjectSquare);
+            SWR_FN32_SET(camera->fnProjectLst, rdCamera_OrthoProjectSquareLst);
             rdCamera_BuildFOV(camera);
             return 1;
         }
-        camera->fnProject = rdCamera_OrthoProject;
-        camera->fnProjectLst = rdCamera_OrthoProjectLst;
+        SWR_FN32_SET(camera->fnProject, rdCamera_OrthoProject);
+        SWR_FN32_SET(camera->fnProjectLst, rdCamera_OrthoProjectLst);
     }
     else if (camera->projectType == rdCameraProjectType_Perspective)
     {
         if (aspectRatio == 1.0)
         {
-            camera->fnProject = rdCamera_PerspProjectSquare;
-            camera->fnProjectLst = rdCamera_PerspProjectSquareLst;
+            SWR_FN32_SET(camera->fnProject, rdCamera_PerspProjectSquare);
+            SWR_FN32_SET(camera->fnProjectLst, rdCamera_PerspProjectSquareLst);
             rdCamera_BuildFOV(camera);
             return 1;
         }
-        camera->fnProject = rdCamera_PerspProject;
-        camera->fnProjectLst = rdCamera_PerspProjectLst;
+        SWR_FN32_SET(camera->fnProject, rdCamera_PerspProject);
+        SWR_FN32_SET(camera->fnProjectLst, rdCamera_PerspProjectLst);
         rdCamera_BuildFOV(camera);
         return 1;
     }

@@ -712,7 +712,7 @@ size_t swrConfig_Puts(char* string)
     }
 
     len = strlen(string);
-    written = stdPlatform_hostServices_ptr->fileWrite(stdConffile_writeFile, string, len);
+    written = SWR_FN32(stdPlatform_hostServices_ptr->fileWrite)(stdConffile_writeFile, string, len);
 
     return len != written;
 }
@@ -730,7 +730,7 @@ size_t swrConfig_Printf(char* format, ...)
         vsnprintf_written = vsnprintf(swrConfig_buffer, sizeof(swrConfig_buffer), format, args);
         va_end(args);
 
-        fileWrite_written = stdPlatform_hostServices_ptr->fileWrite(stdConffile_writeFile, swrConfig_buffer, vsnprintf_written);
+        fileWrite_written = SWR_FN32(stdPlatform_hostServices_ptr->fileWrite)(stdConffile_writeFile, swrConfig_buffer, vsnprintf_written);
         return fileWrite_written != vsnprintf_written;
     }
 

@@ -18,7 +18,7 @@ RdThing* rdThing_New(SithThing* pThing)
 {
     RdThing* prdThing;
 
-    prdThing = (RdThing*)(*rdroid_hostServices_ptr->alloc)(sizeof(RdThing));
+    prdThing = (RdThing*)SWR_FN32(rdroid_hostServices_ptr->alloc)(sizeof(RdThing));
     if (prdThing == NULL)
         return NULL;
     rdThing_NewEntry(prdThing, pThing);
@@ -48,7 +48,7 @@ void rdThing_Free(RdThing* pThing)
 {
     if (pThing != NULL) {
         rdThing_FreeEntry(pThing);
-        (*rdroid_hostServices_ptr->free)(pThing);
+        SWR_FN32(rdroid_hostServices_ptr->free)(pThing);
     }
 }
 
@@ -57,15 +57,15 @@ void rdThing_FreeEntry(RdThing* pThing)
 {
     if (pThing->type == RD_THING_MODEL3) {
         if (pThing->paJointMatrices != NULL) {
-            (*rdroid_hostServices_ptr->free)(pThing->paJointMatrices);
+            SWR_FN32(rdroid_hostServices_ptr->free)(pThing->paJointMatrices);
             pThing->paJointMatrices = NULL;
         }
         if (pThing->apTweakedAngles != NULL) {
-            (*rdroid_hostServices_ptr->free)(pThing->apTweakedAngles);
+            SWR_FN32(rdroid_hostServices_ptr->free)(pThing->apTweakedAngles);
             pThing->apTweakedAngles = NULL;
         }
         if (pThing->paJointAmputationFlags != NULL) {
-            (*rdroid_hostServices_ptr->free)(pThing->paJointAmputationFlags);
+            SWR_FN32(rdroid_hostServices_ptr->free)(pThing->paJointAmputationFlags);
             pThing->paJointAmputationFlags = NULL;
         }
     }

@@ -161,11 +161,11 @@ int stdComm_GetSessionSettings(StdCommSessionSettings* pSettings)
 
     res = IDirectPlayX_GetSessionDesc(stdComm_pDirectPlay, NULL, &size);
     if (res == DPERR_BUFFERTOOSMALL) {
-        desc = (LPDPSESSIONDESC2)(*stdPlatform_hostServices_ptr->alloc)(size);
+        desc = (LPDPSESSIONDESC2)SWR_FN32(stdPlatform_hostServices_ptr->alloc)(size);
         res = IDirectPlayX_GetSessionDesc(stdComm_pDirectPlay, desc, &size);
         if (res >= 0) {
             stdComm_SessionToSettings(desc, pSettings);
-            (*stdPlatform_hostServices_ptr->free)(desc);
+            SWR_FN32(stdPlatform_hostServices_ptr->free)(desc);
         }
     }
     return res;
@@ -185,7 +185,7 @@ int stdComm_SetSessionOpenState(char* nameSuffix, DWORD maxPlayers, int bOpen)
         desc = (LPDPSESSIONDESC2)(uintptr_t)size;
         failed = 1;
     } else {
-        desc = (LPDPSESSIONDESC2)(*stdPlatform_hostServices_ptr->alloc)(size);
+        desc = (LPDPSESSIONDESC2)SWR_FN32(stdPlatform_hostServices_ptr->alloc)(size);
         if (desc == NULL || IDirectPlayX_GetSessionDesc(stdComm_pDirectPlay, desc, &size) < 0) {
             failed = 1;
         } else {
@@ -208,7 +208,7 @@ int stdComm_SetSessionOpenState(char* nameSuffix, DWORD maxPlayers, int bOpen)
             }
         }
     }
-    (*stdPlatform_hostServices_ptr->free)(desc);
+    SWR_FN32(stdPlatform_hostServices_ptr->free)(desc);
     return failed;
 }
 

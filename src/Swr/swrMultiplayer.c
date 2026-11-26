@@ -526,7 +526,7 @@ unsigned int swrMultiplayer_SetSessionDesc(StdCommSessionSettings* pSettings)
     if (res != DPERR_BUFFERTOOSMALL)
         return res;
     // faithful: desc is never freed
-    desc = (LPDPSESSIONDESC2)(*stdPlatform_hostServices_ptr->alloc)(size);
+    desc = (LPDPSESSIONDESC2)SWR_FN32(stdPlatform_hostServices_ptr->alloc)(size);
     res = IDirectPlayX_GetSessionDesc(stdComm_pDirectPlay, desc, &size);
     if (res < 0)
         return res;
@@ -1792,7 +1792,7 @@ void swrMultiplayer_PublishPodState(swrRace* player)
 // 0x0041b750
 void swrMultiplayer_RegisterHandler(int subtype, void* handler)
 {
-    swrCallback_multiplayer[subtype] = (tSithCallback SWR_P32*)handler;
+    SWR_FN32_SET(swrCallback_multiplayer[subtype], (tSithCallback)handler);
 }
 
 // 0x0041ba00

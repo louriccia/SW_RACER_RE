@@ -56,7 +56,7 @@ int rdParticle_Draw(RdThing* pParticle, rdMatrix34* pOrient)
         if (rdClip_Face3S(rdCamera_pCurCamera->pClipFrustum, rdParticle_aFaceVertices, 4) != 4)
             continue;
 
-        rdCamera_pCurCamera->fnProjectLst(entry->aVertices, rdParticle_aFaceVertices, 4);
+        SWR_FN32(rdCamera_pCurCamera->fnProjectLst)(entry->aVertices, rdParticle_aFaceVertices, 4);
         entry->flags = 0;
         entry->extraLight = ambient;
         entry->lightingMode = lightingMode;

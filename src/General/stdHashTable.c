@@ -29,20 +29,20 @@ tHashTable* stdHashTable_New(size_t size)
 {
     tHashTable* pTable;
 
-    pTable = (tHashTable*)(*stdPlatform_hostServices_ptr->alloc)(sizeof(tHashTable));
+    pTable = (tHashTable*)SWR_FN32(stdPlatform_hostServices_ptr->alloc)(sizeof(tHashTable));
     if (pTable == NULL) {
         return NULL;
     }
     pTable->numNodes = 0;
     pTable->paNodes = NULL;
-    pTable->hashFunc = NULL;
+    SWR_FN32_SET(pTable->hashFunc, NULL);
     pTable->numNodes = stdHashTable_GetPrime(size);
-    pTable->paNodes = (tLinkListNode*)(*stdPlatform_hostServices_ptr->alloc)(pTable->numNodes << 4);
+    pTable->paNodes = (tLinkListNode*)SWR_FN32(stdPlatform_hostServices_ptr->alloc)(pTable->numNodes << 4);
     if (pTable->paNodes == NULL) {
         return NULL;
     }
     memset(pTable->paNodes, 0, pTable->numNodes << 4);
-    pTable->hashFunc = stdHashTable_CalculateHash;
+    SWR_FN32_SET(pTable->hashFunc, stdHashTable_CalculateHash);
     return pTable;
 }
 
@@ -133,7 +133,7 @@ void stdHashTable_FreeListNodes(tLinkListNode* pNode)
     while (next != NULL)
     {
         next_next = next->next;
-        (*stdPlatform_hostServices_ptr->free)(next);
+        SWR_FN32(stdPlatform_hostServices_ptr->free)(next);
         next = next_next;
     }
     return;
@@ -156,8 +156,8 @@ int stdHashTable_Free(tHashTable* pTable)
             iVar1 = iVar1 + 0x10;
         } while (result < pTable->numNodes);
     }
-    (*stdPlatform_hostServices_ptr->free)(pTable->paNodes);
-    (*stdPlatform_hostServices_ptr->free)(pTable);
+    SWR_FN32(stdPlatform_hostServices_ptr->free)(pTable->paNodes);
+    SWR_FN32(stdPlatform_hostServices_ptr->free)(pTable);
     return result;
 }
 
@@ -174,7 +174,7 @@ int stdHashTable_Add(tHashTable* pTable, char* pName, void* pData)
     {
         return 0;
     }
-    uVar2 = (*pTable->hashFunc)(pName, pTable->numNodes);
+    uVar2 = SWR_FN32(pTable->hashFunc)(pName, pTable->numNodes);
     ptVar3 = stdHashTable_GetTailNode(pTable->paNodes + uVar2);
     if (ptVar3->name == NULL)
     {
@@ -187,7 +187,7 @@ int stdHashTable_Add(tHashTable* pTable, char* pName, void* pData)
         pTable->paNodes[uVar2].data = pData;
         return 1;
     }
-    pNodeToAdd = (tLinkListNode*)(*stdPlatform_hostServices_ptr->alloc)(0x10);
+    pNodeToAdd = (tLinkListNode*)SWR_FN32(stdPlatform_hostServices_ptr->alloc)(0x10);
     if (pNodeToAdd == NULL)
     {
         return 0;
@@ -221,7 +221,7 @@ tLinkListNode* stdHashTable_FindNode(tHashTable* pTable, char* pName, int* pNode
     tLinkListNode* pNode;
 
     if (pTable != NULL) {
-        hash = (*pTable->hashFunc)(pName, pTable->numNodes);
+        hash = SWR_FN32(pTable->hashFunc)(pName, pTable->numNodes);
         *pNodeHash = hash;
         pNode = pTable->paNodes + hash;
         while (pNode->name != NULL) {
@@ -271,9 +271,9 @@ int stdHashTable_Remove(tHashTable* pTable, char* pName)
         {
             ptVar2->prev = pTable->paNodes + (int)pName;
         }
-        (*stdPlatform_hostServices_ptr->free)(ptVar1);
+        SWR_FN32(stdPlatform_hostServices_ptr->free)(ptVar1);
         return 1;
     }
-    (*stdPlatform_hostServices_ptr->free)(ptVar2);
+    SWR_FN32(stdPlatform_hostServices_ptr->free)(ptVar2);
     return 1;
 }

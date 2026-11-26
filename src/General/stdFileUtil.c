@@ -13,7 +13,7 @@ stdFileSearch* stdFileUtil_NewFind(char* path, int searchMode, char* extension)
     int iVar1;
     stdFileSearch* search_;
 
-    search = (stdFileSearch*)(*stdPlatform_hostServices_ptr->alloc)(sizeof(stdFileSearch));
+    search = (stdFileSearch*)SWR_FN32(stdPlatform_hostServices_ptr->alloc)(sizeof(stdFileSearch));
     if (search == NULL)
     {
         return NULL;
@@ -57,7 +57,7 @@ void stdFileUtil_DisposeFind(stdFileSearch* search)
         }
         if (search != NULL)
         {
-            (*stdPlatform_hostServices_ptr->free)(search);
+            SWR_FN32(stdPlatform_hostServices_ptr->free)(search);
         }
     }
 }

@@ -17,7 +17,7 @@ int stdConffile_OpenWrite(char* pFilename)
     if (stdConffile_writeFile != NULL)
         return 0;
 
-    stdConffile_writeFile = (*stdPlatform_hostServices_ptr->fileOpen)(pFilename, "wb");
+    stdConffile_writeFile = SWR_FN32(stdPlatform_hostServices_ptr->fileOpen)(pFilename, "wb");
     if (stdConffile_writeFile == NULL)
     {
         stdConffile_writeFile = NULL;
@@ -41,7 +41,7 @@ int stdConffile_OpenMode(const char* pFilename, const char* openMode)
     }
     else
     {
-        stdConffile_openFile = (*stdPlatform_hostServices_ptr->fileOpen)(pFilename, openMode);
+        stdConffile_openFile = SWR_FN32(stdPlatform_hostServices_ptr->fileOpen)(pFilename, openMode);
         if (stdConffile_openFile == NULL)
         {
             stdConffile_openFile = NULL;
@@ -51,7 +51,7 @@ int stdConffile_OpenMode(const char* pFilename, const char* openMode)
         }
     }
 
-    stdConffile_g_aLine = (*stdPlatform_hostServices_ptr->alloc)(0x1000);
+    stdConffile_g_aLine = SWR_FN32(stdPlatform_hostServices_ptr->alloc)(0x1000);
     strncpy(stdConffile_pFilename, pFilename, 0x7f);
     stdConffile_pFilename[0x7f] = '\0';
     stdConffile_linenum = 0;
@@ -65,9 +65,9 @@ void stdConffile_Close(void)
     if (stdConffile_bOpen != 0)
     {
         if (stdConffile_openFile != NULL)
-            (*stdPlatform_hostServices_ptr->fileClose)(stdConffile_openFile);
+            SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(stdConffile_openFile);
         stdConffile_openFile = NULL;
-        (*stdPlatform_hostServices_ptr->free)(stdConffile_g_aLine);
+        SWR_FN32(stdPlatform_hostServices_ptr->free)(stdConffile_g_aLine);
         if (stdConffile_stackLevel != 0)
         {
             stdConffile_PopStack();
@@ -82,7 +82,7 @@ void stdConffile_CloseWrite(void)
 {
     if (stdConffile_writeFile != NULL)
     {
-        (*stdPlatform_hostServices_ptr->fileClose)(stdConffile_writeFile);
+        SWR_FN32(stdPlatform_hostServices_ptr->fileClose)(stdConffile_writeFile);
         stdConffile_writeFile = NULL;
         strncpy(stdConffile_aWriteFilename, "NOT_OPEN", 0x7f);
         stdConffile_aWriteFilename[0x7f] = '\0';
@@ -155,7 +155,7 @@ int stdConffile_ReadLine(void)
         if (remaining == 0)
             return 1;
 
-        if ((*stdPlatform_hostServices_ptr->fileGets)(stdConffile_openFile, str, remaining) == NULL)
+        if (SWR_FN32(stdPlatform_hostServices_ptr->fileGets)(stdConffile_openFile, str, remaining) == NULL)
             return 0;
 
         stdConffile_linenum++;

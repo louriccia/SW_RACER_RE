@@ -15,7 +15,7 @@
 // 0x00408e40
 void* stdPlatform_Alloc(unsigned int size)
 {
-    return (*stdPlatform_hostServices_ptr->alloc)(size);
+    return SWR_FN32(stdPlatform_hostServices_ptr->alloc)(size);
 }
 
 // 0x00484720
@@ -112,7 +112,7 @@ void stdPlatform_Assert(const char* msg, const char* filePath, int line)
         baseOffset++;
 
     _snprintf(buffer, sizeof(buffer), "%s(%d):  %s\n", filePath + baseOffset, line, msg);
-    stdPlatform_hostServices_ptr->errorPrint("ASSERT: %s", buffer);
+    SWR_FN32(stdPlatform_hostServices_ptr->errorPrint)("ASSERT: %s", buffer);
     MessageBoxA(NULL, buffer, "Assert Handler", MB_TASKMODAL);
     DebugBreak();
     exit(1);
@@ -152,31 +152,31 @@ void stdPlatform_noop(uint32_t x)
 void stdPlatform_InitServices(HostServices* handlers)
 {
     handlers->some_float = 1000.0;
-    handlers->statusPrint = stdPlatform_Printf;
-    handlers->messagePrint = stdPlatform_Printf;
-    handlers->warningPrint = stdPlatform_Printf;
-    handlers->errorPrint = stdPlatform_Printf;
-    handlers->debugPrint = NULL;
-    handlers->assert = stdPlatform_Assert;
+    SWR_FN32_SET(handlers->statusPrint, stdPlatform_Printf);
+    SWR_FN32_SET(handlers->messagePrint, stdPlatform_Printf);
+    SWR_FN32_SET(handlers->warningPrint, stdPlatform_Printf);
+    SWR_FN32_SET(handlers->errorPrint, stdPlatform_Printf);
+    SWR_FN32_SET(handlers->debugPrint, NULL);
+    SWR_FN32_SET(handlers->assert, stdPlatform_Assert);
     handlers->unk_0 = 0;
-    handlers->alloc = daAlloc;
-    handlers->free = daFree;
-    handlers->realloc = daRealloc;
-    handlers->getTimerTick = (uint32_t(*)(void))timeGetTime; // stdcall without args can be safely converted to cdecl
-    handlers->fileOpen = stdFileOpen;
-    handlers->fileClose = stdFileClose;
-    handlers->fileRead = stdFileRead;
-    handlers->fileGets = stdFileGets;
-    handlers->fileWrite = stdFileWrite;
-    handlers->feof = feof;
-    handlers->ftell = stdFtell;
-    handlers->fseek = stdFseek;
-    handlers->fileSize = stdFileSize;
-    handlers->filePrintf = stdFilePrintf;
-    handlers->fileGetws = stdFileGetws;
-    handlers->allocHandle = stdPlatform_AllocHandle;
-    handlers->freeHandle = stdPlatform_FreeHandle;
-    handlers->reallocHandle = stdPlatform_ReallocHandle;
-    handlers->lockHandle = stdPlatform_LockHandle;
-    handlers->unlockHandle = stdPlatform_noop;
+    SWR_FN32_SET(handlers->alloc, daAlloc);
+    SWR_FN32_SET(handlers->free, daFree);
+    SWR_FN32_SET(handlers->realloc, daRealloc);
+    SWR_FN32_SET(handlers->getTimerTick, (uint32_t(*)(void))timeGetTime); // stdcall without args can be safely converted to cdecl
+    SWR_FN32_SET(handlers->fileOpen, stdFileOpen);
+    SWR_FN32_SET(handlers->fileClose, stdFileClose);
+    SWR_FN32_SET(handlers->fileRead, stdFileRead);
+    SWR_FN32_SET(handlers->fileGets, stdFileGets);
+    SWR_FN32_SET(handlers->fileWrite, stdFileWrite);
+    SWR_FN32_SET(handlers->feof, feof);
+    SWR_FN32_SET(handlers->ftell, stdFtell);
+    SWR_FN32_SET(handlers->fseek, stdFseek);
+    SWR_FN32_SET(handlers->fileSize, stdFileSize);
+    SWR_FN32_SET(handlers->filePrintf, stdFilePrintf);
+    SWR_FN32_SET(handlers->fileGetws, stdFileGetws);
+    SWR_FN32_SET(handlers->allocHandle, stdPlatform_AllocHandle);
+    SWR_FN32_SET(handlers->freeHandle, stdPlatform_FreeHandle);
+    SWR_FN32_SET(handlers->reallocHandle, stdPlatform_ReallocHandle);
+    SWR_FN32_SET(handlers->lockHandle, stdPlatform_LockHandle);
+    SWR_FN32_SET(handlers->unlockHandle, stdPlatform_noop);
 }

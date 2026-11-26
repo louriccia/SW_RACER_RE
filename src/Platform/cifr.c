@@ -50,7 +50,7 @@ void cifr_ReinitEffects(cifr_EffectSet* effects)
     }
     cifr_ReleaseAllEffects(effects);
     if (effects->project != NULL) {
-        cifr_IFReleaseProject(effects->project);
+        SWR_FN32(cifr_IFReleaseProject)(effects->project);
     }
     cifr_Init(effects);
 }
@@ -66,7 +66,7 @@ int cifr_LoadProjectFile(cifr_EffectSet* effects, char* projectFile, int* slotLa
     if (swrConfig_FORCE_ENABLED == 0) {
         return 0;
     }
-    effects->project = cifr_IFLoadProjectFile(projectFile, (LPDIRECTINPUTDEVICE2A)cifr_device);
+    effects->project = SWR_FN32(cifr_IFLoadProjectFile)(projectFile, (LPDIRECTINPUTDEVICE2A)cifr_device);
     if (effects->project == NULL) {
         return -1;
     }
@@ -145,7 +145,7 @@ int cifr_CreateEffect(cifr_Effect* effect, char* name, HIFORCEPROJECT project)
     if (effect->interfaces != NULL) {
         cifr_ReleaseEffect(effect, project);
     }
-    effect->interfaces = (IDirectInputEffect* SWR_P32*)cifr_IFCreateEffects(project, name, &effect->numInterfaces);
+    effect->interfaces = (IDirectInputEffect* SWR_P32*)SWR_FN32(cifr_IFCreateEffects)(project, name, &effect->numInterfaces);
     if (effect->interfaces == NULL) {
         return 0;
     }
@@ -156,14 +156,14 @@ int cifr_CreateEffect(cifr_Effect* effect, char* name, HIFORCEPROJECT project)
         if (result == DIERR_MOREDATA) {
             size = effect->params.cbTypeSpecificParams;
             cifr_ResetEffectParams(effect);
-            effect->typeSpecificBuffer = (*stdPlatform_hostServices_ptr->alloc)(size);
+            effect->typeSpecificBuffer = SWR_FN32(stdPlatform_hostServices_ptr->alloc)(size);
             effect->params.lpvTypeSpecificParams = effect->typeSpecificBuffer;
             effect->params.cbTypeSpecificParams = size;
             iface = effect->interfaces[i];
             result = iface->lpVtbl->GetParameters(iface, (LPDIEFFECT)&effect->params, DIEP_ALLPARAMS_DX5);
         }
         if (result != 0) {
-            cifr_IFReleaseEffects(project, (IDirectInputEffect**)effect->interfaces);
+            SWR_FN32(cifr_IFReleaseEffects)(project, (IDirectInputEffect**)effect->interfaces);
             effect->interfaces = NULL;
             return 0;
         }
@@ -182,7 +182,7 @@ int cifr_ReleaseEffect(cifr_Effect* effect, HIFORCEPROJECT project)
     if (effect->interfaces == NULL) {
         return 0;
     }
-    result = cifr_IFReleaseEffects(project, (IDirectInputEffect**)effect->interfaces);
+    result = SWR_FN32(cifr_IFReleaseEffects)(project, (IDirectInputEffect**)effect->interfaces);
     effect->interfaces = NULL;
     return result;
 }
@@ -368,8 +368,8 @@ int cifr_SetTypeSpecificParams(cifr_Effect* effect, unsigned int size, void* dat
     if (effect->interfaces == NULL) {
         return 0;
     }
-    (*stdPlatform_hostServices_ptr->free)(effect->typeSpecificBuffer);
-    effect->typeSpecificBuffer = (*stdPlatform_hostServices_ptr->alloc)(size);
+    SWR_FN32(stdPlatform_hostServices_ptr->free)(effect->typeSpecificBuffer);
+    effect->typeSpecificBuffer = SWR_FN32(stdPlatform_hostServices_ptr->alloc)(size);
     memcpy(effect->typeSpecificBuffer, data, size);
     effect->params.cbTypeSpecificParams = size;
     effect->params.lpvTypeSpecificParams = effect->typeSpecificBuffer;
@@ -425,7 +425,7 @@ void cifr_ResetEffectParams(cifr_Effect* effect)
     memset(&effect->envelope, 0, sizeof(effect->envelope));
     effect->envelope.dwSize = sizeof(DIENVELOPE);
     if (effect->typeSpecificBuffer != NULL) {
-        (*stdPlatform_hostServices_ptr->free)(effect->typeSpecificBuffer);
+        SWR_FN32(stdPlatform_hostServices_ptr->free)(effect->typeSpecificBuffer);
         effect->typeSpecificBuffer = NULL;
     }
 }

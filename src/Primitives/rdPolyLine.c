@@ -137,7 +137,7 @@ void rdPolyLine_DrawFace(RdThing* pLine, RdFace* pFace, rdVector3* aVertices, rd
     if (clipped.numVertices < 3)
         return;
 
-    rdCamera_pCurCamera->fnProjectLst((rdVector3*)clipped.unknown2, clipped.aVertices, clipped.numVertices);
+    SWR_FN32(rdCamera_pCurCamera->fnProjectLst)((rdVector3*)clipped.unknown2, clipped.aVertices, clipped.numVertices);
     entry->extraLight = pFace->extraLight;
     if ((rdroid_g_curRenderOptions & RDROID_USE_AMBIENT_CAMERA_LIGHT) != 0) {
         entry->extraLight.x = rdCamera_pCurCamera->ambientColor.x + entry->extraLight.x;
