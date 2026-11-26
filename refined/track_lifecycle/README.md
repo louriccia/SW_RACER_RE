@@ -1,6 +1,6 @@
 # track_lifecycle (refined) — dossier
 
-Status: steps 1-3 done (2026-11-26), see "Progress" at the end. Base: `proto/x64` (the line that carries
+Status: steps 1-4 done (2026-11-26), see "Progress" at the end. Base: `proto/x64` (the line that carries
 `refined/`; the 32-bit build is the oracle build, the 64-bit build must still compile and race).
 
 The problem in one line: retail has no notion of "the track was unloaded". A track's models,
@@ -137,9 +137,17 @@ lockstep driver (race A, back to hangar, race B, hash both) would close it (size
 
 - Location (roadmap 9.1) still unagreed with tim; this lives on the proto line like the rest of
   `refined/`.
-- Step 1 ordering: does `track_registry_ApplyForCurrentTrack` need a before-load event, or can it
-  run as the previous track's unload listener? Depends on whether anything between the rewind and
-  `LoadTrackModels` reads the mapping.
+- ~~Step 1 ordering~~ settled in step 4: `track_registry_ApplyForCurrentTrack` needs a before-load
+  event. Unload fires on every rewind, including the hangar's `CullElmoAssets(1/2/3)` (room
+  changes, every pod change in vehicle select) and the cutscene `'Scen'` path in `StartRace`, where
+  installing the highlighted track's block views would serve custom entries to hangar/cutscene
+  loads. Nothing between InitTrack's entry and `LoadTrackModels` reads the views, so a
+  `track_on_before_load` event at InitTrack's entry keeps today's order exactly.
+- Under `SWR_REFINED_OFF=1` (A/B diagnostic) the refined functions are not installed, so no
+  lifecycle event fires and the features moved in step 4 (crash stages, track registry, cable
+  bends, fast-restart state, lap tracking, mesh cache flush) do not run their per-track duties in
+  swe1r. Lockstep's `vanilla` mode drops the old InitTrack wrapper anyway, so the A/B oracle is
+  unaffected; normal play with refined off is not a supported configuration of swe1r.
 
 ## Progress
 
@@ -221,4 +229,46 @@ Oracle gaps (all steps): lockstep only covers the first race of a process, so th
 resets (trigger slots, cursor registry) are machine-checked only for "no change on a first race".
 Track switches are covered by the scripted `then` repro and log checks, not by hashes. A lockstep
 sequence mode (step 6) would close that.
+
+### Step 4 (done) — duties moved to lifecycle events (9 commits, 4a-4i)
+
+API addition: `track_on_before_load()` (start of the refined InitTrack, before its rewind).
+
+| Duty | Event | Notes |
+|---|---|---|
+| crash stage "race: init track" | before_load | |
+| `track_registry_ApplyForCurrentTrack` | before_load | Not unload: see Open questions |
+| `swrRace_ClearCableBends` | unload | Map is rebuilt every frame; hangar rewinds clear it harmlessly |
+| fast restart: `forget_trigger_state` | unload | Records are made only when triggers fire mid-race |
+| crash stage "race: running track ..." | loaded | |
+| fast restart: scene-animation snapshot, countdown latch | loaded | |
+| lap tracking reset | loaded | Scores from `swrScoresPtr` (InitTrack's own copy) |
+| invalid-node scan | loaded | Kept as a U2 safety net, logs `[track_lifecycle] ... (U2 regression?)` |
+| mesh geometry cache flush (`renderer_hook.cpp`) | unload | Replaces the `swrModel_ClearLoadedModels` wrapper in swe1r |
+
+Not moved: the texture-cache clear. It is keyed on texture-block switches (stock <-> custom, in
+`swrModel_InitializeTextureBuffer_delta`), not on unloads; its unload-time part already is the
+refined `InvalidateTexturesBelow` inside the rewind, and entries below the rewind checkpoint stay
+valid as in retail, so clearing everything at unload would drop live entries.
+
+swe1r installs neither `swrObjJdge_InitTrack_delta` nor `swrModel_ClearLoadedModels_delta`; the
+DLL keeps both, calling the same duty functions in the same order.
+
+Registration: `swrObjJdge_RegisterTrackListeners()` and the mesh-cache listener, both from the
+feature init in `renderer_hook.cpp`. Listeners are registered in lockstep `vanilla` mode too; the
+lockstep sweep is therefore also the check that they do not touch simulation state.
+
+Verified per commit: swe1r 32-bit + x64 build, lockstep sa_t0/5/9/14/20 ALL MATCH. Head (4i):
+lockstep sa_t0..24 25/25 on, 25/25 off; DLL (`SWR_STANDALONE=OFF`) builds and links. Feature checks
+(`then` sequences, all deltas):
+- crash stages logged on every load; track registry: mutecity (manifest) -> Boonta -> mutecity
+  installs, removes (stock file reads), reinstalls the views;
+- fast restart (temporary test hook requesting one at frame 200 of each race): Boonta -> Bowser 1
+  -> Big Blue restored 53/36/38 captured animations, all matching the live scene list, with
+  trigger records empty and the countdown latched;
+- mesh cache (temporary perf log, 16 racers, Boonta -> Bowser 1 -> Boonta): one flush per track
+  load, ~1000 cached meshes, ~5 ms CPU/frame, same as before the move;
+- invalid-node check: none found.
+Not exercised at runtime: the >5-lap results summary (lap tracking consumer), cable rendering,
+trigger records after an actual trigger fire.
 
