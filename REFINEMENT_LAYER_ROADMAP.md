@@ -1,6 +1,6 @@
 # SW_RACER_RE — Refinement Layer Roadmap
 
-**Status:** proposal / design (2026-11-18; x64 implications added 2026-11-26, section 10). Living document. Owner: lightningpirate.
+**Status:** in progress (2026-11-18; x64 implications 2026-11-26, section 10; progress and lessons 2026-11-27, section 11). Living document. Owner: lightningpirate.
 Companion skill: `/refine-subsystem` (`.claude/skills/refine-subsystem/SKILL.md`).
 
 ---
@@ -214,7 +214,7 @@ Each step is its own commit (or PR), and each is gated by the oracle before the 
 | Phase | Content | Depends on |
 |---|---|---|
 | **R0 — Foundations** | Agree on the layer and its location with tim. Merge the differential harness (#285). Add the `refined` hook mode. Write the dossier template and the skill. | — |
-| **R1 — Pilot subsystem** | One **equivalent-tier**, well-covered, high-pain subsystem through all of section 6.3. Learn the costs; revise this document. Pilot chosen 2026-11-18: **swrControl** (dossier `refined/swrControl/README.md`). | R0 + **faithful gate** (below) |
+| **R1 — Pilot subsystem** | One **equivalent-tier**, well-covered, high-pain subsystem through all of section 6.3. Learn the costs; revise this document. Pilot chosen 2026-11-18: swrControl (dossier on `refine/swrControl-dossier`, never worked, parked). **De facto pilot: track_lifecycle** (2026-11-26, all 6 steps landed; section 11). | R0 + **faithful gate** (below) |
 | **R2 — Data-driven content** | Subsystems that own the mod-facing tables (tracks, planets, pilots/pods, circuits, AI tuning) so MODDING_ARCHITECTURE's inflate-the-table and hook-the-reader tricks become plain data loading. | R1 |
 | **R3 — Sacred core** | Physics, AI, collision, judge — only with tick-level lockstep (§4) running. `DECOMP`, `GLOBAL` and `TANGLE` steps only at first. | Lockstep, replay corpus |
 | **R4 — Platform** | Platform seam (render, audio, input, network, file I/O) so 64-bit and non-Windows builds are possible. FP decision (§3) applies here. | Standalone build |
@@ -241,6 +241,8 @@ a dossier before work.
 
 | Candidate | Phase | Why | Notes for the dossier |
 |---|---|---|---|
+| **core** (registries, schema loader, packs, content fingerprint, event bus) (2026-11-27) | R2 groundwork | Every data-driven subsystem needs the same five pieces; designed once instead of per subsystem | Dossier written: `refined/core/README.md` on `refine/track_lifecycle`. Steps 1-4 gate swrObjTrig's runner |
+| **swrObjTrig** (triggers as action lists) (2026-11-26) | R2 (sacred handlers) | Planet-indexed slots make trigger types planet-bound; U5 NULL derefs on custom tracks; MP index table never reset | Dossier written: `refined/swrObjTrig/README.md`. Step 1 (trigger-firing oracle) needs local retail runs |
 | **Pod part drives:** `swrRace_PoddAnimateSteeringParts` 0x00472A50 (2026-11-20) | R2 (pods), after the R1 pilot | A per-pilot `switch` that is really a table of (part slot, signal, axis, scale) rows. Keyed by pilot and raw slot, so a custom pod inherits the replaced pilot's animations; nothing can add a moving part or a new signal. Small, deterministic, easy to oracle. | Target: keep the 7 signals (`flapPitch`, `vaneYaw`, `yawR/L`, `pitchR/L`, `spin`) computed as today, then loop over the pod's drive rows in original order; stock rows extracted 1:1. Later the key moves from pilot to pod and parts by contract name (POD_MODDING_ROADMAP §3.5). Keep: pilot 5 writes `0x16` and `0x24` twice (last wins); pilot 0's `pitchR`/`pitchL` pairing looks asymmetric but is stock; all 6 smoothing calls, `partOffset[33].y` spin state and the `partNodes[0x3b]` flag write run for every pilot before the LOD return. Tier: equivalent if nothing sacred reads the part-node transforms or `partOffset` state; confirm. Oracle: 23 pilots x steer/speed/LOD sweep over several frames, diff every part transform and smoothing state. `swrRace_SmoothEngineExhaustSize` is a generic spring, rename it. |
 
 ## 8. Risks
@@ -301,3 +303,37 @@ shadow mode is x86-only, OpenAL DLL is copied by hand into the build dir.
 4. **Data format:** JSON for every externalized table (consistent with MODDING_ARCHITECTURE), or
    a binary format for large ones?
 5. **Pilot subsystem:** pick with `/refine-subsystem` once R0 is done.
+
+## 11. Progress and lessons (2026-11-27)
+
+Landed on the proto line (`refine/track_lifecycle`, pushed to origin, not upstream): swrAssetBuffer,
+swrModel texture cache, swrRace racer options, swrObjJdge race timing, and **track_lifecycle**, the
+first subsystem taken through every step of section 6.3. Dossiers waiting: swrObjTrig, core,
+swrControl (stale base, parked).
+
+What track_lifecycle taught (fold into section 6 when the next subsystem confirms it):
+
+- **Events beat wrappers.** The `InitTrack` wrapper did nine unrelated jobs; moving each onto
+  `before_load` / `unload` / `loaded` listeners deleted the wrapper and made every feature's
+  dependency on track lifetime explicit. Expect this pattern wherever a delta wraps a lifecycle
+  function.
+- **Single-race lockstep is not enough for lifetime bugs.** Stale-pointer flaws only show across
+  track switches, so the lockstep driver gained a sequence mode (several races per process, each
+  hashed against retail). Any subsystem owning cross-race state needs it.
+- **Hash exclusions must be narrow and conditional.** Clearing stale fly-by state made custom-track
+  sequences differ from retail in fields nothing reads. Resolution: exclude exactly those fields,
+  only while the gate that reads them is closed, with a static layout assert. The rule: an
+  exclusion names the reader that proves the bytes are dead.
+- **Guards become invariant checks, not silent fixes.** Once the root cause is fixed, the old
+  band-aid stays as a logged check over the sequence runs (zero hits recorded) instead of being
+  deleted blind.
+- **The faithful gate (section 7) was met by lockstep, not the harness.** The standalone runs zero
+  retail code, and 1789 functions verified live in lockstep sweeps; that replaced the per-subsystem
+  `reimpl`-mode harness pass for this subsystem.
+- **A dossier finding can be bigger than its subsystem.** The trigger-slot carry-over (U5) was not a
+  lifecycle bug but a design flaw of the trigger system; handing it to its own dossier instead of a
+  point fix was right. Same for the shared infrastructure: noticed while designing triggers, split
+  into `core`.
+- **Gaps that remain:** trigger firing is barely exercised by the recorded runs (idle pods), so
+  sacred trigger work waits on a firing oracle; the >5-lap results summary and cable rendering paths
+  were never hit at runtime.
