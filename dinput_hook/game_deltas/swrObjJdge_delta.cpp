@@ -206,6 +206,28 @@ unsigned int swrObjJdge_InitTrack_delta(swrObjJdge *judge, swrScore *scores) {
 }
 #endif
 
+// Whether the pre-race fly-by can be walked on this track.
+static bool flyby_cursor_ready(const swrObjJdge *jdge) {
+#ifdef SWR_REFINED
+    // The refined swrObjJdge_SetupTrackEnvironment clears cam_spline and the cursor whenever it does
+    // not seed them, so NULL means "no camera path". A non-NULL cursor that cannot be walked would be
+    // a track_lifecycle bug: log it and keep the sweep closed.
+    if (jdge->cam_spline == NULL || jdge->camSweepCursor.spline == NULL)
+        return false;
+    if (!spline_cursor_has_usable_spline(&jdge->camSweepCursor)) {
+        fprintf(hook_log, "[track_lifecycle] invariant broken: fly-by cursor spline %p is not usable\n",
+                (void *) jdge->camSweepCursor.spline);
+        fflush(hook_log);
+        return false;
+    }
+    return true;
+#else
+    // Retail leaves the previous track's spline in the cursor on a track with no camera path, which
+    // the asset buffer has since overwritten (non-NULL but garbage), so a NULL test is not enough.
+    return jdge->cam_spline != NULL && spline_cursor_has_usable_spline(&jdge->camSweepCursor);
+#endif
+}
+
 // --- fast restart (speedrunner hotkey) -------------------------------------------------------
 // A hotkey (Enter) that restarts the current race INSTANTLY with no loading screen, landing in the
 // pre-race countdown exactly like a freshly started race. The pause-menu "Restart Race" and the
@@ -1419,15 +1441,9 @@ void swrObjJdge_F0_delta(swrObjJdge *jdge) {
     // Suppressed while a fast restart is skipping the intro -- the two have opposite intents (play
     // the sweep vs skip straight to the countdown), and the restart wins.
     if (cutscene_restore_effective(imgui_state.restore_prerace_track_sweep) && !fast_restart_skip) {
-        // swrObjJdge_F2 (+0x32) evaluates camSweepCursor while camSweepState != NULL, and
-        // swrObjJdge_SetupTrackEnvironment leaves that cursor's spline NULL on a track with no
-        // camera path. Opening the gate then gives a black sweep that never ends (or, before
-        // swrSpline_EvaluateToMatrix_delta guarded it, a fault). A NULL test is not enough: on a
-        // track with no camera path the cursor keeps the PREVIOUS track's spline pointer, which the
-        // asset buffer has since overwritten, so it reads non-NULL but garbage (a custom track
-        // raced straight after a stock one). Require a spline that can actually be walked.
-        if (state == 4 && prevState != 4 && jdge->cam_spline != NULL &&
-            spline_cursor_has_usable_spline(&jdge->camSweepCursor)) {
+        // swrObjJdge_F2 (+0x32) evaluates camSweepCursor while camSweepState != NULL; opening the
+        // gate on a track with no camera path gives a black sweep that never ends.
+        if (state == 4 && prevState != 4 && flyby_cursor_ready(jdge)) {
             savedCamera = (short) unkCameraArrayIndex;
             jdge->camSweepState = jdge->cam_spline;// non-null gate (F0/F2 only test != 0)
             ((swrViewport_SetActiveCameraFn) SWR_FN(swrViewport_SetActiveCamera))(5);

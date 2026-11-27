@@ -50,15 +50,58 @@ static bool report_once_per_caller(const void *caller) {
 
 // nodeLookahead indexes control_points and swrSpline_Interpolate does not range-check it, while
 // swrSpline_CursorSeekToProgress leaves the window untouched when its scan matches no node -- so a
-// cursor reused across tracks can hold indices from a longer spline. The spline is known good
-// here, so swrSpline_CursorSeek can safely rebuild the whole chain from node 0.
+// cursor reused across tracks can hold indices from a longer spline.
+static bool cursor_window_out_of_range(const swrSplineCursor *c) {
+    const swrSpline *s = c->spline;
+    for (int i = 0; i < 4; i++) {
+        if (c->nodeLookahead[i] < 0 || c->nodeLookahead[i] >= (int) s->num_control_points)
+            return true;
+    }
+    return false;
+}
+
+#ifdef SWR_REFINED
+// swe1r: the track lifecycle (refined/track_lifecycle) clears the fly-by cursor whenever it is not
+// seeded and zeroes registered cursors at every asset-buffer rewind, so no cursor outlives its
+// spline. These hooks only check that invariant and log its first violation per caller. A cursor
+// with no usable spline is still not evaluated (a stale transform beats a fault); an out-of-range
+// node window is no longer repaired.
+static void report_invariant(const char *what, const swrSplineCursor *c, const void *caller) {
+    if (!report_once_per_caller(caller))
+        return;
+    fprintf(hook_log, "[track_lifecycle] invariant broken: %s (cursor %p, spline %p, called from %p)\n", what,
+            (const void *) c, c != NULL ? (const void *) c->spline : NULL, caller);
+    fflush(hook_log);
+}
+
+// 0x0047e8b0
+void swrSpline_CursorSeekToProgress_delta(void *cursor, int progress) {
+    hook_call_original(swrSpline_CursorSeekToProgress, cursor, progress);
+
+    swrSplineCursor *c = (swrSplineCursor *) cursor;
+    if (c != NULL && cursor_spline_is_usable(c) && cursor_window_out_of_range(c))
+        report_invariant("seek left a node window outside the spline", c, __builtin_return_address(0));
+}
+
+// 0x0044ed80
+void swrSpline_EvaluateToMatrix_delta(void *cursor, void *out) {
+    swrSplineCursor *c = (swrSplineCursor *) cursor;
+    const void *caller = __builtin_return_address(0);
+    if (c == NULL || !cursor_spline_is_usable(c)) {
+        report_invariant("evaluating a cursor with no usable spline", c, caller);
+        return;
+    }
+    if (cursor_window_out_of_range(c))
+        report_invariant("evaluating a node window outside the spline", c, caller);
+
+    hook_call_original(swrSpline_EvaluateToMatrix, cursor, (rdMatrix44 *) out);
+}
+#else
+// The spline is known good here, so swrSpline_CursorSeek can safely rebuild the whole chain from
+// node 0.
 static void clamp_cursor_indices(swrSplineCursor *c, const void *caller) {
     const swrSpline *s = c->spline;
-    bool out_of_range = false;
-    for (int i = 0; i < 4; i++)
-        out_of_range = out_of_range || c->nodeLookahead[i] < 0 ||
-            c->nodeLookahead[i] >= (int) s->num_control_points;
-    if (!out_of_range)
+    if (!cursor_window_out_of_range(c))
         return;
 
     if (report_once_per_caller(caller)) {
@@ -102,6 +145,7 @@ void swrSpline_EvaluateToMatrix_delta(void *cursor, void *out) {
 
     hook_call_original(swrSpline_EvaluateToMatrix, cursor, (rdMatrix44 *) out);
 }
+#endif
 
 // 0x004472e0
 char *swrSpline_LoadSplineById_delta(char *splineBuffer) {

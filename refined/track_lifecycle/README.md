@@ -1,6 +1,6 @@
 # track_lifecycle (refined) — dossier
 
-Status: steps 1-4 done (2026-11-26), see "Progress" at the end. Base: `proto/x64` (the line that carries
+Status: steps 1-5 done (2026-11-26), see "Progress" at the end. Base: `proto/x64` (the line that carries
 `refined/`; the 32-bit build is the oracle build, the 64-bit build must still compile and race).
 
 The problem in one line: retail has no notion of "the track was unloaded". A track's models,
@@ -271,4 +271,21 @@ lockstep sa_t0..24 25/25 on, 25/25 off; DLL (`SWR_STANDALONE=OFF`) builds and li
 - invalid-node check: none found.
 Not exercised at runtime: the >5-lap results summary (lap tracking consumer), cable rendering,
 trigger records after an actual trigger fire.
+
+### Step 5 (done) — spline guards downgraded to invariant checks (swe1r)
+
+- `swrSpline_CursorSeekToProgress_delta`: no longer re-seeds an out-of-range node window; logs
+  `[track_lifecycle] invariant broken: ...` once per caller.
+- `swrSpline_EvaluateToMatrix_delta`: no longer clamps; logs an out-of-range window, and still
+  skips (and logs) a cursor with no usable spline as the last resort against a fault.
+- Fly-by gate (`flyby_cursor_ready`): a plain NULL test of `cam_spline` and the cursor's spline; a
+  non-NULL spline that fails the usability test is logged as an invariant violation and keeps the
+  sweep closed.
+- The DLL keeps the original guards (retail SetupTrackEnvironment still leaves stale cursors there).
+
+Verified: swe1r 32-bit + x64 + DLL build; `then` sequence over hangar tracks 0 -> 31 -> 38 -> 28 -> 5
+-> 32 -> 9 -> 14 -> 0 (stock and custom/manifest, 400 frames each, all
+deltas, fly-by restored and played on the stock tracks): 0 invariant lines, both check hooks
+installed; lockstep sa_t0..24 25/25 on, 25/25 off. (Lockstep's vanilla mode drops these deltas, so
+the sequence run is the oracle for this step.)
 

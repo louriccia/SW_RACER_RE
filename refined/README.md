@@ -23,7 +23,7 @@ DLL still uses its retail-side patches for these features.
 | [swrModel](swrModel/README.md) | `swrModel_LoadModelTexture`, `swrAssetBuffer_InvalidateTexturesBelow` | texture-buffer operand patches (custom tracks) |
 | [swrRace](swrRace/README.md) | `swrObjJdge_SpawnRacers`, `swrRace_PoddAnimateVariousThings`, `swrRace_UpdatePlayerControl`, `swrObjTest_F0` | `ai_full_lod` NOPs, flamejet cheat JNZ patches |
 | [swrObjJdge](swrObjJdge/README.md) | `swrObjJdge_F2`, `swrRace_InRaceTimer`, `swrRace_InRaceEndStatistics`, `swrObjHang_ResultsMenu`, `swrMultiplayer_InRace` | lap-slot de-indexing (`lap_time_overflow`), 3000 s constants (`race_time_cap`) |
-| [track_lifecycle](track_lifecycle/README.md) | `swrAssetBuffer_ResetToIndex`, `swrObjJdge_InitTrack`, `swrObjJdge_SetupTrackEnvironment` | none yet (stale fly-by cursor and trigger-slot carry-over fixed at the source; delta guards retire in steps 4-5) |
+| [track_lifecycle](track_lifecycle/README.md) | `swrAssetBuffer_ResetToIndex`, `swrObjJdge_InitTrack`, `swrObjJdge_SetupTrackEnvironment` | `swrObjJdge_InitTrack` and `swrModel_ClearLoadedModels` wrappers (duties on lifecycle events); spline guards and the fly-by usable-spline gate reduced to invariant logs |
 
 Refined functions attach underneath every delta on the same function, so a delta's
 `hook_call_original` reaches the refined version.
