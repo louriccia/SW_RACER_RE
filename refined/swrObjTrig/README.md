@@ -215,6 +215,11 @@ new actions through the modding API (the modding API's plugin seams; the roadmap
 
 ### 5.1 Mechanism
 
+The registry, schema, pack-layering, tag/fingerprint, mod-RNG and event pieces below are shared
+infrastructure, designed once in [refined/core](../core/README.md); this section is how triggers use
+them. Where they differ, core wins: mod randomness draws from core's mod stream, and only an entry
+explicitly tagged as using the game stream breaks retail comparability.
+
 - **One registry, built-ins use it too.** Every action is a record — name, typed parameter schema, run
   function, tags. `core.*` actions register through the same call a plugin uses.
 
