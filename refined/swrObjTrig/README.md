@@ -1,6 +1,6 @@
 # swrObjTrig (refined) — dossier
 
-Status: dossier only, no code (2026-11-26). Base: `refine/track_lifecycle` (proto line). Requested by
+Status: dossier only, no code (2026-11-26; section 4 redesigned as action lists and section 5 added 2026-11-27). Base: `refine/track_lifecycle` (proto line). Requested by
 the user after the track_lifecycle U5 audit: "This is what the refinement layer is for. The game's
 trigger system is a hard coded rigid system and we need to make it a flexible, easy to mod system."
 
@@ -11,9 +11,11 @@ handler reads a hard-coded slot. A trigger type therefore only works on the plan
 to fill its slot; anywhere else it reads NULL (fresh process) or the previous track's freed data. Stock
 data never mixes them; custom tracks do.
 
-Goal: a data-driven trigger system. A trigger type declares and owns the models, animations and FX it
-needs, so any trigger type works on any planet or track; mods and custom tracks can define types and
-parameters. No planet-indexed slots, no hard-coded per-planet setup. With every setting at its default
+Goal: a data-driven trigger system. A trigger is a list of actions from a small vocabulary (play an
+animation, play a sound, show or hide a node, spawn a model, shake the camera, affect the pod, wait, ...)
+that names the effects and models it uses, so any trigger works on any planet or track. Retail's type ids
+become built-in lists; mods and custom tracks compose new ones in data, and code mods add new actions.
+No planet-indexed slots, no hard-coded per-planet setup. With every setting at its default
 the game behaves exactly like retail (lockstep).
 
 ## 1. Boundary
@@ -63,7 +65,7 @@ Seams (crossing edges; the subsystem is tightly sealed):
 - Out: `swrModel_*` node/animation calls, `swrModel_LoadFromId` / `LoadAllAnimationsOfModel`,
   `swrRace_Explode`, `swrRace_UpdateFireEffects`, cMan `'Shak'` events, `swrSound_*`,
   `swrUtils_Rand`, `swrMultiplayer_SendEvent`.
-- Lifetime: track_lifecycle events (load/unload) — see section 4.
+- Lifetime: track_lifecycle events (load/unload) — see section 4.4.
 
 ## 2. Tier table
 
@@ -78,9 +80,10 @@ Seams (crossing edges; the subsystem is tightly sealed):
 | `FindAndInitializeTriggersInNode`, region grid | **sacred** | Order of registration = order of the MP index table and of RNG draws |
 | MP index functions | equivalent | Wire format between peers of the same build |
 
-Uncertain cases default to sacred. Tier rule for the refactor: the sacred handlers keep their arithmetic
-and call order; what changes is where they get a node/animation from (a per-type asset record instead of
-a planet slot), which is equivalent wherever retail's slot was filled.
+Uncertain cases default to sacred. Tier rule for the refactor: a built-in list that replaces a sacred
+handler (section 4.3) must issue the same engine calls, constants and RNG draws in the same order; what
+changes is where it gets a node/animation from (a named effect instead of a planet slot), which is
+equivalent wherever retail's slot was filled.
 
 ## 3. Flaw inventory
 
@@ -114,109 +117,199 @@ Every stock track only uses slots its planet fills, so retail never hits U1 on s
 names above follow the swrObjJdge planet order; confirm against `swrUI` track info when writing the data
 file.
 
-## 4. Target shape
+## 4. Target shape: triggers as action lists
 
-```c
-/* refined/swrObjTrig/trigger_types.h */
-typedef struct TriggerAssetRef { MODELID model; int child; /* -1 = entries[0].node */ int animated; } TriggerAssetRef;
+Revised 2026-11-27 (design discussion with the user). The first draft kept one sacred handler per type
+id (`int handler` in a type record). That keeps the rigidity: ~30 ids, each a bespoke routine, many of
+them the same few operations with different constants. The target is instead a small vocabulary of
+**actions**, and a trigger is a list of them. A type id becomes the name of a built-in list.
 
-typedef struct TriggerType {
-    uint16_t id;                 /* descriptor type id; mods/custom tracks may add ids */
-    const char* name;
-    uint16_t default_flags;      /* activation flags applied at registration (one flag enum) */
-    TriggerAssetRef fx;          /* effect played when fired (was ModelArray2/AnimationArray[slot]) */
-    TriggerAssetRef prop;        /* spawned scene node (was ModelArray1[slot]) */
-    TriggerAssetRef alt;         /* second state, e.g. knocked-over flag (was ModelArray1[4]) */
-    int handler;                 /* which sacred effect routine runs; retail ids map 1:1 */
-    /* effect parameters lifted from handler constants: shake strength/duration, FX scale, ... */
-} TriggerType;
+### 4.1 Retail types decomposed
 
-const TriggerType* trigger_type_find(uint16_t id);
-int trigger_type_register(const TriggerType* type);      /* mods / custom track packs */
-void* trigger_type_fx_node(const swrObjTrig* trig);     /* replaces ModelArray2[slot] */
-swrModel_Animation** trigger_type_fx_anims(const swrObjTrig* trig);  /* replaces AnimationArray[slot] */
+Read from `swrRace_TriggerHandler` (0x0047ce60), `HandleCrashHitTrigger`, `HandleTrigger108`,
+`Handle314Or501Trigger`, `SpawnEarthquakeShake` and the F0 timer switch.
+
+| Retail type | As actions |
+|---|---|
+| Door 101 / 307 | play animation on the affected node (101 reverses direction each fire); re-arm after `SWR_TRIG_REARM_SECS` |
+| Tram 304 | set speed 1.0 on two animations; once |
+| Tent shortcut 103 | hide node, show node; once |
+| Collapsing glacier / falling pillar 105 / 312 | play node animation (speed 0.6), shake (0.05, 4.0); wait 4 s; stop shake |
+| Earthquake 306 / shortcut 213 | shake (0.25, 8.0); wait 1.5 s; hide/show nodes, play FX at the affected node's AABB centre; wait 0.7 s; stop shake, stop FX |
+| Break 100 / 102 / 201 / 202 / 212 | slow pod (decel 25 or 2.5), damage hit `'Hitt'` (100 / 300 / 600), hide node, play FX at trigger centre (102 + AI: scale 8), sound 0x39 at pod with random volume; FX follows pod velocity |
+| Methane 314 / lava 501 | if FX not busy: play FX at affected node transform; else nothing |
+| Slalom flag 108 | hide node, play FX facing pod heading at centre +8 / -24, swap to fallen-flag model |
+| Tuskens 203 / asteroids 106 | 2D sound 0x30 (203 only), flame hazards; 203 re-arms |
+| Kill 104 | explode pod, variant 1 or 2 by `swrUtils_Rand` |
+| Teleport 900 | message (empty, 3 s), reset pod to spline |
+| Balloon 208 / fish 308 / dozer 310 / flame 211 | spawn model on a wrapper node; 208 / 308 follow the affected node (F2) |
+
+### 4.2 Structure of a trigger
+
+```json
+"core.break_rock_202": {
+  "when":  { "flags": ["needs_speed"] },
+  "after": "once",
+  "do": [
+    { "slow_pod":  { "decel": 2.5 } },
+    { "damage":    { "amount": 600 } },
+    { "hide_node": "affected" },
+    { "play_fx":   { "fx": "rock_burst", "at": "trigger_center", "follow": "pod_velocity" } },
+    { "sound":     { "id": "0x39", "at": "pod", "volume": { "rand": [0.25, 0.40] }, "range": [10, 500] } }
+  ]
+}
 ```
 
-- Type registry with retail defaults compiled in (one record per id in the type table above, assets as
-  each planet loads them today) and a data file `refined/swrObjTrig/data/trigger_types.json` with the same
-  defaults; a missing or malformed file falls back to the compiled defaults with a logged warning. Custom
-  track packs and mods add or override types through the same records (format open, see questions).
-- Per-track asset instances: the refined trigger setup (it runs inside InitTrack, from
-  `swrObjJdge_AddTriggersToScene`, before racers spawn) loads the assets of the types the track actually
-  uses, in retail's order for stock data (so the asset buffer and texture uploads match). Two
-  types that share an asset share one instance, as two triggers of one type do today.
-- Handlers get assets from the trigger's type record. Their sacred arithmetic and call order stay as
-  retail; only the slot lookup becomes a record lookup.
-- Lifetime: registers on track_lifecycle — `track_on_unload` drops the per-track instances, the MP index
-  table and the wrapper pool (retires G1/G2); `track_on_before_load` is where a custom track pack's type
-  overrides are installed for the coming load.
-- MP index table reset per track load and documented as the wire contract.
-- Name map:
+- **when** — conditions (activation flags today: needs-speed, ignore-AI, local-only, skip-lap, plus the
+  Earthquake random lap skip). Evaluated by the sacred range test in `ActivateTriggersInRange`.
+- **after** — re-arm policy: `once` (disable + free object), `rearm` (cooldown), `toggle` (door direction).
+- **do** — a timeline: actions run in order; `wait` suspends the list on the trigger's 'Trig' object, which
+  is what F0's per-type timers do today. F0's type switch disappears into the runner.
+- **Context** each action can target: the triggering pod, the trigger centre, the affected node, a named
+  node, the pod's heading.
+- **Named effects** replace slots. An FX/prop is a named resource (`rock_burst`) with a busy state;
+  "FX still playing -> skip" (methane/lava) and the slot sharing between break types become explicit:
+  types that name the same effect share one instance, exactly as they share slot 0 today.
+- **Randomness is positional.** An action with a `rand` parameter draws `swrUtils_Rand` at its place in
+  the list. Order of actions = order of RNG draws = lockstep.
 
-| Refined | Ghidra | Address |
-|---|---|---|
-| `refined_swrObjTrig_LoadAndInitializeTriggerModels` | `swrObjTrig_LoadAndInitializeTriggerModels` | 0x0047ddc0 |
-| `refined_swrObjTrig_AddTriggerDescriptions` | `swrObjTrig_AddTriggerDescriptions` | 0x0047d380 |
-| `refined_swrObjTrig_AddNodeToScene` | `swrObjTrig_AddNodeToScene` | 0x0047d310 |
-| `refined_swrObjTrig_HandleCrashHitTrigger` | `swrObjTrig_HandleCrashHitTrigger` | 0x0047ca90 |
-| `refined_swrObjTrig_HandleTrigger108` | `swrObjTrig_HandleTrigger108` | 0x0047c920 |
-| `refined_swrObjTrig_Handle314Or501Trigger` | `swrObjTrig_Handle314Or501Trigger` | 0x0047cd90 |
-| `refined_swrObjTrig_SpawnEarthquakeShake` | `swrObjTrig_SpawnEarthquakeShake` | 0x0047c190 |
-| `refined_swrObjTrig_F0` / `F2` | `swrObjTrig_F0` / `F2` | 0x0047c390 / 0x0047c500 |
-| `refined_swrObjTrig_MaybeResetAnimation` | `swrObjTrig_MaybeResetAnimation` | 0x0047bf70 |
-| `refined_swrObjTrig_EnableFXAnimation` / `StopFXAnimation` / `AnimationActive` | same | 0x0047bea0 / 0x0047bee0 / 0x0047bf20 |
-| `refined_swrRace_TriggerHandler` | `swrRace_TriggerHandler` | 0x0047ce60 |
-| `refined_swrObjTrig_AddTriggerDescription` | `swrObjTrig_AddTriggerDescription` | 0x0047e760 |
+### 4.3 Retail equivalence
 
-## 5. Band-aids retired (swe1r)
+Each retail type ships as a built-in list (`core.*`) that must issue the same engine calls, in the same
+order, with the same constants as today's handler (sacred tier applies to the list, not to a function).
+Where a handler does not decompose cleanly (the 102-AI scale-up, the flag's `+8 / -24` placement and
+heading basis, the combined node-flag writes), the built-in list calls a **named special action**
+(`core.slalom_flag_place`, ...) holding the retail code verbatim. Specials can be decomposed later;
+they are never bent into general actions to fit a quirk.
+
+Old handlers stay compiled behind the vanilla toggle until every built-in list passes the firing oracle.
+
+### 4.4 Lifetime and loading
+
+- Per-track effect instances: the refined setup (inside InitTrack via `swrObjJdge_AddTriggersToScene`,
+  before racers spawn) loads the effects/models the track's triggers name. For stock tracks it must
+  reproduce the planet ladder's loads exactly — including loads no trigger uses (planets 6 and 7 fill
+  MA2[0] with no triggers; Ando Prime fills MA2[4]) — so the retail default is a per-planet preload list
+  in data, not something derived from used types. The asset buffer and texture-hash oracle decide.
+- `track_on_unload` drops instances, the MP index table, the wrapper pool and trigger variables.
+  `track_on_before_load` installs a custom track pack's definitions for the coming load.
+- MP index table reset per load (G2). This differs from retail (which saturates after ~16 loads): a
+  named deliberate change, behind the vanilla toggle.
+
+## 5. Extensibility for modders
+
+Two tiers: **data mods** compose existing actions in JSON (no code; most content), **code mods** register
+new actions through the modding API (`MODDING_API_ROADMAP.md`, Phase 5 seams).
+
+### 5.1 Mechanism
+
+- **One registry, built-ins use it too.** Every action is a record — name, typed parameter schema, run
+  function, tags. `core.*` actions register through the same call a plugin uses.
+
+```c
+trig_action_register(&(TrigAction){
+    .name   = "mymod.gravity_flip",   /* namespaced: core.*, <mod>.* */
+    .params = gravity_flip_params,    /* typed schema, validated at load */
+    .run    = gravity_flip_run,
+    .tags   = TRIG_POD_STATE | TRIG_USES_RNG,
+});
+```
+
+- **Three registries:** actions (what happens), conditions (whether it fires), targets (who / where:
+  triggering pod, all pods, trigger centre, named node, spline offset). New targets work with every action.
+- **Shared parameter kinds:** number (constant, `{"rand": [a, b]}`, or variable ref), position, duration,
+  asset ref, target. Adding a kind upgrades every action.
+- **Flow control in the runner:** `wait`, `repeat`, `chance`, `pick_random`, `sequence` / `parallel`,
+  `set_var` / `if_var` (per-trigger and per-race named variables). Variables give switches, keys and gates
+  ("hit three switches to open the shortcut") with no new code.
+- **Events out:** `trigger.fired` / `trigger.finished` on the mod event bus, so plugins react to stock
+  triggers without replacing them.
+- **Tags every action declares:** uses RNG (must draw through `swrUtils_Rand` in list order),
+  changes pod state (a vanilla / competitive ruleset can reject it), local-only (UI, rumble, sound not
+  synced in MP).
+- **Validation at load:** unknown action, bad parameter or missing asset rejects that trigger with a log
+  line. Nothing fails at fire time.
+
+### 5.2 Vocabulary
+
+**Tier A — retail already calls these** (needed for the built-ins; exposing them is a schema):
+`play_fx` / `stop_fx`, `play_anim` (speed, loop, reverse), `show_node` / `hide_node`, `spawn_model`
+(wrapper node, optional follow), `sound` (2D `swrSound_Play2D` or spatial `swrSound_PlaySpatialRange`),
+`smoke` (`swrObjSmok_Spawn`), `shake` / `stop_shake` (cMan `'Shak'`), `message`
+(`swrText_ShowTimedMessage`), `explode` (`swrRace_Explode`), `reset_to_spline`, `slow_pod`
+(`stdMath_Decelerator` on thrust), `damage` (`'Hitt'` sub-event), `flame_hazards`.
+
+**Tier B — cheap, on systems the project already has** (check each API before committing):
+boost / speed multiplier, heat up / cool down, repair or damage a part, refill boost charge, teleport to a
+point or spline offset, gamepad rumble; add or subtract race time (refined `swrObjJdge` timing), switch
+music; fog colour / distance, weather on / off, light colour (fog, weather and light setters are
+reimplemented); move or rotate a node over time (small new tween).
+
+**Conditions:** pod speed above / below, AI / human, lap number, race position, player count, entry
+direction, chance, variable test, race time, first N pods.
+
+**Tier C — harder, design separately:** AI awareness of new hazards (AI drives into a mod's lava today;
+needs avoid / slow hints), new physics forces (gravity, wind, push zones: sacred physics, own toggle), new
+trigger shapes and triggers placed from data rather than baked into track models (custom-track tooling).
+MP sync sends only "trigger N fired", so every synced action must be deterministic given that event.
+
+## 6. Band-aids retired (swe1r)
 
 | Band-aid | Where | Replaced by |
 |---|---|---|
 | `swrObjTrig_LoadAndInitializeTriggerModels_delta` (MP index reset, note 5) | `swrMultiplayer_delta.cpp` | Index table owned and reset per load (G2); also the fix for the MP trigger-index desync work |
 | Receiver-side "description inside the arena" check (note 5b) | `swrMultiplayer_delta.cpp` | Indices only ever refer to the current track's table |
-| `swrObjTrig_EnableFXAnimation_delta` (fast restart records which FX indices played, because unused slots hold stale lists) | `swrObjJdge_delta.cpp` | Per-track FX instances; fast restart resets the current track's instances |
+| `swrObjTrig_EnableFXAnimation_delta` (fast restart records which FX indices played, because unused slots hold stale lists) | `swrObjJdge_delta.cpp` | Per-track effect instances; fast restart resets the current track's instances |
 | `swrRace_TriggerHandler_delta` snapshot of fired triggers (fast restart) | `swrObjJdge_delta.cpp` | Trigger state owned by the subsystem with a reset API (keeps the rumble hook as a listener) |
 | `ModelArray1` clear at unload | `refined/track_lifecycle` | Arrays retired |
-| Trigger-type table in memory notes / annodue port tables | collision viewer, docs | The registry is the single source (collision viewer reads names from it) |
+| Trigger-type table in memory notes / annodue port tables | collision viewer, docs | The `core.*` lists are the single source (collision viewer reads names from it) |
 
-## 6. Oracle plan
+## 7. Oracle plan
 
 | Step | Check |
 |---|---|
-| Registry + per-type assets (equivalent plumbing) | Lockstep single-race 25/25 and the step-6 sequences (`seqS1v3`, `seqS2v3`, stock -> stock), refined on vs off; texture-hash oracle unchanged (asset load order) |
-| Handlers reading type records (sacred) | Same lockstep, plus trigger-firing coverage (below) |
+| Runner + named effects (equivalent plumbing) | Lockstep single-race 25/25 and the step-6 sequences (`seqS1v3`, `seqS2v3`, stock -> stock), refined on vs off; texture-hash oracle unchanged (per-planet preload order) |
+| Built-in lists replacing handlers (sacred) | Same lockstep, plus the trigger-firing oracle, one type at a time; old handler kept behind the vanilla toggle for A/B |
 | MP index reset | Two-process MP test or a recorded MP event stream; at minimum a sequence run that logs the index table per track (no saturation) |
-| Custom tracks | Sequence `seqC1v3` (stock -> custom) and a new pack that carries other planets' trigger types (flag on Tatooine, lava on Ando Prime): no fault, effects visible |
+| Custom tracks / cross-planet | Sequence `seqC1v3` (stock -> custom) and a pack that uses other planets' effects (flag on Tatooine, lava on Ando Prime): no fault, effects visible |
+| Mod actions | Determinism check: a list with `rand` / `chance` replayed twice gives the same lockstep hash; MP-synced actions rejected if tagged local-only |
 
 Gap: trigger firing. Lockstep replays use recorded inputs, and the recorded runs are mostly idle pods
 (autostart, no throttle), so few triggers ever fire: the sacred handlers are largely unverified by the
-oracle. Needed before handler work: recordings that drive through triggers — an autopilot run
-(`SWR_STANDALONE_AUTOPILOT=1`) recorded in retail on each planet with triggers (0, 1, 2, 4, 5), or the
-recorded human/TAS routes from the replay corpus — plus a per-race count of fired triggers by type
-in the lockstep log so coverage is measurable.
+oracle. Needed before any built-in list replaces a handler: recordings that drive through triggers — an
+autopilot run (`SWR_STANDALONE_AUTOPILOT=1`) recorded in retail on each planet with triggers (0, 1, 2,
+4, 5), or the recorded human/TAS routes from the replay corpus — plus a per-race count of fired
+triggers by type in the lockstep log so coverage is measurable.
 
-## 7. Step plan
+## 8. Step plan
 
-1. **M — Trigger-firing oracle.** Autopilot (or replay-corpus) retail recordings that fire every stock
-   trigger type; lockstep logs fired types per race. Prerequisite for any sacred change.
+1. **M — Trigger-firing oracle.** Retail recordings that fire every stock trigger type; lockstep logs
+   fired types per race. Prerequisite for any sacred change.
 2. **S — DUP/naming.** One flag enum (D1); type table as named constants. No behaviour change.
-3. **M — Type registry with retail defaults** (compiled in), handlers unchanged: the registry only
-   describes today's planet slots. Lockstep 25/25 + sequences.
-4. **L — Per-type assets.** Refined setup loads assets per used type (retail order for stock data);
-   refined handlers take assets from the type record. Retires H1, H2, U1, G1. Lockstep + firing oracle
-   + texture hash; custom cross-planet pack shows the effects.
-5. **S — MP index table owned and reset per load** (G2); retire the MP delta (coordinate with the MP
-   trigger-index desync work).
-6. **M — Data file + mod/custom-track registration** (`trigger_types.json`, pack overrides on
-   `track_on_before_load`), effect parameters lifted out of handler constants.
-7. **S — Retire band-aids** (fast-restart FX/trigger snapshot deltas onto the subsystem's reset API).
+3. **M — Runner core.** Action/condition/target registries, timeline runner on the 'Trig' object
+   (`wait`, sequence), re-arm policies, named effects with busy state, per-planet preload data. Tier A
+   actions registered. Not yet wired to any type. Lockstep 25/25 + sequences unchanged.
+4. **L — Built-in lists, one type at a time.** Each retail type moves from its handler to a `core.*`
+   list (specials where it does not decompose); verified by the firing oracle against the old handler.
+   Retires H1, H2, U1, G1, and F0's type switch once all types move.
+5. **S — MP index table owned and reset per load** (G2), behind the vanilla toggle; retire the MP delta
+   (coordinate with the MP trigger-index desync work).
+6. **M — Data file + pack registration** (`trigger_types.json`, compiled-in fallback, pack overrides on
+   `track_on_before_load`); flow control (`chance`, `pick_random`, `repeat`, variables); conditions.
+7. **M — Tier B actions and targets**, each checked against its subsystem's API.
+8. **M — Plugin registration API** (`trig_action_register`, `trigger.fired` events), with the Phase 5
+   seams of the modding roadmap.
+9. **S — Retire band-aids** (fast-restart FX/trigger snapshot deltas onto the subsystem's reset API).
 
 ## Open questions
 
 - Data format for the type file (roadmap 9.4: JSON vs binary) and how a custom track pack ships its
-  types (same file in the pack folder?).
-- New trigger ids from mods: reserve a range (e.g. >= 1000) so a pack cannot redefine a stock id by
-  accident, or allow overrides explicitly?
-- Effect parameters: which handler constants become parameters (shake strength/duration, FX scale,
+  definitions (same file in the pack folder?).
+- Stock ids: may a pack override `core.*` lists explicitly, or only add new names? Descriptor type ids
+  from track data map to list names — reserve a range for mod ids (e.g. >= 1000)?
+- Timelines: strictly sequential (plus `parallel`), or branching (`if_var` jumping to labels)?
+- Variable scope: per trigger and per race only, or persistent across races (tournament, profile)?
+- Which ruleset decides whether pod-state mod actions are allowed (vanilla / competitive / MP host)?
+- Effect parameters: which handler constants become list parameters (shake strength/duration, FX scale,
   speed threshold 150, flag offsets +8/-24) without touching sacred arithmetic for the defaults.
 - Location (roadmap 9.1), as for the rest of `refined/`.
