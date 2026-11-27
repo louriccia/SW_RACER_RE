@@ -155,10 +155,17 @@ struct State {
     int forceMirror = -1;
     int forceRacers = -1;
     int recordFrames = 0;// record: stop after this many frames, 0 = when the race is left
+    // Sequence: several races in one process, one file per race (race k > 0 in <path>_r<k>.bin).
     // record: at the frame limit, restart the race on these tracks in turn ('RStr', the pause-menu
-    // restart) and record each one; a track switch inside one process
-    int thenTracks[8] = {};
+    // restart) and record each one. replay: when a race's file ends and the next one exists, start
+    // its track the same way, so every track switch is checked against the recording side.
+    int thenTracks[32] = {};
     int thenCount = 0;
+    int raceIndex = 0;
+    int seqRaces = 0;
+    uint32_t seqMismatches = 0;
+    char basePath[MAX_PATH] = "";
+    char baseJunk[MAX_PATH] = "";
     bool exitWhenDone = false;
     bool stopAtMismatch = false;// replay: stop at the first mismatching frame (bisecting needs only that)
     bool textureHash = false;// log a hash of every texture the renderer uploads (render-path oracle)
@@ -283,6 +290,8 @@ void read_config() {
         }
     }
     fclose(f);
+    snprintf(s.basePath, sizeof(s.basePath), "%s", s.path);
+    snprintf(s.baseJunk, sizeof(s.baseJunk), "%s", s.junkPath);
     if (s.hz < 1.0f)
         s.hz = 60.0f;
     if (s.mode != MODE_OFF)
@@ -364,9 +373,22 @@ FrameHashes hash_state() {
 
 // Raw racer + judge structs with their pointer masks, for diffing two runs at one frame
 // (scripts/lockstep_diff.py).
+// Race k > 0 of a sequence: <base>_r<k><ext>.
+void sequence_name(char *out, size_t size, const char *base, int race) {
+    if (race == 0) {
+        snprintf(out, size, "%s", base);
+        return;
+    }
+    const char *dot = strrchr(base, '.');
+    const int stem = dot != nullptr ? (int) (dot - base) : (int) strlen(base);
+    snprintf(out, size, "%.*s_r%d%s", stem, base, race, dot != nullptr ? dot : "");
+}
+
 void dump_state(uint32_t frame) {
     char name[MAX_PATH];
-    snprintf(name, sizeof(name), "lockstep_dump_%s_%u.bin", s.mode == MODE_RECORD ? "rec" : "rep", frame);
+    char base[64];
+    snprintf(base, sizeof(base), "lockstep_dump_%s_%u.bin", s.mode == MODE_RECORD ? "rec" : "rep", frame);
+    sequence_name(name, sizeof(name), base, s.raceIndex);
     FILE *f = fopen(name, "wb");
     if (f == nullptr)
         return;
@@ -430,25 +452,58 @@ bool restore_anim_scalars(FILE *f, int count) {
     return true;
 }
 
-// The hangar's next track is selected and the judge restarts the race, which reloads the track
-// (StartRace -> InitTrack) with no menu input. Recording re-arms for the new race.
-bool restart_on_next_track() {
+// The hangar's track is set and the judge restarts the race, which reloads the track
+// (StartRace -> InitTrack) with no menu input. Capture re-arms for the new race.
+bool restart_race(int track) {
     swrObjJdge *j = judge();
     swrObjHang *hang = (swrObjHang *) get_item()('Hang', 0);
     if (j == nullptr || hang == nullptr)
         return false;
-    const int track = s.thenTracks[0];
-    s.thenCount--;
-    memmove(s.thenTracks, s.thenTracks + 1, sizeof(s.thenTracks[0]) * s.thenCount);
     hang->track_index = (char) track;
-    log_line("lockstep: then track %d", track);
+    s.raceIndex++;
+    log_line("lockstep: race %d of the sequence: track %d", s.raceIndex, track);
     s.finished = false;
     s.sawRace = false;
     s.haveStartRaceRand = false;
+    s.haveInputs = false;
     s.loadTicks = 0;
     s.frame = 0;
     ((void(__cdecl *)(swrObjJdge *, int)) SWR_FN(swrObjJdge_Clear))(j, 'RStr');
     return true;
+}
+
+bool open_replay();
+
+bool record_next_race() {
+    if (s.thenCount <= 0)
+        return false;
+    const int track = s.thenTracks[0];
+    s.thenCount--;
+    memmove(s.thenTracks, s.thenTracks + 1, sizeof(s.thenTracks[0]) * s.thenCount);
+    sequence_name(s.path, sizeof(s.path), s.basePath, s.raceIndex + 1);
+    return restart_race(track);
+}
+
+bool replay_next_race() {
+    char next[MAX_PATH];
+    sequence_name(next, sizeof(next), s.basePath, s.raceIndex + 1);
+    FILE *f = fopen(next, "rb");
+    if (f == nullptr)
+        return false;
+    fclose(f);
+    snprintf(s.path, sizeof(s.path), "%s", next);
+    s.headerRead = false;
+    if (!open_replay())
+        return false;
+    s.junkPath[0] = 0;
+    if (s.baseJunk[0]) {
+        sequence_name(s.junkPath, sizeof(s.junkPath), s.baseJunk, s.raceIndex + 1);
+        if ((f = fopen(s.junkPath, "rb")) != nullptr)
+            fclose(f);
+        else
+            s.junkPath[0] = 0;
+    }
+    return restart_race(s.hdr.setup.trackIndex);
 }
 
 void stop(const char *why) {
@@ -483,12 +538,22 @@ void stop(const char *why) {
         fprintf(hook_log, "[lockstep] %s: %u frames, %u mismatched\n", why, s.frame, s.mismatches);
         fflush(hook_log);
     }
-    if (s.mode == MODE_RECORD && s.thenCount > 0 && restart_on_next_track())
+    s.seqRaces++;
+    s.seqMismatches += s.mismatches;
+    if (s.mode == MODE_RECORD ? record_next_race() : (s.mode == MODE_REPLAY && replay_next_race()))
         return;
+    if (s.seqRaces > 1) {
+        if (s.mode == MODE_REPLAY && s.seqMismatches == 0)
+            log_line("lockstep: sequence of %d races - ALL MATCH", s.seqRaces);
+        else if (s.mode == MODE_REPLAY)
+            log_line("lockstep: sequence of %d races - %u mismatched frames", s.seqRaces, s.seqMismatches);
+        else
+            log_line("lockstep: sequence of %d races recorded", s.seqRaces);
+    }
     if (s.exitWhenDone) {
         if (s.log)
             fclose(s.log);
-        ExitProcess(s.mismatches == 0 || s.rerecordPath[0] ? 0 : 1);
+        ExitProcess(s.seqMismatches == 0 || s.rerecordPath[0] ? 0 : 1);
     }
     if (s.mode == MODE_RECORD && s.continuous) {
         s.autostart = false;// the next recording waits for a race started from the menus
@@ -690,6 +755,9 @@ void frame_step() {
     s.frame++;
     if (s.mode == MODE_RECORD && s.recordFrames > 0 && (int) s.frame >= s.recordFrames)
         stop("frame limit");
+    // The recording side stopped on this same frame, so a sequence restarts on the same frame too.
+    else if (s.mode == MODE_REPLAY && !s.haveInputs)
+        stop("recording ended");
 }
 
 }// namespace
@@ -959,6 +1027,8 @@ const char *const kSimPrefixes[] = {"swrRace_", "swrObj", "swrSpline_", "swrCont
 bool sim_delta(const std::string &name) {
     if (name == "swrRace_IncrementFrameTimer" || name == "swrObjHang_StartRace")
         return false;// lockstep's own hooks
+    if (name == "swrSpline_LoadSplineById")
+        return false;// asset loading: points custom-track spline ids at their pack, stock ids pass through
     for (const char *p: kSimPrefixes)
         if (name.compare(0, strlen(p), p) == 0)
             return true;
@@ -1055,7 +1125,7 @@ extern "C" void lockstep_vanilla_filter(void) {
                                  (void *) swrObjJdge_F0,             (void *) swrObjJdge_F2,
                                  (void *) swrObjJdge_InitTrack,      (void *) swrRace_CopyProfileFromSave,
                                  (void *) swrRace_InRaceEndStatistics, (void *) swrSpline_CursorSeekToProgress,
-                                 (void *) swrSpline_EvaluateToMatrix, (void *) swrSpline_LoadSplineById};
+                                 (void *) swrSpline_EvaluateToMatrix};
     for (void *f: reverseOnly)
         dropped += (int) hook_replacements.erase(f);
     hook_replacements[(void *) swrControl_ProcessInputs] = (void *) swrControl_ProcessInputs_lockstep;
