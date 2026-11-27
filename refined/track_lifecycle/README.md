@@ -1,6 +1,6 @@
 # track_lifecycle (refined) — dossier
 
-Status: steps 1-6 done (2026-11-26); step 3 has an open tier question and U5 is blocked, see Step 6, see "Progress" at the end. Base: `proto/x64` (the line that carries
+Status: steps 1-6 done (2026-11-26); U5 handed to the swrObjTrig refinement, see "Progress" at the end. Base: `proto/x64` (the line that carries
 `refined/`; the 32-bit build is the oracle build, the 64-bit build must still compile and race).
 
 The problem in one line: retail has no notion of "the track was unloaded". A track's models,
@@ -58,7 +58,7 @@ Seams (crossing edges, debt until the neighbour is refined):
 | UNSAFE (U1) | 0x00464b90 | `SetupTrackEnvironment` | Returns early when the track has no camera spline (`cam_splineId < 0`), leaving `cam_spline` and `camSweepCursor.spline` aimed at the previous track's arena data. Root cause of the 2026-09 custom-track CTDs (PR #307). Stock data never takes it: the camSplines table has an entry for every one of the 25 stock tracks (2+4+3+3+4+3+3+3); every -1 is a slot with no stock track | Clear `cam_spline`, `camSweepCursor`, `camSweepTransform` on every early return |
 | GLOBAL (G1) | 0x00445aa0 | `ResetToIndex` | The unload is implicit; nobody can tell which pointers it killed | Track generation counter + ordered `on_track_unload` / `on_track_loaded` listeners |
 | UNSAFE (U2) | 0x0047d310 | `swrObjTrig_AddNodeToScene` / `swrObjTrig_ModelArray1` | Traced in step 2: trigger-wrapper nodes take their child from `swrObjTrig_ModelArray1[slot]`, which is never cleared between tracks and is written only by `LoadPropModel` and planet 1's flag setup. A planet that fills a slot with `LoadFxModel` (ModelArray2 only) or not at all leaves the previous track's node there. The delta nulls the resulting invalid child after InitTrack (`fixup_invalid_node_ptrs`, HACK) | Clear `ModelArray1` at unload (done, step 2); retire the scan in step 4 |
-| UNSAFE (U5) | 0x0047ddc0 | `swrObjTrig_LoadAndInitializeTriggerModels` | Same carry-over for `swrObjTrig_ModelArray2` and `swrObjTrig_AnimationArray`: trigger handlers write transforms through `ModelArray2[slot]` and animate `AnimationArray[slot]`, so a trigger whose slot the planet does not fill writes into the previous track's (rewound) data. Audited in step 6: the handlers dereference both without a NULL check, and retail takes that path (custom tracks carrying another planet's trigger types; in a fresh process the slot is already NULL in retail) | **Blocked (user decision):** clearing would turn the stale write into a NULL crash inside sacred handlers; see Step 6 |
+| UNSAFE (U5) | 0x0047ddc0 | `swrObjTrig_LoadAndInitializeTriggerModels` | Same carry-over for `swrObjTrig_ModelArray2` and `swrObjTrig_AnimationArray`: trigger handlers write transforms through `ModelArray2[slot]` and animate `AnimationArray[slot]`, so a trigger whose slot the planet does not fill writes into the previous track's (rewound) data. Audited in step 6: the handlers dereference both without a NULL check, and retail takes that path (custom tracks carrying another planet's trigger types; in a fresh process the slot is already NULL in retail) | **Handed to the swrObjTrig refinement** ([refined/swrObjTrig](../swrObjTrig/README.md)): no point fix here (user, 2026-11-26); triggers will own their models/FX instead of planet-indexed slots |
 | UNSAFE (U3) | 0x0047e8b0 | `CursorSeekToProgress` | Scan falls through without writing when no node matches, keeping a node window from a longer spline. Only reachable with a cursor carried across tracks | With U1/U4 fixed, prove unreachable (log); keep a guard only behind a debug assert |
 | UNSAFE (U4) | — | cursor owners | Any `swrSplineCursor` that outlives its track (fly-by, swrObjTest `splineCursor@0xac`, cMan) holds a raw `swrSpline*` into the arena | Cursors registered with the lifetime owner are reset on unload |
 | TANGLE (T1) | 0x00466bd0 | `InitTrack` (delta) | One wrapper does nine unrelated things for different features: track_registry mapping, cable bends, lap tracking, scene-animation snapshot, trigger state, countdown latch, crash-log stages, node fixup | Each feature registers its own load/unload listener; the wrapper disappears |
@@ -325,9 +325,9 @@ So, against retail:
   return, so the fly-by fields (`cam_spline`, `camSweepCursor`, `camSweepTransform`, `camSweepAnim`) are
   never re-seeded; retail leaves the previous track's values there, refined leaves them cleared. No game
   code reads them while `camSweepState` is NULL, but the bytes differ, so step 3 is not bit-equivalent
-  on custom tracks. **Open tier question (user):** (a) keep equivalent tier and treat the fly-by fields as
-  presentation state excluded from the judge hash; (b) move the U1/U4 clears to Fix tier behind a
-  vanilla toggle; or (c) Fix tier with the fix on by default. Steps 2 and 4 are not affected.
+  on custom tracks. Decision (user, 2026-11-26): step 3 stays equivalent tier and the idle fly-by
+  fields leave the judge hash (see "Fly-by fields out of the judge hash" below). Steps 2 and 4 are not
+  affected.
 - The manifest track (38) is not in a retail sequence: its block views are installed by the InitTrack
   delta, which `vanilla` drops in the DLL while swe1r runs it as a listener.
 
@@ -345,8 +345,9 @@ without a NULL test (only the `NodeModifyFlags` calls and `NodeFindFirstMaterial
 are guarded). Stock tracks only carry trigger types whose slots their planet fills, but custom tracks
 can carry any type on any planet, and retail then writes into the previous track's data (or, in a fresh
 process, dereferences NULL already). Clearing the arrays would make every such case a NULL crash inside
-sacred handlers, so U5 is not changed; options for the user: guard in refined copies of those handlers
-(Fix tier), or have the trigger setup refuse descriptions whose slot the planet does not fill.
+sacred handlers, so U5 is not changed here. Decision (user, 2026-11-26): no point fix (no guard, no
+refusal, no extra loads in track_lifecycle); the trigger system gets its own refinement, where a trigger
+type owns the models and FX it needs: [refined/swrObjTrig](../swrObjTrig/README.md).
 
 Also found: `swrObjTrig_NumTriggerDescriptions` (the table the multiplayer trigger sync indexes, 200
 entries) is never reset between races, in retail too; it saturates after about 16 tracks in a session,
@@ -354,4 +355,19 @@ after which later tracks' triggers get no index. Single-player sim does not read
 MP trigger-index desync work; not changed here.
 
 Gates: swe1r 32-bit, x64 and DLL builds; single-race lockstep sa_t0..24 25/25 on and off.
+
+### Fly-by fields out of the judge hash (user decision 2026-11-26)
+
+Step 3 stays equivalent tier. Lockstep's judge hash (`hash_judge` in `dinput_hook/lockstep.cpp`) now
+skips `swrObjJdge` +0x134..+0x1ab (`camSweepCursor`, `camSweepTransform`, `cam_spline`, `camSweepAnim`)
+while `camSweepState` is NULL, the only state in which no game code reads them; with the sweep running
+they are hashed like the rest of the judge. A static_assert pins the range. Recording format bumped to
+version 3 (old recordings are rejected with a message instead of mismatching), so the retail baselines
+were re-recorded with this tree's DLL under new names: `sa3_t0..24` (+ `junk_sa3_t*`), `seqS1v3`,
+`seqS2v3`, `seqC1v3` (same tracks as the v2 sequences). The v2 `sa_t*` / `seq*` files are left for
+builds without this change.
+
+Verified against retail (v3 recordings): `seqC1v3` 8/8 match refined on (the 4 custom races that
+differed before now match) and off; `seqS1v3` and `seqS2v3` 25/25 on and off; single-race `sa3_t0..24`
+25/25 on and off. swe1r 32-bit, x64 and DLL build.
 

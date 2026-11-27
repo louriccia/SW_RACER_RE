@@ -43,7 +43,7 @@ constexpr int kJdgeStateRacing = 1;
 constexpr int kMaxRacers = 20;// swrScores[20]
 constexpr int kMaxAnimations = 300;// swrScene_animations[300]
 constexpr uint32_t kFileMagic = 0x31534b4c;// "LKS1"
-constexpr uint32_t kFileVersion = 2;
+constexpr uint32_t kFileVersion = 3;// 3: judge hash skips the idle fly-by camera state (hash_judge)
 
 enum Mode { MODE_OFF, MODE_RECORD, MODE_REPLAY };
 
@@ -345,6 +345,29 @@ uint32_t hash_struct(const void *p, size_t size, uint8_t *pointerMask, bool isRa
     return h.h;
 }
 
+// The judge's fly-by camera state, camSweepCursor through camSweepAnim (cam_spline and
+// camSweepTransform included). Nothing reads it while the sweep gate camSweepState is NULL, and on a
+// track with no camera path retail leaves the previous track's values there while the refined layer
+// (refined/track_lifecycle, U1/U4) clears them, so it is left out of the judge hash while the gate is
+// closed. With the sweep running it is hashed like the rest of the judge.
+constexpr size_t kJdgeFlybyBegin = offsetof(swrObjJdge, camSweepCursor);
+constexpr size_t kJdgeFlybyEnd = offsetof(swrObjJdge, camSweepAnim) + sizeof(((swrObjJdge *) nullptr)->camSweepAnim);
+static_assert(kJdgeFlybyBegin == 0x134 && kJdgeFlybyEnd == 0x1ac, "swrObjJdge fly-by layout moved");
+
+uint32_t hash_judge(const swrObjJdge *j) {
+    if (j->camSweepState != nullptr)
+        return hash_struct(j, sizeof(swrObjJdge), nullptr);
+    Hasher h;
+    const uint32_t *w = (const uint32_t *) j;
+    for (size_t i = 0; i < sizeof(swrObjJdge) / 4; i++) {
+        if (i * 4 >= kJdgeFlybyBegin && i * 4 < kJdgeFlybyEnd)
+            continue;
+        const bool ptr = i * 4 >= sizeof(swrObj) && is_pointer(w[i]);
+        h.word(ptr ? kPointerMarker : w[i]);
+    }
+    return h.h;
+}
+
 FrameHashes hash_state() {
     FrameHashes fh = {};
     fh.rng = (uint32_t) swrUtils_randState;
@@ -362,7 +385,7 @@ FrameHashes hash_state() {
     }
     fh.anim = a.h;
     swrObjJdge *j = judge();
-    fh.jdge = j ? hash_struct(j, sizeof(swrObjJdge), nullptr) : 0;
+    fh.jdge = j ? hash_judge(j) : 0;
     fh.racerCount = racer_count();
     for (uint32_t i = 0; i < fh.racerCount; i++) {
         const void *r = racer_at(i);
