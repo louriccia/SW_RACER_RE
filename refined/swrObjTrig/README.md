@@ -96,7 +96,7 @@ equivalent wherever retail's slot was filled.
 | GLOBAL (G2) | 0x0047e760 | `AddTriggerDescription` | `swrObjTrig_NumTriggerDescriptions` is never reset, in retail too: the 200-entry MP index table fills up after about 16 track loads in a session and later tracks' triggers get no index (seen in the track_lifecycle step-6 sequence probe). MP sync sends indices into it, so peers with different load histories disagree (MP trigger-index desync) | Reset per track load (as the MP band-aid does); index = registration order of the current track |
 | DUP (D1) | types_enums.h | flags | Two enums for the same descriptor flag bits with contradictory names: `swrModel_TRIGGERFLAG_DISABLED` = 0x1 = `swrModel_TriggerDescription_FLAG_ENABLED`; `TRIGGERFLAG_LOCAL_ONLY` = 0x20 = `FLAG_IGNORE_AI`; `MIN_SPEED` = `NEEDS_SPEED` | One flag enum, named by what activation does with the bit |
 | LIMIT (L1) | — | pools | Fixed pools: 64 scene children, 50 wrapper nodes / registered descriptions, 200 index entries, 6 slots | Sized from the track's trigger count |
-| TANGLE (T1) | 0x0047d380 | `AddTriggerDescriptions` | One function mixes registration, per-type flag defaults (`NEEDS_SPEED`, `IGNORE_AI`, `SKIP_LAP*`), node spawning and an RNG draw | Per-type `on_register` hook in the type record; flag defaults are type data |
+| TANGLE (T1) | 0x0047d380 | `AddTriggerDescriptions` | One function mixes registration, per-type flag defaults (`NEEDS_SPEED`, `IGNORE_AI`, `SKIP_LAP*`), node spawning and an RNG draw | `on_load` actions in the trigger list (section 4.2); flag defaults are data |
 | HARDCODE (H3) | 0x0047d380 | `AddTriggerDescriptions` | `specialActiveTrigger` chosen by type and planet (`KillPlayer`, or `BreakDestructable_202` only on planet 1) | Type data |
 | HARDCODE (H4) | 0x00466bd0 | `swrObjJdge_InitTrack` | Region-grid layout chosen per track by InitTrack: planet 3 track 2 -> layout 1, planet 1 track 0 -> layout 2, else none | Track data |
 
@@ -160,9 +160,21 @@ Read from `swrRace_TriggerHandler` (0x0047ce60), `HandleCrashHitTrigger`, `Handl
 }
 ```
 
-- **when** — conditions (activation flags today: needs-speed, ignore-AI, local-only, skip-lap, plus the
-  Earthquake random lap skip). Evaluated by the sacred range test in `ActivateTriggersInRange`.
-- **after** — re-arm policy: `once` (disable + free object), `rearm` (cooldown), `toggle` (door direction).
+- **on_load** — actions run once when the trigger is registered at track load, in registration order
+  (today's per-type setup in `AddTriggerDescriptions`: flag defaults, spawned nodes, and the Earthquake
+  lap-skip `swrUtils_Rand` draw). Load-time draws happen here, in the order `FindAndInitializeTriggersInNode`
+  walks the track, so the RNG stream at race start matches retail.
+- **when** — conditions (activation flags today: needs-speed, ignore-AI, local-only, skip-lap; the
+  Earthquake lap skip reads the value drawn in `on_load`). Evaluated by the sacred range test in
+  `ActivateTriggersInRange`.
+- **after** — two independent settings, because retail does them separately:
+  - `disable`: `never`, `on_fire` (descriptor gets `DISABLED` when it fires) or `cooldown` (re-arm after
+    N s; `toggle` for the door's direction flip).
+  - `release`: when the 'Trig' object is freed: `on_fire` (tent, tram: disable and free together at the
+    end of `TriggerHandler`), `on_finish` (after the timeline's last `wait`; glacier/pillar and earthquake
+    disable on fire but keep the object for F0's timers, which free it later), or `never` (break types:
+    the handler neither disables nor frees).
+  A timeline with a `wait` cannot use `release: on_fire`; validation rejects it.
 - **do** — a timeline: actions run in order; `wait` suspends the list on the trigger's 'Trig' object, which
   is what F0's per-type timers do today. F0's type switch disappears into the runner.
 - **Context** each action can target: the triggering pod, the trigger centre, the affected node, a named
@@ -171,7 +183,7 @@ Read from `swrRace_TriggerHandler` (0x0047ce60), `HandleCrashHitTrigger`, `Handl
   "FX still playing -> skip" (methane/lava) and the slot sharing between break types become explicit:
   types that name the same effect share one instance, exactly as they share slot 0 today.
 - **Randomness is positional.** An action with a `rand` parameter draws `swrUtils_Rand` at its place in
-  the list. Order of actions = order of RNG draws = lockstep.
+  the list (`on_load` at load, `do` at fire time). Order of actions = order of RNG draws = lockstep.
 
 ### 4.3 Retail equivalence
 
@@ -199,7 +211,7 @@ Old handlers stay compiled behind the vanilla toggle until every built-in list p
 ## 5. Extensibility for modders
 
 Two tiers: **data mods** compose existing actions in JSON (no code; most content), **code mods** register
-new actions through the modding API (`MODDING_API_ROADMAP.md`, Phase 5 seams).
+new actions through the modding API (the modding API's plugin seams; the roadmap lives outside the tree).
 
 ### 5.1 Mechanism
 
@@ -227,6 +239,12 @@ trig_action_register(&(TrigAction){
 - **Tags every action declares:** uses RNG (must draw through `swrUtils_Rand` in list order),
   changes pod state (a vanilla / competitive ruleset can reject it), local-only (UI, rumble, sound not
   synced in MP).
+- **Retail comparability follows from the tags.** A non-`core.*` action tagged uses-RNG shifts the shared
+  `swrUtils_Rand` stream for everything after it (AI, physics, later triggers), so a track that uses one
+  can no longer be compared against retail by lockstep; neither can one that uses a pod-state action. The
+  lockstep driver and the vanilla / competitive rulesets treat both tags the same way: such a track is
+  "modded, not retail-comparable", and verified runs reject it. Mod actions that need randomness without
+  touching the game stream can use a separate seeded generator (tagged local-only or synced by seed).
 - **Validation at load:** unknown action, bad parameter or missing asset rejects that trigger with a log
   line. Nothing fails at fire time.
 
@@ -287,7 +305,7 @@ triggers by type in the lockstep log so coverage is measurable.
    fired types per race. Prerequisite for any sacred change.
 2. **S — DUP/naming.** One flag enum (D1); type table as named constants. No behaviour change.
 3. **M — Runner core.** Action/condition/target registries, timeline runner on the 'Trig' object
-   (`wait`, sequence), re-arm policies, named effects with busy state, per-planet preload data. Tier A
+   (`wait`, sequence), `on_load` phase in registration order, `disable` / `release` policies, named effects with busy state, per-planet preload data. Tier A
    actions registered. Not yet wired to any type. Lockstep 25/25 + sequences unchanged.
 4. **L — Built-in lists, one type at a time.** Each retail type moves from its handler to a `core.*`
    list (specials where it does not decompose); verified by the firing oracle against the old handler.
