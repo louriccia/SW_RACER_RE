@@ -32,6 +32,6 @@ Seam outside this directory: `g_aTrackInfos` is an indirect global in the standa
 (`standalone/owned_indirect.txt`); custom tracks point it at their larger table with
 `standalone_global_rebind` instead of patching every operand that addresses it.
 
-Planned (dossiers only): [core](core/README.md) (registries, schema-driven data loader, packs,
+Planned (dossiers only): [tracks](tracks/README.md) (track, environment and circuit registries; planets as presets), [pods](pods/README.md) (pod, pilot and racer registries; part drives as data; roster past 23), [core](core/README.md) (registries, schema-driven data loader, packs,
 content fingerprint, event bus shared by every data-driven subsystem), [swrObjTrig](swrObjTrig/README.md)
 (triggers as action lists).
