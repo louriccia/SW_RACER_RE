@@ -137,10 +137,51 @@ So the services and the data format are written once; only the backend differs. 
 `refined/` upstream (roadmap 9.1), the DLL backend shrinks consumer by consumer as the refined
 versions land. If not, the interface still keeps upstream's track code reviewable.
 
-Field-name alignment to settle before G1 (the manifest is the published contract): the tracks dossier
-names (`env.music`, `env.weather.stages[]`, `env.ai.*`) and #316's JSON (`music`, `weather.stages`,
-`ai.level`) mostly agree; diff them once and freeze one schema, with the slug scheme
-(`vanilla:track:NN`, already in published manifests and times files) kept canonical.
+### 4.1 Frozen manifest schema (diffed 2026-11-27)
+
+Compared: #316's parser (`track_manifest.cpp` on `feature/track-env`), the manifests in use
+(converter output = `environment.inherit` + `placement` only; the hand-written Mute City manifest
+uses every #316 field), and the tracks dossier (4.2 field table, 4.6/4.7 examples).
+
+**Rule: what #316 parses is the contract.** The dossier examples were written blind to it and
+diverge in shape, not meaning; the dossier changes, not the files. New fields are additive and
+optional; unknown keys are ignored (simdjson already does).
+
+**Schema version trap.** The reader rejects any `schema != 1`, so the dossier's `"schema": 2` would
+make every shipped build refuse the track outright. Keep `schema: 1` for additive changes; bump
+only for a breaking one, and G1 changes the check to `schema <= SUPPORTED` with a logged note for
+newer-but-readable files.
+
+| Topic | #316 / published (keep) | Dossier draft (change) | Decision |
+|---|---|---|---|
+| Block key | `environment` | `env` | `environment` |
+| Schema | `1` | `2` | `1` (see trap above) |
+| Preset ref | `"inherit": "vanilla:track:NN"` | `core.track.<name>`, `core.planet.<name>` | `vanilla:track:NN` canonical; add `vanilla:planet:N` for planet presets; refined registry aliases `core.*` |
+| Model / spline index | `block_id` (texture: `block_index`) | `block_index` everywhere | keep both as published; reader may accept `block_index` as an alias on model/spline |
+| Sub-track | `planet_track_number` | `start_node` | file keeps `planet_track_number`; `start_node` is the refined field name only |
+| Favorite pilot | int index | `core.pilot.<name>` | int now; accept a pilot slug once the pods registry exists |
+| Colors | arrays `[r,g,b(,a)]` | hex string `"#d2d7e1"` | arrays |
+| Cinematic | `cutscene` (`"none"` = skip) | `cinematic` | `cutscene` |
+| Music / cue sound | name (track's own `sounds[]`, then `Sounds.map`) or bank number | `"track:<name>"` prefix | no prefix; #316 lookup order |
+| Ambient | bare array of `{sound, start, end, mode}` | `{cues[], random_call}` | array stays valid; object form `{cues, random_call}` added for the Baroonda RNG call (sim field) |
+| Fog / weather / sun off | `false` | `enabled` field | `false` |
+| Weather stage timing | `lap` (completed laps) | `at` (`setup`, `p1_line_cross_N`) | `lap`; add `at` only if the dumper proves a stock stage cannot be said with `lap` |
+| Planet identity | flat `planet_name`, `holo.{tilt, spin}` | `planet_identity.{name, holo, holo_model, sun_moons}` | flat, as published; new pieces go to `holo.model`, `sun.moons` |
+| Lens flare | (part of sun) | `lens_flare` | `sun.flare` |
+| Dust | `dust_planet` (borrow a planet) | `dust_palette` | both: `dust_palette` wins when present; `dust_planet` deprecated once the palette is data |
+| Trigger FX | `trigger_planet` (borrow a planet) | swrObjTrig lists | both: a trigger data file wins; `trigger_planet` deprecated with swrObjTrig |
+| AI | `ai.{level, spread, script, spline_variant}` | same | agree; `level` = table value (game scales by 0.1, checked in `InitAISettingsForTrack`) |
+| `draw_distance`, `rules.point_to_point`, `sounds[]`, `textures[]` | as published | same or absent | agree |
+
+**Reserved, not yet parsed** (dossier-only, additive, all under `environment`):
+`region_grid_layout`, `not_racing_zone`, `boost_hint`, `fly_by.spline`, `hide_root_child0`,
+`minimap_density`, `light_streak_param`, `beach_anim`, `splitscreen_wide_fov`; top level: `circuit`,
+`data[]`. Sim-relevant ones (`region_grid_layout`, `not_racing_zone`, `boost_hint`, ambient
+`random_call`) get the `REG_SIM` tag (core dossier) so a pack that sets them is not
+retail-comparable.
+
+**`placement`** stays readable forever (converter still writes it, old validators read it) but
+`environment` wins when both are present, as #316 already does.
 
 ## 5. Verification per PR
 
