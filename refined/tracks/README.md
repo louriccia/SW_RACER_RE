@@ -239,13 +239,13 @@ readers. Stock progression keeps the save bitmasks; pack circuits keep progress 
   "retail_id": 2, "name": "/SCREENTEXT_499/~~Beedo's Wild Ride",
   "model": { "block_index": 130 }, "spline": { "block_index": 11 },
   "favorite_pilot": "core.pilot.aldar_beedo",
-  "env": {
-    "inherit": "core.planet.ando_prime",
-    "start_node": 0,
+  "environment": {
+    "inherit": "vanilla:planet:1",
+    "planet_track_number": 0,
     "ai": { "level": 8.784, "spread": 35.0, "script": 1, "spline_variant": 1 },
     "region_grid_layout": 2,
     "fly_by": { "spline": "SPLINEID_planeta_track6came" },
-    "fog": { "near": 996, "color": "#d2d7e1" }, "draw_distance": 11000,
+    "fog": { "near": 996, "color": [210, 215, 225] }, "draw_distance": 11000,
     "music": 142,
     "weather": { "color": [230, 230, 255, 200], "stretch": 1.0, "stages": [
       { "at": "setup",           "cap": 0 },
@@ -256,23 +256,25 @@ readers. Stock progression keeps the save bitmasks; pack circuits keep progress 
 }
 ```
 (`core.planet.ando_prime`: intro 34, cinematic `PlanetA.znm`, sun, trigger preload.) The weather
-`setup` stage stands for the planet-1 branch of `SetupTrackOverlay`; exact field split is decided
-when the dumper is written.
+`setup` stage stands for the planet-1 branch of `SetupTrackOverlay`; `at` is a candidate addition
+to the published `lap` form, kept only if the dumper proves `lap` cannot express a stock stage.
+Field names follow the published manifest schema (what PR #316's parser reads, frozen 2026-11-27):
+`environment`, `schema: 1`, `planet_track_number`, color arrays, `vanilla:*` preset refs.
 
 ### 4.7 Example: custom track pack
 
 ```json
 {
-  "schema": 2, "slug": "lightningpirate.mute-city", "version": "1.2.0", "name": "Mute City",
-  "model":  { "sha256": "ab12...", "format": "RAWM", "block_index": 115 },
-  "spline": { "sha256": "cd34...", "format": "RAWS", "block_index": 74 },
+  "schema": 1, "slug": "lightningpirate.mute-city", "version": "1.2.0", "name": "Mute City",
+  "model":  { "sha256": "ab12...", "format": "RAWM", "block_id": 115 },
+  "spline": { "sha256": "cd34...", "format": "RAWS", "block_id": 74 },
   "textures": [ { "sha256": "ef56...", "format": "RAWT", "block_index": 1648 } ],
-  "env": {
-    "inherit": "core.track.boonta_training",
-    "fog": { "near": 992, "color": "#5a2878" }, "draw_distance": 3000,
-    "music": "track:mute_city_theme",
+  "environment": {
+    "inherit": "vanilla:track:0",
+    "fog": { "near": 992, "color": [90, 40, 120] }, "draw_distance": 3000,
+    "music": "mute_city_theme",
     "weather": false,
-    "planet_identity": { "name": "Big Blue", "holo": { "tilt": 0.3, "spin": 4.0 } }
+    "planet_name": "Big Blue", "holo": { "tilt": 0.3, "spin": 4.0 }
   },
   "circuit": { "name": "lightningpirate.fzero_cup", "slot": 0 },
   "rules": { "point_to_point": false },
@@ -280,7 +282,7 @@ when the dumper is written.
   "content_hash": "9f77..."
 }
 ```
-`env.ai` absent = inherited from Boonta Training -> pack is retail-comparable on AI; a
+`environment.ai` absent = inherited from Boonta Training -> pack is retail-comparable on AI; a
 `triggers.json` with non-core actions makes it not (swrObjTrig 5.1).
 
 Name map (refined <- Ghidra <- address), one refined slot per row of section 1 that gets a refined
