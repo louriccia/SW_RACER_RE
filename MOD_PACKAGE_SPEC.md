@@ -91,8 +91,8 @@ writable.
 | File | Contains | Race |
 |---|---|---|
 | `racer.json` | Handling stats (the `PodHandlingData` row), hover pads (cockpit pad, engine pad), cameras (chase trail and height, pre-race sweep keyframes and eye offsets, first-person offsets), ability flags (`flame_attack`, `fused_engines`) | yes |
-| `look.json` | Pod and pilot names, description, sockets (cockpit, any number of engines, cable anchors, exhausts, glow scale), exhaust plume style, part behaviours (rigid, stretched, glow, trail, shadow), fused-engines look (no cables or binder, damage-smoke offset, no engine inspect cameras), hangar (puppet model, pilot scale, display-pod scale and height), engine sound, voice set (race lines, announcer, taunt line and text, hangar lines), portrait, standings portrait | no |
-| `model.gltf` + `.bin` | Parts as named nodes (engines, cockpit, pilot, extras) | no |
+| `look.json` | Pod and pilot names, description, exhaust plume style, hangar puppet model, engine sound, voice set (race lines, announcer, taunt line and text, hangar lines), portrait. Optional overrides for anything derived (see Defaults) | no |
+| `model.gltf` + `.bin` | Parts as named nodes: `cockpit`, `engine_*` (any number), and optional `cable_*`, `exhaust_*`, `glow_*`, `trail_*`, `pilot`. **Node origins are the sockets** | no |
 | `model_lod.gltf` (optional) | Low-detail model for distant and AI pods; generated if missing | no |
 | `animations.json` | Part drives (§5) | no |
 | `textures/*.png`, `sounds/`, `portrait.png`, `preview.png` | Assets | no |
@@ -117,10 +117,11 @@ writable.
   `hoverPadOffsetB` (engines, mirrored in X) feed both the physics (`swrRace_UpdateHoverPads`)
   and where engines and cockpit are drawn (`swrRace_PoddAnimateEngines`,
   `swrRace_AnimateDisplayPod`, the cockpit tether in `swrRace_AnimateEngineWobble`).
-- The spec splits them: `racer.json` keeps the pads, `look.json` keeps the sockets. **Race code
-  that needs engine positions** (flame-attack probe, explosion and smoke spawns) computes them
-  from the pads, never from the sockets.
-- The stock dump writes the same values into both, so stock pods stay retail-equivalent.
+- The spec splits them: `racer.json` keeps the pads; the sockets are the named nodes in
+  `model.gltf`. **Race code that needs engine positions** (flame-attack probe, explosion and
+  smoke spawns) computes them from the pads, never from the model.
+- The stock dump writes the pads and places the model nodes at the same positions, so stock pods
+  stay retail-equivalent.
 - With transmog, B's engines are drawn at B's sockets while A's pads do the physics.
 - The cable anchors, exhaust offset and glow are read only by drawing code.
 
@@ -142,6 +143,40 @@ writable.
   player picks their own; a player who lacks one sees the target's default look.
 
 **Whole-file rule:** any change to a race file starts new records; look files never do.
+
+### Defaults: derive what can be derived
+
+Authors set creative choices (names, music, weather, fog on or off, voice set, cutscene). Most
+other look values come from the model or from standard glTF features.
+
+- **Look values:** if a field is missing, the game computes it at load. A field that is present
+  overrides the computed value.
+- **Race values:** never inferred at load, because a look change would then change the race. An
+  authoring tool may suggest them and write them into the race file.
+- **Stock dump:** always writes explicit values, so stock content stays exactly retail.
+  Inference only fills gaps in custom content.
+
+| Kind | Field | Derived from |
+|---|---|---|
+| racer | Engine and cockpit sockets | Origins of `engine_*` and `cockpit` nodes |
+| racer | Fused engines (look side) | The model has no `engine_*` nodes |
+| racer | Exhaust anchor and glow size | `exhaust_*` nodes, else the back face and size of each engine's bounding box |
+| racer | Cable anchors | `cable_*` empties, else the closest points between cockpit and each engine |
+| racer | Part behaviours | Node-name prefix: `glow_` (faces camera), `trail_` (stretches with speed), `cable_` (stretched between sockets); everything else rigid |
+| racer | Hangar display scale and height | Model bounds, fitted to a standard size and set on the floor |
+| racer | Pilot (puppet) scale | Puppet model bounds |
+| racer | LOD model, preview, standings portrait | Generated: decimated model, rendered preview, cropped portrait |
+| racer | Engine sound pitch | `bumpMass` (retail's own rule) |
+| racer (tool only) | Hover pads, cameras | Suggested from the `engine_*` / `cockpit` nodes and model size, written into `racer.json` |
+| track | Minimap and its density | The spline (retail draws the minimap from it) |
+| track | Holo map model, scale, offset | Generated top-down from the model, fitted to the holotable |
+| track | Suns | Directional lights in the glTF (`KHR_lights_punctual`) |
+| track | Fly-by | A glTF camera with an animation, else a path along the spline |
+| track | Fog colour | Skybox horizon colour |
+| track | Draw distance, light-streak cull distance | Track size |
+| track | Dust colour per surface | Average colour of that surface's texture |
+| track | Planet holo and icon | A default sphere tinted with the track's colours |
+| track | Splitscreen wide FOV | Dropped as a field (one Oovo special case); default for all |
 
 ## 3. `mod.json`
 
@@ -188,7 +223,9 @@ hand-made or other-tool glTF just adds the same JSON.
 | trigger node (collision file) | `trigger` `{id, type, settings, flags, always_active, target: "<model node name>"}` |
 | visible node | `fog` `{...}`, `lighting` `{...}`, `skybox` `{...}`, `light_streak` |
 | material | `scroll` `[x, y]`, `flip`, `clip`, `blend_mode`, `flipbook` |
-| racer part node | nothing needed: parts are found by node name |
+| racer part node | nothing needed: parts and sockets are found by node name (§2) |
+| light (track) | suns are `KHR_lights_punctual` directional lights; `extras.swr.sun` `{scale, flare}` optional |
+| camera (track) | the fly-by is a glTF camera with an animation |
 
 The trigger `settings` fields are stored raw in the add-on today; each trigger type needs named
 fields before this is final.
