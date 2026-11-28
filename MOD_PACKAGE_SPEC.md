@@ -107,9 +107,8 @@ writable.
   - Both change where explosions, smoke and the flame probe happen, so they're race.
 - **AI pods** use the shared AI handling profile (`swrRacer_AI_PodHandlingData`) plus only
   `hoverHeight`, `bumpMass` and `intersectRadius` from their own row.
-- **No pod-on-pod collision box.** In our src, contact (`ResolvePodCollision`) uses a fixed
-  radius plus `bumpMass`. The slot-62 mesh box only places scrape sparks. Retail not confirmed
-  yet (§9).
+- **No pod-on-pod collision box.** Contact (`ResolvePodCollision`) uses a fixed radius plus
+  `bumpMass`. The slot-62 mesh box only places scrape sparks.
 - **Engine sound:** retail has no per-pod sample. Pitch comes from base `bumpMass` and the AI loop
   from pilot id parity; the stock dump writes that as the default.
 
@@ -268,7 +267,8 @@ with its workarounds in their own files.
 
 ## 10. Checked in src (2026-11-28) and still open
 
-Checked against the standalone src; Ghidra was offline, so nothing was confirmed in retail.
+Checked against the standalone src, which matches retail in lockstep on all 25 tracks, so these
+hold for retail.
 
 **Checked:**
 1. **Fog and draw distance:** presentation. `swrObjJdge_SetupTrackEnvironment` sends fog to
@@ -288,12 +288,20 @@ Checked against the standalone src; Ghidra was offline, so nothing was confirmed
    `engineXf` was checked on #437: outside drawing, only scrape-spark placement uses it.
 5. **Hard-coded values sweep:** about 45 per-track and 60 per-racer sites in src, each classed as
    race or look. They're folded into §1, §2, §6 and §7 above.
+6. **Trigger FX props:** presentation.
+   - `swrObjTrig_LoadAndInitializeTriggerModels` puts them in their own scene slot
+     (`someRootNodeChildNodes[4]`). Pod collision walks only the track root (`judge->unk30`, the
+     `collisionModel` passed to `swrRace_Init`), so the props can't be hit.
+   - The handlers (`HandleCrashHitTrigger`, `HandleTrigger108`, `SpawnEarthquakeShake`) only place
+     the props and toggle their visibility (`flags_1`). The race effects (thrust loss, the RNG
+     draw) come from the trigger itself, which is in `collision.gltf`.
+7. **Dust kick-up:** presentation. `'Toss'` objects are only dust kicks (16-slot pool, one
+   spawner), and their functions draw no RNG and touch no race state.
+8. **`beachanim_vlec` (Baroonda):** an animated visual model, so it's a glTF animation in
+   `model.gltf`.
+9. **Visual-row `unk64[2]`:** nothing reads it; it doesn't go in the format.
 
 **Open:**
-6. Retail behaviour of pod-on-pod contact and the slot-62 footprint (§2).
-7. Whether the trigger FX props (dozer, balloon) move trigger targets. If they do, the trigger
-   asset list moves to `track.json`.
-8. Whether dust kick-up allocating `'Toss'` objects can affect the race.
-9. Whether `beachanim_vlec` (Baroonda) can live in `model.gltf`.
 10. `spline.json` format: points plus links, using the swrSpline field names; not written yet.
-11. Unread visual-row field `unk64[2]` and the select screen's `flag2_part` frame.
+11. The select screen's `flag2_part` frame (0.025 + 0.05 × racer id): what it shows, so it can
+    get a `look.json` field.
